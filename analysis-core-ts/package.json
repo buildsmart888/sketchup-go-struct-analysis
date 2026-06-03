@@ -1,0 +1,10 @@
+{
+  "name": "@go-struct/analysis-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ../server/node_modules/typescript/bin/tsc -p tsconfig.json",
+    "test": "npm run build && node --test \"dist/**/*.test.js\""
+  }
+}

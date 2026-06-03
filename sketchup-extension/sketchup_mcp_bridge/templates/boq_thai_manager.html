@@ -1,0 +1,163 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>BOQ Thai Manager</title>
+    <style>
+      body { font-family: Segoe UI, Tahoma, Arial, sans-serif; margin: 0; color: #20242a; background: #f3f5f7; }
+      .wrap { padding: 16px; }
+      .top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+      h1 { font-size: 22px; margin: 0 0 4px; }
+      h2 { font-size: 13px; margin: 0 0 10px; color: #596574; text-transform: uppercase; }
+      .muted { color: #66717f; font-size: 12px; }
+      .layout { display: grid; grid-template-columns: 360px 1fr; gap: 14px; align-items: start; }
+      .panel { background: #fff; border: 1px solid #d8e0e8; border-radius: 8px; padding: 14px; }
+      .field { margin-bottom: 10px; }
+      label { display: block; font-size: 12px; color: #5f6c79; font-weight: 600; margin-bottom: 4px; }
+      input, select { width: 100%; box-sizing: border-box; border: 1px solid #cdd6df; border-radius: 6px; padding: 8px; font-size: 12px; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+      button { border: 0; border-radius: 6px; padding: 9px 12px; font-weight: 600; cursor: pointer; background: #e5ebf1; color: #243342; }
+      button.primary { background: #245c8a; color: #fff; }
+      button.good { background: #0f7b57; color: #fff; }
+      button.warn { background: #a85517; color: #fff; }
+      .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-bottom: 12px; }
+      .metric { background: #f7fafc; border: 1px solid #dbe4ed; border-radius: 8px; padding: 10px; }
+      .metric .label { text-transform: uppercase; font-size: 10px; color: #647284; }
+      .metric .value { font-size: 18px; font-weight: 700; }
+      table { width: 100%; border-collapse: collapse; background: #fff; }
+      th, td { border: 1px solid #d8e0e8; padding: 7px; font-size: 12px; text-align: left; vertical-align: top; }
+      th { background: #eef3f7; position: sticky; top: 0; z-index: 1; }
+      .table-wrap { max-height: 340px; overflow: auto; border: 1px solid #d8e0e8; border-radius: 8px; margin-bottom: 14px; }
+      .warnings { color: #8a4b12; font-size: 12px; margin-bottom: 10px; }
+      .select-link { color: #245c8a; text-decoration: underline; cursor: pointer; }
+    </style>
+    <script>
+      function el(id) { return document.getElementById(id); }
+      function payload() {
+        return {
+          global_price_rules_path: el('global_path').value,
+          project_overrides_path: el('project_path').value,
+          selected_only: el('selected_only').checked,
+          solid_only: el('solid_only').checked,
+          tag_filter: el('tag_filter').value,
+          name_filter: el('name_filter').value
+        };
+      }
+      function send(action, data) {
+        var json = JSON.stringify(data || payload());
+        if (window.sketchup && window.sketchup[action]) {
+          window.sketchup[action](json);
+        } else {
+          window.location = 'skp:' + action + '@' + encodeURIComponent(json);
+        }
+      }
+      function preview() { send('boqThaiPreview', payload()); }
+      function chooseGlobal() { send('boqThaiChooseGlobal', payload()); }
+      function chooseProject() { send('boqThaiChooseProject', payload()); }
+      function exportBoq(format) {
+        var data = payload();
+        data.export_format = format;
+        send('boqThaiExport', data);
+      }
+      function exportUnmatched() { send('boqThaiExportUnmatched', payload()); }
+      function fillRule(matchType, matchValue, category, description, quantitySource) {
+        el('rule_match_type').value = matchType || 'tag';
+        el('rule_match_value').value = matchValue || '';
+        el('rule_category').value = category || '';
+        el('rule_description').value = description || '';
+        el('rule_quantity_source').value = quantitySource || 'count';
+      }
+      function saveRule() {
+        var data = payload();
+        data.enabled = 'true';
+        data.priority = el('rule_priority').value;
+        data.rule_id = el('rule_id').value;
+        data.match_type = el('rule_match_type').value;
+        data.match_value = el('rule_match_value').value;
+        data.category = el('rule_category').value;
+        data.item_code = el('rule_item_code').value;
+        data.description_th = el('rule_description').value;
+        data.unit = el('rule_unit').value;
+        data.quantity_source = el('rule_quantity_source').value;
+        data.material_unit_cost = el('rule_material_cost').value;
+        data.labor_unit_cost = el('rule_labor_cost').value;
+        data.waste_percent = el('rule_waste').value;
+        data.note = el('rule_note').value;
+        send('boqThaiSaveRule', data);
+      }
+    </script>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="top">
+        <div>
+          <h1>BOQ Thai Manager</h1>
+          <div class="muted">Hybrid review for estimators: Excel/CSV pricing plus SketchUp mapping review.</div>
+        </div>
+        <div class="buttons">
+          <button class="primary" onclick="preview()">Reload Price Rules</button>
+          <button class="good" onclick="exportBoq('xls')">Export BOQ</button>
+          <button class="warn" onclick="exportUnmatched()">Export Unmatched Template</button>
+        </div>
+      </div>
+
+      <div class="layout">
+        <div class="panel">
+          <h2>Libraries</h2>
+          <div class="field">
+            <label>Global Price Library</label>
+            <input id="global_path" value="{{GLOBAL_PATH}}">
+          </div>
+          <div class="buttons"><button onclick="chooseGlobal()">Choose Global Library</button></div>
+          <div class="field">
+            <label>Project Overrides</label>
+            <input id="project_path" value="{{PROJECT_PATH}}">
+          </div>
+          <div class="buttons"><button onclick="chooseProject()">Choose Project Overrides</button></div>
+
+          <h2>Filters</h2>
+          <label><input id="selected_only" type="checkbox" {{SELECTED_ONLY}}> Selection only</label>
+          <label><input id="solid_only" type="checkbox" {{SOLID_ONLY}}> Solid only</label>
+          <div class="field"><label>Tag filter</label><input id="tag_filter" value="{{TAG_FILTER}}"></div>
+          <div class="field"><label>Name filter</label><input id="name_filter" value="{{NAME_FILTER}}"></div>
+
+          <h2>Create Project Rule</h2>
+          <div class="row">
+            <div class="field"><label>Rule ID</label><input id="rule_id" value="PROJECT_RULE"></div>
+            <div class="field"><label>Priority</label><input id="rule_priority" value="100"></div>
+          </div>
+          <div class="row">
+            <div class="field"><label>Match type</label><select id="rule_match_type"><option>tag</option><option>category</option><option>definition</option><option>material</option><option>name</option><option>keyword</option></select></div>
+            <div class="field"><label>Match value</label><input id="rule_match_value"></div>
+          </div>
+          <div class="field"><label>Category</label><input id="rule_category"></div>
+          <div class="field"><label>Item code</label><input id="rule_item_code"></div>
+          <div class="field"><label>Description</label><input id="rule_description"></div>
+          <div class="row">
+            <div class="field"><label>Unit</label><input id="rule_unit" placeholder="m3, m2, set, kg"></div>
+            <div class="field"><label>Quantity source</label><select id="rule_quantity_source"><option>volumeM3</option><option>surfaceAreaM2</option><option>lengthM</option><option>count</option><option>estimatedWeightKg</option></select></div>
+          </div>
+          <div class="row">
+            <div class="field"><label>Material / unit</label><input id="rule_material_cost" value="0"></div>
+            <div class="field"><label>Labor / unit</label><input id="rule_labor_cost" value="0"></div>
+          </div>
+          <div class="row">
+            <div class="field"><label>Waste %</label><input id="rule_waste" value="0"></div>
+            <div class="field"><label>Note</label><input id="rule_note"></div>
+          </div>
+          <div class="buttons"><button class="good" onclick="saveRule()">Save Project Override</button></div>
+        </div>
+
+        <div class="panel">
+          <div class="summary">{{SUMMARY_HTML}}</div>
+          <div class="warnings">{{WARNINGS_HTML}}</div>
+          <h2>BOQ Preview</h2>
+          {{BOQ_TABLE}}
+          <h2>Unmatched Items</h2>
+          {{UNMATCHED_TABLE}}
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

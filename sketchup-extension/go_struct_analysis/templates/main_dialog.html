@@ -1,0 +1,172 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>GO Struct Analysis</title>
+    <style>
+      :root {
+        --ink: #172025;
+        --graphite: #263236;
+        --muted: #607177;
+        --line: #d7e1e3;
+        --go: #00a86b;
+        --go-dark: #08764f;
+        --panel: #ffffff;
+        --field: #f5faf8;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--ink);
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        background:
+          linear-gradient(rgba(38,50,54,.045) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(38,50,54,.045) 1px, transparent 1px),
+          #eef4f3;
+        background-size: 28px 28px;
+      }
+      .shell { padding: 18px; }
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 18px 20px;
+        border-radius: 10px;
+        background: var(--graphite);
+        color: #fff;
+      }
+      .brand { display: flex; align-items: center; gap: 14px; }
+      .mark {
+        display: grid;
+        place-items: center;
+        width: 54px;
+        height: 54px;
+        border-radius: 9px;
+        background: linear-gradient(135deg, var(--go), #57cf99);
+        font-weight: 900;
+        font-size: 25px;
+      }
+      h1 { margin: 0; font-size: 25px; letter-spacing: .2px; }
+      .subtitle { color: #c2d2d5; font-size: 12px; font-weight: 800; letter-spacing: 1.7px; text-transform: uppercase; }
+      .method {
+        border: 1px solid rgba(255,255,255,.18);
+        border-radius: 8px;
+        padding: 9px 12px;
+        color: #d8e5e6;
+        font-size: 13px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(145px, 1fr));
+        gap: 12px;
+        margin-top: 18px;
+      }
+      .module {
+        min-height: 210px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--panel);
+        box-shadow: 0 12px 28px rgba(31,48,53,.08);
+      }
+      .module.ready { border-top: 5px solid var(--go); }
+      .module.planned { border-top: 5px solid #9aa8ac; opacity: .78; }
+      .status {
+        width: max-content;
+        border-radius: 999px;
+        padding: 4px 9px;
+        background: #e4f7ee;
+        color: var(--go-dark);
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: 1px;
+      }
+      .planned .status { background: #edf1f2; color: #607177; }
+      h2 { margin: 0; font-size: 18px; }
+      p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+      button {
+        margin-top: auto;
+        min-height: 40px;
+        border: 1px solid var(--go);
+        border-radius: 8px;
+        background: var(--go);
+        color: #fff;
+        font-weight: 900;
+        cursor: pointer;
+      }
+      button[disabled] {
+        border-color: #cfd9dc;
+        background: #eef3f3;
+        color: #7c8d92;
+        cursor: default;
+      }
+      .settings {
+        display: grid;
+        grid-template-columns: 1.1fr .9fr;
+        gap: 12px;
+        margin-top: 14px;
+      }
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: rgba(255,255,255,.8);
+        padding: 14px 16px;
+      }
+      .panel b { display: block; margin-bottom: 7px; }
+      @media (max-width: 920px) {
+        .grid { grid-template-columns: repeat(2, minmax(160px, 1fr)); }
+        .settings { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <script id="modules-json" type="application/json">{{MODULES_JSON}}</script>
+    <main class="shell">
+      <section class="topbar">
+        <div class="brand">
+          <div class="mark">GO</div>
+          <div>
+            <h1>GO Struct Analysis</h1>
+            <div class="subtitle">analysis suite foundation</div>
+          </div>
+        </div>
+        <div class="method">ASD / LRFD ready</div>
+      </section>
+      <section id="modules" class="grid"></section>
+      <section class="settings">
+        <div class="panel">
+          <b>Shared Analysis Core</b>
+          <p>Project info, load cases, load combinations, and design method settings are prepared as the common layer for beam, truss, frame, steel frame, and mixed-system modules.</p>
+        </div>
+        <div class="panel">
+          <b>Version 1 Focus</b>
+          <p>Continuous Beam is active first. Other modules are registered for the suite roadmap without opening unfinished solvers.</p>
+        </div>
+      </section>
+    </main>
+    <script>
+      var modules = JSON.parse(document.getElementById("modules-json").textContent);
+      var host = document.getElementById("modules");
+      host.innerHTML = modules.map(function(module) {
+        var ready = module.status === "READY";
+        return '<article class="module ' + (ready ? 'ready' : 'planned') + '">' +
+          '<span class="status">' + module.status + '</span>' +
+          '<h2>' + module.name + '</h2>' +
+          '<p>' + module.description + '</p>' +
+          '<button ' + (ready ? 'data-command="' + module.command + '"' : 'disabled') + '>' + (ready ? 'Open Module' : 'Planned') + '</button>' +
+          '</article>';
+      }).join("");
+      Array.prototype.forEach.call(document.querySelectorAll("[data-command]"), function(button) {
+        button.addEventListener("click", function() { openModule(button.getAttribute("data-command")); });
+      });
+      function openModule(command) {
+        if (window.sketchup && window.sketchup[command]) window.sketchup[command]({});
+        else window.location = "skp:" + command + "@{}";
+      }
+    </script>
+  </body>
+</html>

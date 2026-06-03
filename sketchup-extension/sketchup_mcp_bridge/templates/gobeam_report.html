@@ -1,0 +1,387 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>GOBeam Report</title>
+    <style>
+      :root {
+        --ink: #172025;
+        --line: #d4dde0;
+        --grid: #d9e2e4;
+        --graphite: #263236;
+        --go: #00a86b;
+        --go-dark: #08764f;
+        --positive: #48c987;
+        --negative: #ef5d5d;
+        --negative-dark: #be3f3f;
+        --beam: #e7eef0;
+        --load: #25515d;
+      }
+      body {
+        margin: 0;
+        background: #9aa4a8;
+        color: var(--ink);
+        font-family: "Segoe UI", Tahoma, sans-serif;
+      }
+      *, svg, polygon, path {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .printbar {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 10px 18px;
+        background: var(--graphite);
+        color: #fff;
+      }
+      .printbar button {
+        border: 1px solid var(--go);
+        border-radius: 7px;
+        background: var(--go);
+        color: #fff;
+        padding: 7px 16px;
+        font-weight: 800;
+        cursor: pointer;
+      }
+      .report-page {
+        width: 210mm;
+        min-height: 297mm;
+        margin: 10mm auto;
+        background: #fff;
+        padding: 12mm;
+        box-shadow: 0 2px 18px rgba(0,0,0,0.28);
+        page-break-after: always;
+      }
+      .report-head {
+        display: grid;
+        grid-template-columns: 26mm 1fr;
+        border: 1px solid var(--graphite);
+      }
+      .logo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 26mm;
+        color: #fff;
+        background: var(--go);
+        font-weight: 900;
+        font-size: 19px;
+        line-height: 1.05;
+        border-right: 1px solid var(--graphite);
+      }
+      .report-head table { width: 100%; border-collapse: collapse; }
+      .report-head td { border: 1px solid var(--line); padding: 4px 7px; font-size: 11px; }
+      .report-head tr:first-child td { border-top: 0; }
+      .report-head tr:last-child td { border-bottom: 0; }
+      .report-head td:first-child { border-left: 0; }
+      .report-head td:last-child { border-right: 0; }
+      .mini-head {
+        display: flex;
+        justify-content: space-between;
+        border: 1px solid var(--graphite);
+        border-left: 5px solid var(--go);
+        padding: 7px 9px;
+        font-size: 12px;
+        margin-bottom: 9px;
+      }
+      h1 {
+        margin: 6px 0 12px;
+        text-align: center;
+        color: var(--graphite);
+        font-size: 15px;
+      }
+      h2 {
+        margin: 13px 0 8px;
+        color: var(--go-dark);
+        font-size: 13px;
+      }
+      .diagram {
+        width: 100%;
+        height: 45mm;
+        margin: 2mm 0 5mm;
+      }
+      .diagram svg { width: 100%; height: 100%; display: block; }
+      .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 10px;
+      }
+      .data-table th, .data-table td {
+        border: 1px solid #c8d2d5;
+        padding: 4px 5px;
+        vertical-align: top;
+      }
+      .data-table th { background: #eef4f3; color: #17212b; }
+      .calc {
+        white-space: pre-wrap;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+      @media print {
+        body { background: #fff; }
+        .printbar { display: none; }
+        .report-page {
+          width: auto;
+          min-height: auto;
+          margin: 0;
+          padding: 10mm;
+          box-shadow: none;
+          page-break-after: always;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <script id="model-json" type="application/json">{{MODEL_JSON}}</script>
+    <script id="result-json" type="application/json">{{RESULT_JSON}}</script>
+    <div class="printbar">
+      <button onclick="window.print()">Print Report</button>
+      <span>GOBeam X Span report generated {{REPORT_DATE}}</span>
+    </div>
+    {{BODY_HTML}}
+
+    <script>
+      var model = JSON.parse(document.getElementById("model-json").textContent);
+      var result = JSON.parse(document.getElementById("result-json").textContent);
+
+      function renderReportDiagrams() {
+        var all = result.allSpanDiagrams || {};
+        Array.prototype.forEach.call(document.querySelectorAll("[data-diagram]"), function(el) {
+          var kind = el.getAttribute("data-diagram");
+          var start = Number(el.getAttribute("data-start"));
+          var end = Number(el.getAttribute("data-end"));
+          var ranged = null;
+          if (kind === "loads-all") drawLoads(el, all, "Loadings");
+          if (kind === "shear-all") drawSeries(el, all.shear, "x", "v", "SFD", "shear", all.spanLabels);
+          if (kind === "moment-all") drawSeries(el, all.moment, "x", "m", "BMD", "moment", all.spanLabels);
+          if (kind === "deflection-all") drawSeries(el, all.deflection, "x", "dMm", "DEF", "defl", all.spanLabels);
+          if (kind === "loads-range") drawLoads(el, rangeLoadData(all, start, end), "Loadings");
+          if (kind === "shear-range") { ranged = rangeLoadData(all, start, end); drawSeries(el, rangePoints(all.shear, "v", start, end), "x", "v", "SFD", "shear", ranged.spanLabels); }
+          if (kind === "moment-range") { ranged = rangeLoadData(all, start, end); drawSeries(el, rangePoints(all.moment, "m", start, end), "x", "m", "BMD", "moment", ranged.spanLabels); }
+          if (kind === "deflection-range") { ranged = rangeLoadData(all, start, end); drawSeries(el, rangePoints(all.deflection, "dMm", start, end), "x", "dMm", "DEF", "defl", ranged.spanLabels); }
+        });
+      }
+
+      function rangeLoadData(data, start, end) {
+        start = isFinite(start) ? start : 0;
+        end = isFinite(end) ? end : Number(data.totalLengthM) || 1;
+        var width = Math.max(end - start, 1);
+        return {
+          totalLengthM: width,
+          loads: (data.loads || []).map(function(load) {
+            if (load.type === "uniform") {
+              var x1 = Math.max(Number(load.x1), start);
+              var x2 = Math.min(Number(load.x2), end);
+              if (x2 <= x1) return null;
+              return { type: "uniform", x1: x1 - start, x2: x2 - start, wKgM: load.wKgM };
+            }
+            if (Number(load.x) >= start && Number(load.x) <= end) {
+              return { type: "point", x: Number(load.x) - start, pKg: load.pKg };
+            }
+            return null;
+          }).filter(Boolean),
+          supports: (data.supports || []).filter(function(s) {
+            return Number(s.x) >= start && Number(s.x) <= end;
+          }).map(function(s) {
+            return { x: Number(s.x) - start, reactionKg: s.reactionKg };
+          }),
+          spanLabels: (data.spanLabels || []).map(function(span) {
+            var x1 = Math.max(Number(span.x1), start);
+            var x2 = Math.min(Number(span.x2), end);
+            if (x2 <= x1) return null;
+            return { x1: x1 - start, x2: x2 - start, label: span.label };
+          }).filter(Boolean)
+        };
+      }
+
+      function rangePoints(points, valueKey, start, end) {
+        start = isFinite(start) ? start : 0;
+        end = isFinite(end) ? end : Infinity;
+        return (points || []).filter(function(point) {
+          return Number(point.x) >= start && Number(point.x) <= end;
+        }).map(function(point) {
+          var next = { x: Number(point.x) - start };
+          next[valueKey] = point[valueKey];
+          return next;
+        });
+      }
+
+      function drawLoads(el, data, label) {
+        var w = 920, h = 250, pad = 58, y = 108;
+        var total = Math.max(Number(data.totalLengthM) || 1, 1);
+        var sx = function(x) { return pad + (x / total) * (w - pad * 2); };
+        var html = svgOpen(w, h);
+        html += '<text x="' + (w - 130) + '" y="28" class="load-label">' + label + '</text>';
+        html += '<line x1="' + sx(0) + '" y1="' + y + '" x2="' + sx(total) + '" y2="' + y + '" stroke="#111" stroke-width="2"/>';
+        html += '<rect x="' + sx(0) + '" y="' + (y - 15) + '" width="' + (sx(total) - sx(0)) + '" height="15" fill="#e7eef0" stroke="#222"/>';
+        (data.loads || []).forEach(function(load) {
+          if (load.type === "uniform" && Number(load.wKgM) > 0) {
+            var x1 = sx(load.x1), x2 = sx(load.x2);
+            html += '<line x1="' + x1 + '" y1="' + (y - 23) + '" x2="' + x2 + '" y2="' + (y - 23) + '" stroke="#25515d" stroke-width="2"/>';
+            for (var x = x1; x <= x2; x += 16) html += arrow(x, y - 32, x, y - 16, "#25515d");
+            html += '<text x="' + clamp(x2 - 72, 8, w - 112) + '" y="' + (y - 38) + '" fill="#08764f">' + fmt(load.wKgM, 0) + ' kg/m</text>';
+          }
+          if (load.type === "point") {
+            var px = sx(load.x);
+            html += arrow(px, y - 86, px, y - 15, "#25515d");
+            html += '<text x="' + clamp(px - 32, 8, w - 86) + '" y="' + (y - 93) + '" fill="#08764f">' + fmt(load.pKg, 0) + ' kg</text>';
+          }
+        });
+        (data.supports || []).forEach(function(support) {
+          var x = sx(support.x);
+          html += '<polygon points="' + x + ',' + (y + 4) + ' ' + (x - 12) + ',' + (y + 33) + ' ' + (x + 12) + ',' + (y + 33) + '" fill="#dff5ec" stroke="#263236"/>';
+          html += '<rect x="' + (x - 20) + '" y="' + (y + 33) + '" width="40" height="8" fill="#00a86b"/>';
+          html += '<text x="' + clamp(x - 44, 8, w - 112) + '" y="' + (y + 56) + '" fill="#08764f">R = ' + fmt(support.reactionKg, 0) + ' kg</text>';
+        });
+        (data.spanLabels || []).forEach(function(span) {
+          var x1 = sx(span.x1), x2 = sx(span.x2), ly = y + 60;
+          html += '<line x1="' + x1 + '" y1="' + ly + '" x2="' + x2 + '" y2="' + ly + '" stroke="#111"/>';
+          html += '<line x1="' + x1 + '" y1="' + (ly - 12) + '" x2="' + x1 + '" y2="' + (ly + 12) + '" stroke="#111"/>';
+          html += '<line x1="' + x2 + '" y1="' + (ly - 12) + '" x2="' + x2 + '" y2="' + (ly + 12) + '" stroke="#111"/>';
+          html += '<text x="' + ((x1 + x2) / 2 - 18) + '" y="' + (ly - 8) + '">' + span.label + '</text>';
+        });
+        html += "</svg>";
+        el.innerHTML = html;
+      }
+
+      function drawSeries(el, points, xKey, yKey, label, kind, spanLabels) {
+        var w = 920, h = 220, pad = 42;
+        points = points || [];
+        if (!points.length) { el.innerHTML = ""; return; }
+        var minX = Math.min.apply(null, points.map(function(p) { return Number(p[xKey]); }));
+        var maxX = Math.max.apply(null, points.map(function(p) { return Number(p[xKey]); }));
+        var maxAbs = Math.max.apply(null, points.map(function(p) { return Math.abs(Number(p[yKey])); }));
+        maxAbs = Math.max(maxAbs, 1);
+        var sx = function(x) { return pad + ((x - minX) / Math.max(maxX - minX, 1)) * (w - pad * 2); };
+        var zero = h / 2;
+        var sy = function(v) { return zero - (Number(v) / maxAbs) * (h * 0.38); };
+        var unit = unitForKind(kind);
+        var enhanced = pointsWithZeroCrossings(points, xKey, yKey);
+        var line = points.map(function(p) { return sx(p[xKey]) + "," + sy(p[yKey]); }).join(" ");
+        var html = svgOpen(w, h);
+        html += '<text x="' + (w - 94) + '" y="28" class="' + kind + '-label">' + label + '</text>';
+        html += seriesFillPolygons(enhanced, xKey, yKey, sx, sy, zero);
+        html += '<line x1="' + pad + '" y1="' + zero + '" x2="' + (w - pad) + '" y2="' + zero + '" stroke="#263236" stroke-width="1.25"/>';
+        html += '<polyline points="' + line + '" fill="none" stroke="#172025" stroke-width="2.1" stroke-linejoin="round"/>';
+        html += minMaxLabels(points, xKey, yKey, sx, sy, spanLabels, unit, kind, pad, w);
+        html += "</svg>";
+        el.innerHTML = html;
+      }
+
+      function pointsWithZeroCrossings(points, xKey, yKey) {
+        var out = [];
+        points.forEach(function(point, index) {
+          var current = clonePoint(point, xKey, yKey);
+          if (index === 0) {
+            out.push(current);
+            return;
+          }
+          var prev = clonePoint(points[index - 1], xKey, yKey);
+          var x1 = Number(prev[xKey]), x2 = Number(current[xKey]);
+          var y1 = Number(prev[yKey]), y2 = Number(current[yKey]);
+          if (x2 !== x1 && y1 !== 0 && y2 !== 0 && ((y1 < 0 && y2 > 0) || (y1 > 0 && y2 < 0))) {
+            var ratio = Math.abs(y1) / (Math.abs(y1) + Math.abs(y2));
+            var zeroPoint = {};
+            zeroPoint[xKey] = x1 + (x2 - x1) * ratio;
+            zeroPoint[yKey] = 0;
+            out.push(zeroPoint);
+          }
+          out.push(current);
+        });
+        return out;
+      }
+
+      function clonePoint(point, xKey, yKey) {
+        var next = {};
+        next[xKey] = Number(point[xKey]);
+        next[yKey] = Number(point[yKey]);
+        return next;
+      }
+
+      function seriesFillPolygons(points, xKey, yKey, sx, sy, zero) {
+        var html = "";
+        points.slice(0, -1).forEach(function(point, index) {
+          var next = points[index + 1];
+          var x1 = Number(point[xKey]), x2 = Number(next[xKey]);
+          if (x1 === x2) return;
+          var y1 = Number(point[yKey]), y2 = Number(next[yKey]);
+          var mid = (y1 + y2) / 2;
+          if (mid === 0) mid = y1 || y2;
+          if (mid === 0) return;
+          var fill = mid > 0 ? "#b8e8cd" : "#f4b6b6";
+          var polygon = [
+            sx(x1) + "," + zero,
+            sx(x1) + "," + sy(y1),
+            sx(x2) + "," + sy(y2),
+            sx(x2) + "," + zero
+          ].join(" ");
+          html += '<polygon points="' + polygon + '" fill="' + fill + '" stroke="none"/>';
+        });
+        return html;
+      }
+
+      function minMaxLabels(points, xKey, yKey, sx, sy, spanLabels, unit, kind, pad, width) {
+        var ranges = (spanLabels && spanLabels.length) ? spanLabels : [{ x1: points[0][xKey], x2: points[points.length - 1][xKey], label: "" }];
+        var eps = kind === "defl" ? 0.0005 : 0.05;
+        var html = "";
+        ranges.forEach(function(range, index) {
+          var start = Number(range.x1);
+          var end = Number(range.x2);
+          var lastRange = index === ranges.length - 1;
+          var candidates = points.filter(function(point) {
+            var x = Number(point[xKey]);
+            return x >= start - 1e-9 && (lastRange ? x <= end + 1e-9 : x < end - 1e-9);
+          });
+          if (!candidates.length) return;
+          var maxPoint = candidates.reduce(function(a, b) { return Number(a[yKey]) > Number(b[yKey]) ? a : b; });
+          var minPoint = candidates.reduce(function(a, b) { return Number(a[yKey]) < Number(b[yKey]) ? a : b; });
+          if (Number(maxPoint[yKey]) > eps) html += extremumLabel(maxPoint, "MAX", xKey, yKey, sx, sy, unit, kind, true, pad, width, index);
+          if (Number(minPoint[yKey]) < -eps) html += extremumLabel(minPoint, "MIN", xKey, yKey, sx, sy, unit, kind, false, pad, width, index);
+        });
+        return html;
+      }
+
+      function extremumLabel(point, label, xKey, yKey, sx, sy, unit, kind, positive, pad, width, index) {
+        var x = clamp(sx(point[xKey]) - 42, pad, width - 112);
+        var y = sy(point[yKey]) + (positive ? -15 - ((index % 2) * 10) : 22 + ((index % 2) * 10));
+        var color = positive ? "#08764f" : "#be3f3f";
+        var value = fmt(point[yKey], kind === "defl" ? 3 : 0);
+        return '<g><circle cx="' + sx(point[xKey]) + '" cy="' + sy(point[yKey]) + '" r="3" fill="' + color + '"/>' +
+          '<text x="' + x + '" y="' + y + '" fill="' + color + '" class="extreme-label">' + label + ' ' + value + ' ' + unit + '</text></g>';
+      }
+
+      function unitForKind(kind) {
+        if (kind === "moment") return "kg-m";
+        if (kind === "defl") return "mm";
+        return "kg";
+      }
+
+      function svgOpen(w, h) {
+        return '<svg viewBox="0 0 ' + w + " " + h + '" xmlns="http://www.w3.org/2000/svg" style="-webkit-print-color-adjust:exact;print-color-adjust:exact">' +
+          '<style>text{font:16px Segoe UI,Tahoma,sans-serif;fill:#172025}.load-label{fill:#25515d;font-weight:900;letter-spacing:1px}.shear-label,.moment-label,.defl-label{fill:#263236;font-weight:900;letter-spacing:5px}.extreme-label{font-size:11px;font-weight:900;letter-spacing:.4px}</style>';
+      }
+
+      function arrow(x1, y1, x2, y2, color) {
+        return '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="' + color + '" stroke-width="3"/>' +
+          '<polygon points="' + x2 + ',' + y2 + ' ' + (x2 - 6) + ',' + (y2 - 12) + ' ' + (x2 + 6) + ',' + (y2 - 12) + '" fill="' + color + '"/>';
+      }
+
+      function clamp(value, min, max) { return Math.min(Math.max(value, min), max); }
+      function fmt(value, digits) {
+        var number = Number(value);
+        if (!isFinite(number)) return "0";
+        if (!digits) return String(Math.round(number));
+        return number.toFixed(digits).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+      }
+
+      renderReportDiagrams();
+    </script>
+  </body>
+</html>

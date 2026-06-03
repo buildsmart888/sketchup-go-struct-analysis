@@ -1,0 +1,238 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>{{TITLE}}</title>
+    <style>
+      :root {
+        --ink: #20262d;
+        --muted: #66727f;
+        --line: #d7e0e8;
+        --bg: #eef2f5;
+        --panel: #fff;
+        --accent: #205f86;
+        --good: #11724f;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--ink); font: 12px "Segoe UI", Tahoma, sans-serif; }
+      header {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 15px 16px 10px;
+        background: #f8fafc;
+        border-bottom: 1px solid var(--line);
+      }
+      h1 { margin: 0 0 4px; font-size: 20px; }
+      .muted { color: var(--muted); }
+      .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
+      button {
+        border: 1px solid var(--line);
+        background: #fff;
+        border-radius: 7px;
+        padding: 8px 10px;
+        color: #263442;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      button.good { background: var(--good); border-color: var(--good); color: #fff; }
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 9px;
+        padding: 12px 14px;
+      }
+      .metric {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px;
+      }
+      .metric .label { color: var(--muted); text-transform: uppercase; font-size: 10px; margin-bottom: 3px; }
+      .metric .value { font-size: 17px; font-weight: 800; }
+      .tabs { display: flex; gap: 6px; padding: 0 14px; }
+      .tab {
+        border: 1px solid var(--line);
+        background: #f8fafc;
+        border-radius: 7px 7px 0 0;
+        padding: 9px 11px;
+        cursor: pointer;
+        font-weight: 800;
+      }
+      .tab.active { color: var(--accent); background: #fff; border-bottom-color: #fff; }
+      .toolbar {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 8px;
+        padding: 12px 14px;
+        background: #fff;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+      label { display: block; color: #566270; font-weight: 700; margin-bottom: 4px; }
+      input, select {
+        width: 100%;
+        border: 1px solid #cbd5df;
+        border-radius: 6px;
+        padding: 8px;
+        font: inherit;
+        background: #fff;
+      }
+      main { padding: 0 14px 14px; }
+      .table-wrap {
+        max-height: 520px;
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 0 8px 8px 8px;
+        background: #fff;
+      }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border-bottom: 1px solid #e5ebf1; padding: 8px; text-align: left; vertical-align: top; }
+      th { position: sticky; top: 0; background: #f4f7fa; z-index: 1; color: #4e5b68; }
+      tr:hover td { background: #f7fbff; }
+      .number { text-align: right; font-variant-numeric: tabular-nums; }
+      .hidden { display: none; }
+      .status { padding: 0 14px 12px; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>{{TITLE}}</h1>
+        <div class="muted">{{SUBTITLE}}</div>
+      </div>
+      <div class="actions">
+        <button onclick="copySummary()">Copy Summary</button>
+        <button class="good" onclick="exportCsv()">Export CSV</button>
+      </div>
+    </header>
+    <section id="summary" class="summary"></section>
+    <nav id="tabs" class="tabs"></nav>
+    <section id="toolbar" class="toolbar">
+      <div>
+        <label>Category</label>
+        <select id="category" onchange="renderTable()"></select>
+      </div>
+      <div>
+        <label>Profile</label>
+        <select id="profile" onchange="renderTable()"></select>
+      </div>
+      <div>
+        <label>Name / Section</label>
+        <input id="search" oninput="renderTable()" placeholder="Filter rows">
+      </div>
+    </section>
+    <main>
+      <div class="table-wrap">
+        <table>
+          <thead id="thead"></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </main>
+    <div id="status" class="status"></div>
+    <script>
+      const mode = "{{MODE}}";
+      const data = {{BOQ_JSON}};
+      let active = "grouped";
+      const tabs = mode === "free"
+        ? [{ key: "grouped", label: "By Profile" }]
+        : [{ key: "grouped", label: "By Steel Type" }, { key: "items", label: "Member Details" }];
+
+      function send(action, data) {
+        const json = JSON.stringify(data || {});
+        if (window.sketchup && window.sketchup[action]) {
+          window.sketchup[action](json);
+        } else {
+          window.location = "skp:" + action + "@" + encodeURIComponent(json);
+        }
+      }
+      function fmt(n, digits) {
+        const value = Number(n || 0);
+        return value.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits });
+      }
+      function renderSummary() {
+        const s = data.summary || {};
+        const cards = [
+          ["Members", s.members || 0],
+          ["Length (m)", fmt(s.length_m, 2)],
+          ["Surface (m2)", fmt(s.surface_m2, 2)],
+          ["Volume (m3)", fmt(s.volume_m3, 4)],
+          ["Weight (kg)", fmt(s.weight_kg, 2)]
+        ];
+        document.getElementById("summary").innerHTML = cards.map(([label, value]) =>
+          `<div class="metric"><div class="label">${label}</div><div class="value">${value}</div></div>`
+        ).join("");
+      }
+      function unique(values) {
+        return Array.from(new Set(values.filter(Boolean))).sort();
+      }
+      function renderFilters() {
+        const rows = data.items || [];
+        const cats = ["All"].concat(unique(rows.map(r => r.category)));
+        const profiles = ["All"].concat(unique(rows.map(r => r.profile)));
+        document.getElementById("category").innerHTML = cats.map(v => `<option>${v}</option>`).join("");
+        document.getElementById("profile").innerHTML = profiles.map(v => `<option>${v}</option>`).join("");
+        document.getElementById("toolbar").className = mode === "free" ? "toolbar hidden" : "toolbar";
+      }
+      function renderTabs() {
+        document.getElementById("tabs").innerHTML = tabs.map(tab =>
+          `<button class="tab ${tab.key === active ? "active" : ""}" onclick="setTab('${tab.key}')">${tab.label}</button>`
+        ).join("");
+      }
+      function setTab(key) {
+        active = key;
+        renderTabs();
+        renderTable();
+      }
+      function filteredItems() {
+        const cat = document.getElementById("category").value;
+        const profile = document.getElementById("profile").value;
+        const search = document.getElementById("search").value.toLowerCase();
+        return (data.items || []).filter(row => {
+          if (cat && cat !== "All" && row.category !== cat) return false;
+          if (profile && profile !== "All" && row.profile !== profile) return false;
+          if (search && !`${row.name} ${row.section}`.toLowerCase().includes(search)) return false;
+          return true;
+        });
+      }
+      function renderTable() {
+        const head = document.getElementById("thead");
+        const body = document.getElementById("tbody");
+        if (active === "grouped") {
+          const rows = data.grouped || [];
+          head.innerHTML = "<tr><th>Category</th><th>Profile</th><th>Section</th><th class='number'>Qty</th><th class='number'>Length</th><th class='number'>Volume</th><th class='number'>Weight</th><th class='number'>kg/m</th></tr>";
+          body.innerHTML = rows.map(row => {
+            const kgm = Number(row.length_m || 0) > 0 ? Number(row.weight_kg || 0) / Number(row.length_m || 1) : 0;
+            return `<tr><td>${row.category || ""}</td><td>${row.profile || ""}</td><td>${row.section || ""}</td><td class="number">${row.qty || 0}</td><td class="number">${fmt(row.length_m, 2)}</td><td class="number">${fmt(row.volume_m3, 4)}</td><td class="number">${fmt(row.weight_kg, 2)}</td><td class="number">${fmt(kgm, 2)}</td></tr>`;
+          }).join("");
+        } else {
+          const rows = filteredItems();
+          head.innerHTML = "<tr><th>Name</th><th>Category</th><th>Profile</th><th>Section</th><th class='number'>Length</th><th class='number'>Volume</th><th class='number'>Weight</th></tr>";
+          body.innerHTML = rows.map(row =>
+            `<tr onclick="selectMember(${Number(row.persistent_id || 0)})"><td>${row.name || ""}</td><td>${row.category || ""}</td><td>${row.profile || ""}</td><td>${row.section || ""}</td><td class="number">${fmt(row.length_m, 2)}</td><td class="number">${fmt(row.volume_m3, 4)}</td><td class="number">${fmt(row.weight_kg, 2)}</td></tr>`
+          ).join("");
+        }
+        document.getElementById("status").textContent = active === "items" ? `${(filteredItems()).length} member rows` : `${(data.grouped || []).length} grouped rows`;
+      }
+      function selectMember(id) {
+        if (id > 0) send("selectMember", { persistent_id: id });
+      }
+      function exportCsv() { send("exportBoq", { mode }); }
+      function copySummary() {
+        const s = data.summary || {};
+        const text = `Members: ${s.members || 0}\nLength: ${fmt(s.length_m, 2)} m\nVolume: ${fmt(s.volume_m3, 4)} m3\nWeight: ${fmt(s.weight_kg, 2)} kg`;
+        navigator.clipboard && navigator.clipboard.writeText(text);
+        document.getElementById("status").textContent = "Summary copied";
+      }
+      window.gopebBoqStatus = function(message) {
+        document.getElementById("status").textContent = message || "";
+      };
+      renderSummary();
+      renderFilters();
+      renderTabs();
+      renderTable();
+    </script>
+  </body>
+</html>

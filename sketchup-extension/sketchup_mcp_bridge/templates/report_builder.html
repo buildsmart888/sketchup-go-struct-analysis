@@ -1,0 +1,140 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>{{TITLE}}</title>
+    <style>
+      body { font-family: Segoe UI, Arial, sans-serif; margin: 0; background: #eef2f5; color: #222; }
+      .wrap { padding: 18px; }
+      .layout { display: grid; grid-template-columns: 340px 1fr; gap: 16px; align-items: start; }
+      .panel { background: #fff; border: 1px solid #d9e0e7; border-radius: 12px; padding: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.04); }
+      .hero { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+      h1 { margin: 0; font-size: 24px; }
+      h2 { margin: 0 0 10px; font-size: 14px; text-transform: uppercase; color: #55606f; letter-spacing: 0.04em; }
+      .button-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+      button { border: 0; border-radius: 10px; padding: 10px 14px; cursor: pointer; font-weight: 600; }
+      .preset { background: #dfe7ef; color: #243342; }
+      .preset.active { background: #c6472b; color: #fff; }
+      .view { background: #e9eef3; color: #304355; }
+      .view.active { background: #32475b; color: #fff; }
+      .export { background: #0f8a5f; color: #fff; }
+      .field { margin-bottom: 12px; }
+      label { display: block; font-size: 12px; color: #66717f; margin-bottom: 4px; font-weight: 600; }
+      input[type=text], select { width: 100%; box-sizing: border-box; border: 1px solid #cfd7df; border-radius: 8px; padding: 9px 10px; font-size: 13px; }
+      .check { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+      .help { font-size: 12px; color: #677280; line-height: 1.5; }
+      .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+      .card { background: #fff; border: 1px solid #d9e0e7; border-radius: 10px; padding: 12px; }
+      .label { font-size: 11px; color: #6c7885; text-transform: uppercase; margin-bottom: 4px; }
+      .value { font-size: 15px; font-weight: 600; }
+      table { width: 100%; border-collapse: collapse; background: #fff; }
+      th, td { border: 1px solid #d9e0e7; padding: 8px; font-size: 12px; text-align: left; vertical-align: top; }
+      th { background: #f4f7fa; position: sticky; top: 0; z-index: 1; }
+      .table-wrap { max-height: 560px; overflow: auto; border: 1px solid #d9e0e7; border-radius: 12px; background: #fff; }
+      .muted { color: #6b7886; font-size: 12px; }
+    </style>
+    <script>
+      function currentPayload() {
+        return {
+          view: document.getElementById('view').value,
+          preset: document.getElementById('preset').value,
+          tag_filter: document.getElementById('tag_filter').value,
+          name_filter: document.getElementById('name_filter').value,
+          exclude_tag_filter: document.getElementById('exclude_tag_filter').value,
+          solid_only: document.getElementById('solid_only').checked,
+          selected_only: document.getElementById('selected_only').checked,
+          density_preset: document.getElementById('density_preset').value,
+          locale: document.getElementById('locale').value,
+          short_edge_threshold_mm: document.getElementById('short_edge_threshold_mm').value,
+          include_hidden: document.getElementById('include_hidden').checked
+        };
+      }
+      function sendAction(action, payload) {
+        var json = JSON.stringify(payload);
+        if (window.sketchup && window.sketchup[action]) {
+          window.sketchup[action](json);
+        } else {
+          window.location = 'skp:' + action + '@' + encodeURIComponent(json);
+        }
+      }
+      function runReport() {
+        sendAction('runReport', currentPayload());
+      }
+      function activatePreset(value) {
+        document.getElementById('preset').value = value;
+        runReport();
+      }
+      function activateView(value) {
+        document.getElementById('view').value = value;
+        runReport();
+      }
+      function exportReport(format) {
+        var payload = currentPayload();
+        payload.export_format = format;
+        sendAction('exportReport', payload);
+      }
+    </script>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="hero">
+        <div>
+          <h1>{{TITLE}}</h1>
+          <div class="muted">{{UNITS_HELP}}</div>
+        </div>
+      </div>
+      <div class="layout">
+        <div class="panel">
+          <h2>Preset / ชุดรายงาน</h2>
+          <div class="button-row">{{PRESET_BUTTONS}}</div>
+
+          <h2>View / มุมมอง</h2>
+          <div class="button-row">{{VIEW_BUTTONS}}</div>
+
+          <input id="view" type="hidden" value="{{CURRENT_VIEW}}">
+          <input id="preset" type="hidden" value="{{CURRENT_PRESET}}">
+
+          <div class="field">
+            <label for="tag_filter">Tag Filter / ตัวกรองแท็ก</label>
+            <input id="tag_filter" type="text" value="{{TAG_FILTER}}" placeholder="Structure-RC_BEAM">
+          </div>
+          <div class="field">
+            <label for="name_filter">Name Filter / ตัวกรองชื่อ</label>
+            <input id="name_filter" type="text" value="{{NAME_FILTER}}" placeholder="BEAM, COLUMN, FOOTING">
+          </div>
+          <div class="field">
+            <label for="exclude_tag_filter">Exclude Tags / ไม่รวมแท็ก</label>
+            <input id="exclude_tag_filter" type="text" value="{{EXCLUDE_TAG_FILTER}}" placeholder="GRID LINE,DIMENSIONS">
+          </div>
+          <div class="field">
+            <label for="density_preset">Weight Formula / สูตรน้ำหนัก</label>
+            <select id="density_preset">{{DENSITY_OPTIONS}}</select>
+          </div>
+          <div class="field">
+            <label for="locale">Locale / ภาษา</label>
+            <select id="locale">{{LOCALE_OPTIONS}}</select>
+          </div>
+          <div class="field">
+            <label for="short_edge_threshold_mm">Short Edge Threshold (mm) / เกณฑ์เส้นสั้น (มม.)</label>
+            <input id="short_edge_threshold_mm" type="text" value="{{SHORT_EDGE_THRESHOLD_MM}}" placeholder="5">
+          </div>
+          <label class="check"><input id="solid_only" type="checkbox" {{SOLID_ONLY_CHECKED}}> Solid only / เฉพาะ solid</label>
+          <label class="check"><input id="selected_only" type="checkbox" {{SELECTED_ONLY_CHECKED}}> Selection only / เฉพาะที่เลือก</label>
+          <label class="check"><input id="include_hidden" type="checkbox" {{INCLUDE_HIDDEN_CHECKED}}> Include hidden edges / รวมเส้นซ่อน</label>
+
+          <div class="button-row">
+            <button class="view active" onclick="runReport()">Run Report / ประมวลผล</button>
+            <button class="export" onclick="exportReport('csv')">Export CSV / ส่งออก CSV</button>
+            <button class="export" onclick="exportReport('excel')">Export Excel / ส่งออก Excel</button>
+          </div>
+
+          <div class="help">{{HELP_TEXT}}</div>
+        </div>
+        <div class="panel">
+          {{SUMMARY_HTML}}
+          {{RESULT_HTML}}
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

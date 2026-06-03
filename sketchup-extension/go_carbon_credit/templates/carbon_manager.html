@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+  <title>GO Carbon Credit</title>
+  <style>
+    body {
+      background-color: #1e1e24;
+      color: #e0e0e0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    h1, h2, h3 { color: #fff; font-weight: 500; margin-top: 0; }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 25px;
+      border-bottom: 1px solid #333;
+      padding-bottom: 15px;
+    }
+    .header h1 { margin: 0; }
+    .btn {
+      background: #4caf50; color: white; border: none; padding: 8px 16px;
+      border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 500;
+      margin-left: 8px;
+    }
+    .btn:hover { background: #45a049; }
+    .btn.outline { background: transparent; border: 1px solid #4caf50; color: #4caf50; }
+    .btn.outline:hover { background: rgba(76, 175, 80, 0.1); }
+    
+    .grid-4 { display: flex; gap: 15px; margin-bottom: 25px; }
+    .card {
+      background: #2a2a35; border-radius: 8px; padding: 20px;
+      flex: 1; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      border-top: 4px solid #333;
+    }
+    .card .label { font-size: 13px; color: #aaa; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .card .val { font-size: 28px; font-weight: bold; color: #fff; }
+    .card .sub { font-size: 12px; color: #888; margin-top: 4px; }
+    
+    .grid-2 { display: flex; gap: 20px; }
+    .panel { flex: 1; background: #252530; border-radius: 8px; padding: 20px; }
+    
+    /* Fallback for IE11 since flex gap might not work perfectly */
+    .grid-4 .card { margin-right: 15px; }
+    .grid-4 .card:last-child { margin-right: 0; }
+    .grid-2 .panel { margin-right: 20px; }
+    .grid-2 .panel:last-child { margin-right: 0; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>🌱 GO Carbon Credit</h1>
+    <div>
+      <button class="btn outline" onclick="sketchup.applyHeatmap()">Apply Heatmap</button>
+      <button class="btn outline" onclick="sketchup.removeHeatmap()">Remove Heatmap</button>
+      <button class="btn" onclick="sketchup.exportExcel()">Export Excel</button>
+    </div>
+  </div>
+
+  <div class="grid-4">
+    <div class="card" style="border-top-color: #4caf50;">
+      <div class="label">Total Carbon</div>
+      <div class="val">{{TOTAL_TCO2E}} <span style="font-size:16px;">tCO₂e</span></div>
+      <div class="sub">{{TOTAL_KG}} kgCO₂e</div>
+    </div>
+    
+    <div class="card" style="border-top-color: {{RATING_COLOR}};">
+      <div class="label">Rating</div>
+      <div class="val" style="color: {{RATING_COLOR}};">{{RATING}}</div>
+      <div class="sub">{{PER_M2}} kgCO₂e/m²</div>
+    </div>
+    
+    <div class="card" style="border-top-color: #2196f3;">
+      <div class="label">Components</div>
+      <div class="val">{{MATCHED_COUNT}}</div>
+      <div class="sub">matched with EF</div>
+    </div>
+  </div>
+
+  {{UNMATCHED_ALERT}}
+
+  <div class="grid-2" style="margin-top: 25px;">
+    <div class="panel">
+      <h2>📊 By Material</h2>
+      {{MATERIALS_HTML}}
+    </div>
+    
+    <div class="panel">
+      <h2>💡 Reduction Suggestions</h2>
+      {{SUGGESTIONS_HTML}}
+    </div>
+  </div>
+
+</body>
+</html>

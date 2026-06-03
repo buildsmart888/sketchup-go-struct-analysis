@@ -1,0 +1,20 @@
+enabled,priority,ef_id,match_type,match_value,material_name_th,ef_value,ef_unit,quantity_source,data_source,note
+true,100,RC001,tag,Structure-RC_BEAM,คาน ค.ส.ล.,350,kgCO2e/m3,volumeM3,TGO 2024,RC beam matched by tag
+true,100,RC002,tag,Structure-RC_COLUMN,เสา ค.ส.ล.,350,kgCO2e/m3,volumeM3,TGO 2024,RC column matched by tag
+true,100,RC003,tag,Structure-RC_FOOTING,ฐานราก ค.ส.ล.,350,kgCO2e/m3,volumeM3,TGO 2024,RC footing matched by tag
+true,80,RC010,category,beam,คาน (ทั่วไป),350,kgCO2e/m3,volumeM3,TGO 2024,RC beam fallback by category
+true,80,RC011,category,column,เสา (ทั่วไป),350,kgCO2e/m3,volumeM3,TGO 2024,RC column fallback by category
+true,80,RC012,category,footing,ฐานราก (ทั่วไป),350,kgCO2e/m3,volumeM3,TGO 2024,RC footing fallback by category
+true,80,RC013,category,slab,พื้น ค.ส.ล.,320,kgCO2e/m3,volumeM3,TGO 2024,RC slab fallback by category
+true,90,ST001,keyword,Steel,เหล็กโครงสร้าง,1.85,kgCO2e/kg,estimatedWeightKg,TGO 2024,Structural steel by material keyword
+true,90,ST002,keyword,Rebar,เหล็กเสริม,2.30,kgCO2e/kg,estimatedWeightKg,TGO 2024,Reinforcement rebar by keyword
+true,85,BK001,keyword,Q-CON,คิวคอน (มวลเบา),180,kgCO2e/m3,volumeM3,TGO 2024,Autoclaved aerated concrete block
+true,80,BK002,keyword,brick,อิฐมอญ,240,kgCO2e/m3,volumeM3,TGO 2024,Clay brick masonry
+true,75,BK003,category,wall,ผนังก่อ (ทั่วไป),200,kgCO2e/m3,volumeM3,TGO 2024,Wall category fallback
+true,80,GL001,category,window,กระจก/หน้าต่าง,1.20,kgCO2e/kg,estimatedWeightKg,TGO 2024,Window/glass by category
+true,90,AL001,keyword,Aluminum,อลูมิเนียม,9.50,kgCO2e/kg,estimatedWeightKg,TGO 2024,Aluminum material
+true,90,WD001,keyword,Timber,ไม้ (carbon sink),"-1600",kgCO2e/m3,volumeM3,IPCC 2006,Timber carbon sequestration (negative = sink)
+true,75,RF001,category,roof,หลังคา,0.46,kgCO2e/kg,estimatedWeightKg,TGO 2024,Roof by category
+true,70,DR001,category,door,ประตู,25,kgCO2e/unit,count,TGO 2024,Door per unit
+true,80,ST003,category,stair,บันได,300,kgCO2e/m3,volumeM3,TGO 2024,Stair by category
+true,50,GEN001,category,generic,ทั่วไป (fallback),150,kgCO2e/m3,volumeM3,Estimate,Generic fallback for unclassified elements

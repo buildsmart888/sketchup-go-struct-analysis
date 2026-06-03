@@ -1,0 +1,10 @@
+enabled,priority,rule_id,match_type,match_value,category,item_code,description_th,unit,quantity_source,material_unit_cost,labor_unit_cost,waste_percent,note
+true,0,RC_BEAM,category,beam,งานโครงสร้าง,STR-RC-BEAM,คานคอนกรีตเสริมเหล็ก,ลบ.ม.,volumeM3,0,0,0,ใส่ราคาต่อหน่วยเอง
+true,0,RC_COLUMN,category,column,งานโครงสร้าง,STR-RC-COLUMN,เสาคอนกรีตเสริมเหล็ก,ลบ.ม.,volumeM3,0,0,0,ใส่ราคาต่อหน่วยเอง
+true,0,RC_FOOTING,category,footing,งานโครงสร้าง,STR-RC-FOOTING,ฐานรากคอนกรีตเสริมเหล็ก,ลบ.ม.,volumeM3,0,0,0,ใส่ราคาต่อหน่วยเอง
+true,0,WALL,category,wall,งานผนัง,ARC-WALL,ผนัง,ตร.ม.,surfaceAreaM2,0,0,0,ใส่ราคาต่อหน่วยเอง
+true,0,SLAB,category,slab,งานพื้น,STR-SLAB,พื้น/แผ่นพื้น,ตร.ม.,surfaceAreaM2,0,0,0,ใส่ราคาต่อหน่วยเอง
+true,0,ROOF,category,roof,งานหลังคา,ARC-ROOF,หลังคา,ตร.ม.,surfaceAreaM2,0,0,0,ใส่ราคาต่อหน่วยเอง
+true,0,DOOR,category,door,งานประตูหน้าต่าง,ARC-DOOR,ประตู,ชุด,count,0,0,0,ใส่ราคาต่อหน่วยเอง
+true,0,WINDOW,category,window,งานประตูหน้าต่าง,ARC-WINDOW,หน้าต่าง,ชุด,count,0,0,0,ใส่ราคาต่อหน่วยเอง
+true,0,STEEL,keyword,steel,งานเหล็ก,STR-STEEL,เหล็กรูปพรรณ/งานเหล็ก,กก.,estimatedWeightKg,0,0,0,ใส่ราคาต่อหน่วยเอง

@@ -1,0 +1,4 @@
+FCStd: C:\Users\g_np2\OneDrive\Programe\sketchup-mcp-prototype\output\freecad\pj_dev_2story_house_parametric_techdraw_A01-A11.FCStd
+IFC: C:\Users\g_np2\OneDrive\Programe\sketchup-mcp-prototype\output\freecad\pj_dev_2story_house_parametric_techdraw_A01-A11.ifc
+IFC export ok: True
+Error: 

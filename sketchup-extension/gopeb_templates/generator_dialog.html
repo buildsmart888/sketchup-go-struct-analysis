@@ -1,0 +1,345 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>{{TITLE}}</title>
+    <style>
+      :root {
+        --ink: #1f252b;
+        --muted: #66717d;
+        --line: #d6dee6;
+        --panel: #ffffff;
+        --bg: #eef2f5;
+        --accent: #205f86;
+        --accent-2: #c24d2c;
+        --good: #11724f;
+        --warn: #9a5b13;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: var(--bg);
+        font: 13px "Segoe UI", Tahoma, sans-serif;
+      }
+      .shell { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+      header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 14px;
+        padding: 16px 18px 12px;
+        background: #f8fafc;
+        border-bottom: 1px solid var(--line);
+      }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      .sub { color: var(--muted); font-size: 12px; }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid var(--line);
+        background: #fff;
+        border-radius: 999px;
+        padding: 6px 10px;
+        color: #394653;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .badge.free { color: #8a3f18; border-color: #e1c1a8; background: #fff7ed; }
+      .tabs {
+        display: flex;
+        gap: 6px;
+        padding: 10px 14px 0;
+        overflow-x: auto;
+      }
+      .tab {
+        border: 1px solid var(--line);
+        background: #f8fafc;
+        color: #344251;
+        border-radius: 7px 7px 0 0;
+        padding: 9px 11px;
+        font-weight: 700;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .tab.active {
+        background: var(--panel);
+        border-bottom-color: var(--panel);
+        color: var(--accent);
+      }
+      main {
+        margin: 0 14px 14px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 0 8px 8px 8px;
+        min-height: 440px;
+        padding: 14px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 12px;
+      }
+      .field {
+        border: 1px solid #e4e9ee;
+        background: #fbfcfd;
+        border-radius: 7px;
+        padding: 10px;
+        min-height: 82px;
+      }
+      label {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        color: #52606e;
+        font-size: 12px;
+        font-weight: 700;
+        margin-bottom: 7px;
+      }
+      .unit { color: #87929e; font-weight: 600; }
+      input, select {
+        width: 100%;
+        border: 1px solid #cbd5df;
+        border-radius: 6px;
+        padding: 8px;
+        color: var(--ink);
+        background: #fff;
+        font: inherit;
+      }
+      input.locked {
+        background: #f2f5f7;
+        color: #6a7480;
+      }
+      .hint { margin-top: 6px; color: #7c8792; font-size: 11px; line-height: 1.35; }
+      .error { margin-top: 6px; color: #a52818; font-size: 11px; line-height: 1.35; min-height: 14px; }
+      .notice {
+        margin: 0 14px 10px;
+        padding: 10px 12px;
+        border-radius: 7px;
+        border: 1px solid #e6d3a4;
+        color: #714b12;
+        background: #fff8e5;
+        display: none;
+      }
+      footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 14px;
+        border-top: 1px solid var(--line);
+        background: #f8fafc;
+      }
+      .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      button {
+        border: 1px solid var(--line);
+        background: #fff;
+        color: #263442;
+        border-radius: 7px;
+        padding: 9px 12px;
+        cursor: pointer;
+        font-weight: 700;
+      }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      button.good { background: var(--good); border-color: var(--good); color: #fff; }
+      button.warn { background: #fff7ed; border-color: #e5b58e; color: #8a3f18; }
+      .status { color: var(--muted); font-size: 12px; }
+      .upgrade {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .upgrade div {
+        border: 1px dashed #d9c2a8;
+        border-radius: 7px;
+        padding: 9px;
+        color: #704a17;
+        background: #fffaf2;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header>
+        <div>
+          <h1>{{TITLE}}</h1>
+          <div class="sub">{{SUBTITLE}}</div>
+        </div>
+        <div id="badge" class="badge">GO PEB</div>
+      </header>
+      <div id="tabs" class="tabs"></div>
+      <div id="notice" class="notice"></div>
+      <main>
+        <div id="form"></div>
+      </main>
+      <footer>
+        <div id="status" class="status">Ready</div>
+        <div class="actions">
+          <button onclick="resetDefaults()">Reset</button>
+          <button class="warn" onclick="validateAll(true)">Check</button>
+          <button class="primary" onclick="createPeb()">Create PEB</button>
+        </div>
+      </footer>
+    </div>
+    <script>
+      const mode = "{{MODE}}";
+      const config = {{CONFIG_JSON}};
+      const defaults = {{PAYLOAD_JSON}};
+      const limits = {{LIMITS_JSON}};
+      let payload = Object.assign({}, defaults);
+      let activeTab = 0;
+
+      function qs(id) { return document.getElementById(id); }
+      function send(action, data) {
+        const json = JSON.stringify(data || {});
+        if (window.sketchup && window.sketchup[action]) {
+          window.sketchup[action](json);
+        } else {
+          window.location = "skp:" + action + "@" + encodeURIComponent(json);
+        }
+      }
+      function formatLabel(text, unit) {
+        return unit ? `${text}<span class="unit">${unit}</span>` : text;
+      }
+      function renderTabs() {
+        const tabs = qs("tabs");
+        tabs.innerHTML = "";
+        config.tabs.forEach((tab, idx) => {
+          const btn = document.createElement("button");
+          btn.className = "tab" + (idx === activeTab ? " active" : "");
+          btn.textContent = tab.label;
+          btn.onclick = () => { activeTab = idx; render(); };
+          tabs.appendChild(btn);
+        });
+      }
+      function render() {
+        renderTabs();
+        qs("badge").textContent = mode === "free" ? "Free Trial" : "Pro";
+        qs("badge").className = "badge" + (mode === "free" ? " free" : "");
+        const tab = config.tabs[activeTab];
+        const wrap = document.createElement("div");
+        wrap.innerHTML = `<div class="grid"></div>`;
+        const grid = wrap.querySelector(".grid");
+
+        tab.fields.forEach(field => {
+          const value = payload[field.key] ?? field.default ?? "";
+          const box = document.createElement("div");
+          box.className = "field";
+          const label = document.createElement("label");
+          label.innerHTML = formatLabel(field.label, field.unit);
+          box.appendChild(label);
+
+          let input;
+          if (field.type === "select") {
+            input = document.createElement("select");
+            field.options.forEach(opt => {
+              const o = document.createElement("option");
+              o.value = opt;
+              o.textContent = opt;
+              input.appendChild(o);
+            });
+            input.value = value;
+          } else {
+            input = document.createElement("input");
+            input.type = field.type === "text" ? "text" : "number";
+            input.step = field.step || "any";
+            input.value = value;
+          }
+          input.id = field.key;
+          if (field.locked) {
+            input.disabled = true;
+            input.classList.add("locked");
+          }
+          input.oninput = () => {
+            payload[field.key] = field.type === "select" || field.type === "text" ? input.value : Number(input.value);
+            validateAll(false);
+          };
+          box.appendChild(input);
+          if (field.hint) {
+            const hint = document.createElement("div");
+            hint.className = "hint";
+            hint.textContent = field.hint;
+            box.appendChild(hint);
+          }
+          const err = document.createElement("div");
+          err.className = "error";
+          err.id = "err_" + field.key;
+          box.appendChild(err);
+          grid.appendChild(box);
+        });
+
+        if (mode === "free" && tab.upgrade) {
+          const upgrade = document.createElement("div");
+          upgrade.className = "upgrade";
+          tab.upgrade.forEach(text => {
+            const item = document.createElement("div");
+            item.textContent = text;
+            upgrade.appendChild(item);
+          });
+          wrap.appendChild(upgrade);
+        }
+        qs("form").innerHTML = "";
+        qs("form").appendChild(wrap);
+        validateAll(false);
+      }
+      function clearErrors() {
+        document.querySelectorAll(".error").forEach(el => el.textContent = "");
+        qs("notice").style.display = "none";
+        qs("notice").textContent = "";
+      }
+      function setError(key, message) {
+        const el = qs("err_" + key);
+        if (el) el.textContent = message;
+      }
+      function validateAll(showNotice) {
+        clearErrors();
+        const errors = [];
+        const add = (key, message) => { errors.push(message); setError(key, message); };
+        const n = key => Number(payload[key]);
+
+        if (mode === "free") {
+          if (n("width_m") < limits.min_width_m || n("width_m") > limits.max_width_m) add("width_m", `Free supports ${limits.min_width_m}-${limits.max_width_m} m`);
+          if (n("bay_count") < limits.min_bay_count || n("bay_count") > limits.max_bay_count) add("bay_count", `Free supports ${limits.min_bay_count}-${limits.max_bay_count} bays`);
+        }
+        if (n("ridge_height_m") <= n("eave_height_m")) add("ridge_height_m", "Ridge must be higher than eave");
+        if (n("bay_count") <= 0) add("bay_count", "Bay count must be greater than 0");
+        if (n("bay_spacing_m") <= 0) add("bay_spacing_m", "Bay spacing must be greater than 0");
+        if (n("purlin_spacing_m") <= 0) add("purlin_spacing_m", "Purlin spacing must be greater than 0");
+
+        if (mode === "pro") {
+          if (n("column_base_depth_mm") <= 2 * n("column_flange_thk_mm")) add("column_base_depth_mm", "Depth must exceed 2 x tf");
+          if (n("column_top_depth_mm") <= 2 * n("column_flange_thk_mm")) add("column_top_depth_mm", "Depth must exceed 2 x tf");
+          if (n("rafter_eave_depth_mm") <= 2 * n("rafter_flange_thk_mm")) add("rafter_eave_depth_mm", "Depth must exceed 2 x tf");
+          if (n("rafter_ridge_depth_mm") <= 2 * n("rafter_flange_thk_mm")) add("rafter_ridge_depth_mm", "Depth must exceed 2 x tf");
+          if (!["BOX", "C", "Z"].includes(String(payload.purlin_type || "").toUpperCase())) add("purlin_type", "Use BOX, C, or Z");
+          if (!["AUTO", "COUNT"].includes(String(payload.roof_brace_bay_layout || "").toUpperCase())) add("roof_brace_bay_layout", "Use AUTO or COUNT");
+          if (!["ROUND", "BOX", "ANGLE"].includes(String(payload.roof_brace_profile || "").toUpperCase())) add("roof_brace_profile", "Use ROUND, BOX, or ANGLE");
+          if (n("roof_brace_bay_count") > n("bay_count")) add("roof_brace_bay_count", "Cannot exceed bay count");
+        }
+
+        if (showNotice && errors.length) {
+          qs("notice").textContent = errors[0];
+          qs("notice").style.display = "block";
+        }
+        qs("status").textContent = errors.length ? `${errors.length} issue(s) to fix` : "Ready";
+        return errors.length === 0;
+      }
+      function createPeb() {
+        if (!validateAll(true)) return;
+        send("createPeb", payload);
+        qs("status").textContent = "Creating model...";
+      }
+      function resetDefaults() {
+        payload = Object.assign({}, defaults);
+        render();
+      }
+      window.gopebSetStatus = function(message, ok) {
+        qs("status").textContent = message || "";
+        qs("status").style.color = ok ? "var(--good)" : "var(--warn)";
+      };
+      render();
+    </script>
+  </body>
+</html>
