@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GOBeam X Span - คู่มือการใช้งาน</title>
+  <meta name="description" content="คู่มือการใช้งานโปรแกรมวิเคราะห์โครงสร้างคานต่อเนื่อง GOBeam X Span สำหรับผู้เริ่มต้น">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Noto+Sans+Thai:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <div class="layout">
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar">
+      <h2>GOBeam X Span</h2>
+      <ul>
+        <li><a href="#getting-started" class="active">1. การเริ่มต้นใช้งาน</a></li>
+        <li><a href="#interface">2. ส่วนประกอบของหน้าจอ</a></li>
+        <li><a href="#modeling">3. การสร้างโมเดลคาน</a></li>
+        <li><a href="#loading">4. การใส่น้ำหนักบรรทุก</a></li>
+        <li><a href="#analysis">5. การวิเคราะห์โครงสร้าง</a></li>
+        <li><a href="#results">6. การดูผลลัพธ์และรายงาน</a></li>
+      </ul>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="content">
+      <header class="hero">
+        <h1>คู่มือการใช้งานสำหรับผู้เริ่มต้น</h1>
+        <p>เรียนรู้วิธีการวิเคราะห์คานต่อเนื่อง (Continuous Beam) ด้วยโปรแกรม GO Struct Analysis / GOBeam X Span แบบเป็นขั้นตอน</p>
+      </header>
+
+      <section id="getting-started">
+        <h2 class="section-title">1. การเริ่มต้นใช้งาน</h2>
+        <div class="card">
+          <h3>การติดตั้งโปรแกรม (Installation)</h3>
+          <p>หากคุณมีไฟล์นามสกุล <code>.rbz</code> เช่น <code>go_struct_analysis_v1.0.0.rbz</code> คุณสามารถติดตั้งลงใน SketchUp ได้ง่ายๆ ดังนี้:</p>
+          <ul class="step-list">
+            <li>เปิดโปรแกรม SketchUp</li>
+            <li>ไปที่เมนู <strong>Extensions > Extension Manager</strong></li>
+            <li>คลิกที่ปุ่ม <strong>Install Extension</strong> ด้านล่าง</li>
+            <li>เลือกไฟล์ <code>.rbz</code> ที่บันทึกไว้ แล้วกด Open</li>
+          </ul>
+          
+          <h3>การเปิดใช้งาน</h3>
+          <p>เมื่อติดตั้งเสร็จแล้ว คุณสามารถเรียกใช้งาน GOBeam X Span ได้ 2 วิธี:</p>
+          <ul class="step-list">
+            <li>ผ่านแถบเครื่องมือ: คลิกที่ <strong>ไอคอนรูปคาน (GO Struct Analysis)</strong> บน Toolbar</li>
+            <li>ผ่านเมนูหลัก: ไปที่ <strong>Extensions > GO Struct Analysis > Continuous Beam</strong></li>
+          </ul>
+          <div class="image-container">
+            <img src="assets/su_hud.png" alt="การเปิดใช้งานจากในโปรแกรม SketchUp">
+            <div class="image-caption">ภาพแสดงการแสดงผล 3D HUD ภายในโมเดล SketchUp</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="interface">
+        <h2 class="section-title">2. ส่วนประกอบของหน้าจอ</h2>
+        <div class="card">
+          <p>หน้าต่างหลักของโปรแกรมแบ่งออกเป็น 2 ส่วนสำคัญ:</p>
+          <ul>
+            <li><strong>แถบเครื่องมือด้านซ้าย (Sidebar Input):</strong> สำหรับกรอกข้อมูลโปรเจกต์ เพิ่มความยาวคาน เพิ่มหน้าตัด และใส่น้ำหนักบรรทุก</li>
+            <li><strong>พื้นที่แสดงผลด้านขวา (Main View):</strong> สำหรับแสดงกราฟิกจำลองคานต่อเนื่อง และผลลัพธ์กราฟแรงเฉือน (SFD) และโมเมนต์ดัด (BMD)</li>
+          </ul>
+          <div class="image-container">
+            <img src="assets/ui_analysis.png" alt="หน้าต่างหลักและกราฟผลลัพธ์">
+            <div class="image-caption">พื้นที่ด้านขวาแสดงกราฟแรงเฉือน (SFD) และกราฟโมเมนต์ดัด (BMD) ทันทีที่วิเคราะห์เสร็จ</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="modeling">
+        <h2 class="section-title">3. การสร้างโมเดลคาน</h2>
+        <div class="card">
+          <ul class="step-list">
+            <li><strong>เพิ่มช่วงคาน (Add Span):</strong> ในหัวข้อ BEAM กดปุ่ม <code>Add Span</code> เพื่อเพิ่มช่วงคานใหม่ (คานสามารถมีได้หลายช่วงต่อเนื่องกัน)</li>
+            <li><strong>กำหนดความยาว:</strong> ในกล่อง SPAN ให้เลือกหมายเลขคาน แล้วกรอก <code>Beam Span (m)</code></li>
+            <li><strong>กำหนดหน้าตัดวัสดุ:</strong> เลือกวัสดุเป็น Concrete หรือ Steel แล้วกำหนดขนาดความกว้าง <code>Rect b</code> และความลึก <code>Rect h</code> ของหน้าตัด</li>
+          </ul>
+          <p>โปรแกรมจะคำนวณค่า Inertia (I) และ Stiffness (EI) ให้โดยอัตโนมัติ พร้อมวาดรูปคานให้เห็นแบบเรียลไทม์ทางขวามือ</p>
+        </div>
+      </section>
+
+      <section id="loading">
+        <h2 class="section-title">4. การใส่น้ำหนักบรรทุก</h2>
+        <div class="card">
+          <p>คุณสามารถเพิ่มน้ำหนักได้ 2 ประเภทหลักๆ คือ Point Load (แรงกระทำเป็นจุด) และ Uniform Load (แรงกระทำแบบกระจายสม่ำเสมอ)</p>
+          <ul class="step-list">
+            <li>ไปที่หัวข้อ SPAN แล้วกดปุ่ม <code>Add Uniform Load</code> หรือ <code>Add Point Load</code></li>
+            <li>กรอกค่าน้ำหนัก (เช่น กิโลกรัมต่อเมตร สำหรับ Uniform)</li>
+            <li>ระบุระยะ <code>x1</code> และ <code>x2</code> ว่าจะให้กระทำตรงจุดไหนของช่วงคานนั้นๆ</li>
+            <li>เลือกว่าน้ำหนักนี้เป็น <strong>DL (Dead Load)</strong> หรือ <strong>LL (Live Load)</strong> เพื่อให้โปรแกรมนำไปคูณ Factor ตอนวิเคราะห์</li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="analysis">
+        <h2 class="section-title">5. การวิเคราะห์โครงสร้าง</h2>
+        <div class="card">
+          <p>หัวใจหลักของโปรแกรมคือการคำนวณอย่างถูกต้องตามหลักวิศวกรรม</p>
+          <ul class="step-list">
+            <li>ในกล่อง ANALYSIS ให้เลือก <strong>Combination</strong> ที่ต้องการจาก Dropdown เช่น <code>1.4DL + 1.7LL [EIT / กฎกระทรวง]</code> หรือ <code>1.2DL + 1.6LL [ACI / วสท. ใหม่]</code></li>
+            <li>เมื่อเลือกแล้ว ตัวคูณ Factor จะเปลี่ยนให้อัตโนมัติ</li>
+            <li>กดปุ่ม <strong>ANALYZE</strong> สีเขียวด้านล่างสุด!</li>
+          </ul>
+          <div class="image-container">
+            <img src="assets/ui_main.png" alt="กราฟิกคานและการกดปุ่ม Analyze">
+            <div class="image-caption">หลังจากกด Analyze กราฟการแอ่นตัวและโมเมนต์จะปรากฏขึ้น</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="results">
+        <h2 class="section-title">6. การดูผลลัพธ์และรายงาน</h2>
+        <div class="card">
+          <h3>การส่งออกรายงาน (Print Report)</h3>
+          <p>หากคุณต้องการเซฟผลลัพธ์เพื่อนำไปใช้งาน หรือแนบในรายการคำนวณ:</p>
+          <ul class="step-list">
+            <li>กดปุ่ม <strong>Report</strong> ที่มุมขวาบนของหน้าต่างหลัก</li>
+            <li>โปรแกรมจะเปิดหน้าต่างสรุปรายงานขึ้นมา ซึ่งประกอบด้วยรายละเอียดโครงสร้าง รูปกราฟโมเมนต์ และตารางแสดงรายการคำนวณ (Calculation Matrix) อย่างละเอียด</li>
+            <li>กดปุ่ม <strong>Print Report</strong> มุมซ้ายบน เพื่อเซฟเป็นไฟล์ PDF ออกมาได้เลย</li>
+          </ul>
+          
+          <div class="image-container">
+            <img src="assets/report_1.png" alt="หน้ารายงานที่ 1 - สรุปคานและตารางน้ำหนัก">
+            <div class="image-caption">ตัวอย่างรายงานหน้าแรก: รูปแสดง Factored Load และตารางข้อมูลคาน</div>
+          </div>
+          <div class="image-container">
+            <img src="assets/report_2.png" alt="หน้ารายงานที่ 2 - รายการคำนวณ Matrix">
+            <div class="image-caption">ตัวอย่างรายงานหน้าคำนวณ: แสดง Stiffness Matrix และ Fixed End Moments ครบถ้วน</div>
+          </div>
+        </div>
+      </section>
+      
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
