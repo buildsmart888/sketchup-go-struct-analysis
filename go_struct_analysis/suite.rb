@@ -2,7 +2,7 @@ module GOStructAnalysis
   module Suite
     MODULE_REGISTRY = [
       { id: 'continuous_beam', name: 'Continuous Beam', status: 'READY', command: 'openGobeam', description: 'GOBeam X Span analysis with load combinations.' },
-      { id: 'truss', name: 'Truss Analysis', status: 'PLANNED', command: nil, description: 'Pin-jointed truss solver module.' },
+      { id: 'truss', name: 'Truss Analysis', status: 'READY', command: 'openGotruss', description: 'Pin-jointed truss solver module.' },
       { id: 'frame', name: 'Frame Analysis', status: 'PLANNED', command: nil, description: '2D frame stiffness solver module.' },
       { id: 'steel_frame', name: 'Steel Frame Design', status: 'PLANNED', command: nil, description: 'Steel member checks for ASD/LRFD workflows.' },
       { id: 'mixed_system', name: 'Mixed System', status: 'PLANNED', command: nil, description: 'Combined beam, truss, and frame system workflow.' }
@@ -35,6 +35,7 @@ module GOStructAnalysis
         @main_dialog = UI::WebDialog.new('GO Struct Analysis', true, 'go_struct_analysis.main', 980, 680, 80, 80, true)
       end
       @main_dialog.add_action_callback('openGobeam') { |_context, _payload| show_gobeam_dialog }
+      @main_dialog.add_action_callback('openGotruss') { |_context, _payload| show_gotruss_dialog }
       clear_dialog_on_close(@main_dialog, :@main_dialog)
       @main_dialog
     end

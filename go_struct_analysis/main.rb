@@ -4,11 +4,13 @@ require 'time'
 require 'tmpdir'
 require 'uri'
 
-require_relative 'support'
-require_relative 'model'
-require_relative 'suite'
-require_relative 'gobeam'
-require_relative 'draw_gobeam'
+Sketchup.require 'go_struct_analysis/support'
+Sketchup.require 'go_struct_analysis/model'
+Sketchup.require 'go_struct_analysis/suite'
+Sketchup.require 'go_struct_analysis/gobeam'
+Sketchup.require 'go_struct_analysis/draw_gobeam'
+Sketchup.require 'go_struct_analysis/gotruss'
+Sketchup.require 'go_struct_analysis/draw_gotruss'
 
 module GOStructAnalysis
   extend self
@@ -17,6 +19,8 @@ module GOStructAnalysis
   extend Suite
   extend Gobeam
   extend DrawGobeam
+  extend Gotruss
+  extend DrawGotruss
 
   VERSION = 1
   TEMPLATE_ROOT = File.join(File.dirname(__FILE__), 'templates')
@@ -35,6 +39,7 @@ module GOStructAnalysis
     menu = UI.menu('Extensions').add_submenu('GO Struct Analysis')
     menu.add_item('Open') { show_main_dialog }
     menu.add_item('Continuous Beam') { show_gobeam_dialog }
+    menu.add_item('Truss Analysis') { show_gotruss_dialog }
 
     toolbar = UI::Toolbar.new('GO Struct Analysis')
     
@@ -46,6 +51,15 @@ module GOStructAnalysis
     cmd_beam.menu_text = 'Continuous Beam'
     
     toolbar.add_item(cmd_beam)
+
+    cmd_truss = UI::Command.new('Truss Analysis') { show_gotruss_dialog }
+    cmd_truss.small_icon = File.join(File.dirname(__FILE__), 'icons', 'gotruss_16.png')
+    cmd_truss.large_icon = File.join(File.dirname(__FILE__), 'icons', 'gotruss_24.png')
+    cmd_truss.tooltip = 'Pin-jointed Truss Analysis'
+    cmd_truss.status_bar_text = 'Open Truss Analysis'
+    cmd_truss.menu_text = 'Truss Analysis'
+    
+    toolbar.add_item(cmd_truss)
     toolbar.show
 
     @menu_installed = true

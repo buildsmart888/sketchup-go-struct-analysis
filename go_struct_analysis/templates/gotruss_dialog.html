@@ -1,0 +1,1366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pratt Truss Analysis</title>
+    <style>
+      :root {
+        --ink: #172025;
+        --muted: #66757d;
+        --line: #dce4e7;
+        --panel: #ffffff;
+        --paper: #eef3f3;
+        --graphite: #263236;
+        --graphite-2: #344247;
+        --go: #00a86b;
+        --go-dark: #08764f;
+        --shadow: rgba(25, 42, 47, 0.12);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: linear-gradient(90deg, rgba(38,50,54,0.05) 1px, transparent 1px), linear-gradient(180deg, rgba(38,50,54,0.05) 1px, transparent 1px), var(--paper);
+        background-size: 28px 28px;
+        color: var(--ink);
+        font-family: 'Segoe UI', Tahoma, sans-serif;
+        font-size: 13px;
+        height: 100vh;
+        overflow: hidden;
+      }
+      button, input, select { font: inherit; }
+      button {
+        border: 1px solid #c7d2d5;
+        background: #fff;
+        color: var(--graphite);
+        border-radius: 6px;
+        min-height: 30px;
+        padding: 4px 10px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      button:hover { border-color: var(--go); color: var(--go-dark); }
+      button.primary { background: var(--go); color: #fff; border-color: var(--go); text-transform: uppercase; font-weight: 800; letter-spacing: 0.1em; }
+      button.soft { background: #e8f7f1; color: var(--go-dark); border-color: #b9e6d4; }
+      button.ghost { background: #f6f9f9; color: var(--graphite-2); }
+      input, select {
+        border: 1px solid #c9d4d7;
+        background: #fff;
+        color: var(--ink);
+        border-radius: 6px;
+        height: 26px;
+        padding: 2px 6px;
+      }
+      input[type='number'] { text-align: right; }
+      input:focus { outline: 2px solid rgba(0,168,107,0.16); border-color: var(--go); }
+      .app { height: 100vh; padding: 10px 14px; display: flex; flex-direction: column; }
+      .topbar {
+        display: flex; align-items: center; justify-content: space-between;
+        background: var(--graphite); color: #fff; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; flex-shrink: 0;
+      }
+      .brand { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 800; }
+      .go-mark { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 6px; background: var(--go); font-weight: 900; letter-spacing: -1px; }
+      .brand-title { display: flex; flex-direction: column; }
+      .brand-title small { color: #b7c5c9; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; }
+      .grid { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 10px; flex: 1; min-height: 0; }
+      aside { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; padding-right: 4px; }
+      fieldset { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 12px; box-shadow: 0 4px 12px rgba(25,42,47,0.04); margin: 0; }
+      legend { color: var(--graphite); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; padding: 0 5px; }
+      .row { display: grid; grid-template-columns: 110px minmax(0, 1fr) 20px; gap: 4px; align-items: center; margin-bottom: 6px; }
+      .row:last-child { margin-bottom: 0; }
+      .row.factor { grid-template-columns: 110px 1fr; }
+      .unit { font-size: 11px; color: var(--muted); padding-left: 2px; }
+      .analyze { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+      .sidebar { width: 280px; background-color: #f8f9fa; padding: 15px; border-right: 1px solid var(--line); display: flex; flex-direction: column; overflow-y: auto; }
+      .stage { border: 1px solid var(--line); border-radius: 8px; background: #fff; display: flex; flex-direction: column; overflow: hidden; }
+      .tabs { display: flex; gap: 4px; padding: 8px 10px 0; background: #f7faf9; border-bottom: 1px solid var(--line); }
+      .tab { background: var(--graphite); border-radius: 6px 6px 0 0; color: #fff; padding: 6px 14px; min-height: 30px; border: none; font-size: 12px; }
+      .tab.inactive { color: #607177; background: #e8eeee; cursor: pointer; border-bottom: 1px solid var(--line); }
+      .canvas-area { flex: 1; position: relative; padding: 10px; min-height: 0; }
+      .tab-content { display: none; width: 100%; height: 100%; position: absolute; top:0; left:0; padding:10px; box-sizing: border-box; }
+      .tab-content.active { display: block; }
+      canvas { display: block; width: 100%; height: 100%; }
+      #tab-result { overflow: auto; font-family: monospace; white-space: pre-wrap; background: #fff; }
+      .type-inp { width: 60px; }
+    table { width: 100%; border-collapse: collapse; }
+th, td { border: 1px solid var(--line); padding: 4px 5px; text-align: left; vertical-align: middle; }
+th { background: #eef4f3; color: #34404d; font-size: 11px; }
+td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 4px; }
+.load-table { margin-top: 6px; width: 100%; font-size: 11px; }
+.load-table button.danger { min-width: 40px; padding: 2px 6px; font-size: 10px; min-height: 20px; }
+    </style>
+</head>
+<body>
+
+  <div class="app">
+    <div class="topbar">
+      <div class="brand">
+        <div class="go-mark">GO</div>
+        <div class="brand-title"><small>Struct Analysis</small><span>Pratt Truss</span></div>
+      </div>
+    </div>
+    
+    <div class="grid">
+      <aside>
+        <fieldset>
+          <legend>Project Info</legend>
+          <div class="row factor"><label>Truss Name</label><input type="text" id="inp-trussname" value="T-1"></div>
+          <div class="row factor"><label>Project</label><input type="text" id="inp-project" value="Structure"></div>
+          <div class="row factor"><label>Company</label><input type="text" id="inp-company" value="GO Structure"></div>
+          <div class="row factor"><label>Engineer</label><input type="text" id="inp-engineer" value="Structural Engineer"></div>
+          <div class="row factor"><label>Location</label><input type="text" id="inp-location" value="Bangkok THAILAND"></div>
+        </fieldset>
+        
+        <fieldset>
+  <legend>Analysis</legend>
+  <div class="row factor">
+    <label>Combination</label>
+    <select id="inp-combo" onchange="updateFactors()">
+      <option value="service">1.0DL + 1.0LL [Service]</option>
+      <option value="ultimate">1.4DL + 1.7LL [Ultimate]</option>
+      <option value="custom">Custom</option>
+    </select>
+  </div>
+  <div class="row factor"><label>DL Factor</label><input type="number" id="inp-dl-factor" value="1.0" step="0.1"></div>
+  <div class="row factor"><label>LL Factor</label><input type="number" id="inp-ll-factor" value="1.0" step="0.1"></div>
+</fieldset>
+
+<fieldset>
+  <legend>Geometry</legend>
+  <div style="margin-bottom: 8px;">
+    <label style="display:block; margin-bottom: 4px; font-weight: bold; color: var(--graphite);">Truss Type</label>
+    <select id="inp-truss-type" onchange="updateGeometryPreview()" style="width:100%;">
+      <optgroup label="Flat Trusses">
+        <option value="pratt_flat">Pratt Flat Truss</option>
+        <option value="howe_flat">Howe Flat Truss</option>
+        <option value="warren_flat">Warren Flat Truss</option>
+        <option value="warren_vert_flat">Warren Flat Truss (with verticals)</option>
+        <option value="k_truss_flat">K-Truss Flat</option>
+      </optgroup>
+      <optgroup label="Pitched / Roof Trusses">
+        <option value="pratt_sym">Pratt Truss (Standard Pitched)</option>
+        <option value="howe_sym">Howe Truss (Standard Pitched)</option>
+        <option value="fink">Fink Truss</option>
+        <option value="fan">Fan Truss</option>
+        <option value="sloping_flat">Sloping Flat Truss (Parallel chords)</option>
+        <option value="sloping_flat_asym">Sloping Flat Truss (One-way webs)</option>
+        <option value="mono_pitch">Mono-Pitch Truss</option>
+        <option value="mono_pitch_left">Mono-Pitch Truss (Left Diagonals)</option>
+        <option value="shed">Shed Truss (Howe pattern at peak)</option>
+        <option value="shed_warren">Shed Truss (Warren pattern)</option>
+      </optgroup>
+      <optgroup label="Triangular Trusses">
+        <option value="triangular_howe">Triangular Howe Truss</option>
+        <option value="triangular_pratt">Triangular Pratt Truss</option>
+      </optgroup>
+      <optgroup label="Bridge & Trapezoidal Trusses">
+        <option value="howe_sym">Howe Truss (Standard Pitched)</option>
+        <option value="warren_sym">Warren Truss (Pitched with verticals)</option>
+        <option value="bridge_howe">Bridge Howe Truss</option>
+        <option value="bridge_pratt">Bridge Pratt Truss</option>
+        <option value="bridge_warren_vert">Warren Truss with Vertical</option>
+      </optgroup>
+      <optgroup label="Curved Trusses">
+        <option value="scissor_sym">Scissor Truss</option>
+        <option value="scissor_curved">Curved Scissor Truss</option>
+        <option value="bow_string">Bow String Truss</option>
+        <option value="barrel">Barrel Truss</option>
+        <option value="lenticular">Lenticular Truss</option>
+      </optgroup>
+    </select>
+  </div>
+  <div class="row factor"><label>Panels (N)</label><input type="number" id="inp-n" value="10" min="2" step="2" style="width: 60px; flex: none;" oninput="updateDefaultUniformLoad(); updateGeometryPreview()"></div>
+  <fieldset>
+    <legend>Support Nodes (index from ends)</legend>
+    <div style="display:flex; justify-content:center; gap:20px;">
+      <input type="number" id="inp-ne-left" value="1" min="0" style="width: 60px;" oninput="updateDefaultUniformLoad(); updateGeometryPreview()">
+      <input type="number" id="inp-ne-right" value="1" min="0" style="width: 60px;" oninput="updateDefaultUniformLoad(); updateGeometryPreview()">
+    </div>
+  </fieldset>
+  <div class="row"><label>Panel Len (L)</label><input type="number" id="inp-l" value="0.5" step="0.1" style="width: 60px; flex: none;" oninput="updateDefaultUniformLoad(); updateGeometryPreview()"><span class="unit">m</span></div>
+  <div class="row" id="row-he"><label>Ends H (He)</label><input type="number" id="inp-he" value="0.5" step="0.1" style="width: 60px; flex: none;" oninput="updateGeometryPreview()"><span class="unit">m</span></div>
+  <div class="row" id="row-hm"><label>Mid H (Hm)</label><input type="number" id="inp-hm" value="1.0" step="0.1" style="width: 60px; flex: none;" oninput="updateGeometryPreview()"><span class="unit">m</span></div>
+  <div class="row" id="row-hb" style="display:none;"><label>Btm Mid H (Hb)</label><input type="number" id="inp-hb" value="0.5" step="0.1" style="width: 60px; flex: none;" oninput="updateGeometryPreview()"><span class="unit">m</span></div>
+  <div class="row" id="row-hs" style="display:none;"><label>Right Elev. (Hs)</label><input type="number" id="inp-hs" value="2.0" step="0.1" style="width: 60px; flex: none;" oninput="updateGeometryPreview()"><span class="unit">m</span></div>
+</fieldset>
+
+<fieldset>
+  <legend>Loads</legend>
+  <div style="margin-bottom: 8px;">
+    <button class="soft" onclick="addUniformLoad(100, 0, 5, 'Top', 'DL')" style="font-size:10px; padding:2px 6px;">+ Add Uniform Load</button>
+    <table class="load-table uniform-table" id="table-uniform">
+      <thead><tr><th>w (kg/m)</th><th>x1 (m)</th><th>x2 (m)</th><th>Chord</th><th>Case</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div>
+    <button class="soft" onclick="addPointLoad(500, 2.5, 'Top', 'DL')" style="font-size:10px; padding:2px 6px;">+ Add Point Load</button>
+    <table class="load-table point-table" id="table-point">
+      <thead><tr><th>P (kg)</th><th>x (m)</th><th>Chord</th><th>Case</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>Sections</legend>
+  <div class="row"><label>Chord Area</label><input type="number" id="inp-ac" value="20" style="width: 60px; flex: none;"><span class="unit">cm&sup2;</span></div>
+  <div class="row"><label>Web Area</label><input type="number" id="inp-aw" value="10" style="width: 60px; flex: none;"><span class="unit">cm&sup2;</span></div>
+</fieldset>
+
+
+        
+
+        <fieldset>
+          <div class="row factor" style="display:flex; flex-wrap:wrap; gap:10px;">
+            <label style="display:flex; align-items:center; gap:4px; font-weight:normal;"><input type="checkbox" id="chk-show-nodes" onchange="renderAll()" checked> Node Labels</label>
+            <label style="display:flex; align-items:center; gap:4px; font-weight:normal;"><input type="checkbox" id="chk-show-members" onchange="renderAll()" checked> Member Labels</label>
+            <label style="display:flex; align-items:center; gap:4px; font-weight:normal;"><input type="checkbox" id="chk-show-reactions" onchange="renderAll()" checked> Reactions</label>
+          </div>
+        </fieldset>
+
+        <div class="analyze">
+          <button class="primary" onclick="analyzeModel()">Analyze Truss</button>
+          <button class="soft" onclick="draw3D()">Draw 3D SketchUp</button>
+          <button class="ghost" onclick="openReport()">Print Report</button>
+          <div id="status-msg" style="text-align:center; font-size:11px; color:var(--muted); margin-top:2px;">Ready</div>
+        </div>
+      </aside>
+
+      <main class="stage">
+        <div class="tabs">
+          <button class="tab" id="tabbtn-truss" onclick="switchTab('tab-truss', 'tabbtn-truss')">Truss Geometry</button>
+          <button class="tab inactive" id="tabbtn-result" onclick="switchTab('tab-result', 'tabbtn-result')">Text Results</button>
+          <button class="tab inactive" id="tabbtn-forces" onclick="switchTab('tab-forces', 'tabbtn-forces')">Member Forces</button>
+          <button class="tab inactive" id="tabbtn-deformation" onclick="switchTab('tab-deformation', 'tabbtn-deformation')">Deformation</button>
+        </div>
+        <div class="canvas-area">
+          <div id="tab-truss" class="tab-content active" style="overflow-y:auto; padding: 14px 18px;">
+  <div style="font-size:12px; font-weight:bold; color:#34404d; margin-bottom: 4px;">Applied Loads (Uniform/Point Loads)</div>
+  <canvas id="canvas-applied" style="width:100%; height:240px; display:block; margin-bottom:16px; border:1px solid #ddd;"></canvas>
+  <div style="font-size:12px; font-weight:bold; color:#34404d; margin-bottom: 4px;">Equivalent Nodal Loads</div>
+  <canvas id="canvas-truss" style="width:100%; height:240px; display:block; border:1px solid #ddd;"></canvas>
+</div>
+
+          <div id="tab-result" class="tab-content"><div id="result-text-area">Results will appear here after analysis.</div></div>
+          <div id="tab-forces" class="tab-content"><canvas id="canvas-forces"></canvas></div>
+          <div id="tab-deformation" class="tab-content"><canvas id="canvas-deformation"></canvas></div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+    <script>
+        let currentModel = null;
+        let currentResult = null;
+        let isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+
+        function sketchupCall(command, payload) {
+            if (window.sketchup) {
+                window.sketchup[command](payload);
+            } else if (isMac) {
+                window.location.href = 'skp:' + command + '@' + encodeURIComponent(JSON.stringify(payload));
+            } else {
+                console.log('Sketchup call:', command, payload);
+            }
+        }
+
+        window.onload = function() {
+            try {
+                let mHtml = `{{MODEL_JSON}}`;
+                let rHtml = `{{RESULT_JSON}}`;
+                if(mHtml && mHtml !== '{{MODEL_JSON}}') currentModel = JSON.parse(mHtml);
+                if(rHtml && rHtml !== '{{RESULT_JSON}}') currentResult = JSON.parse(rHtml);
+                
+                if(currentModel) populateInputs(currentModel.parameters, currentModel.projectInfo);
+                if(currentResult && currentResult.ok) {
+                    renderAll();
+                } else {
+                    updateModel();
+                }
+            } catch(e) {
+                console.error("Init error", e);
+            }
+            window.addEventListener('resize', renderAll);
+            updateGeometryPreview();
+        };
+
+        function updateFactors() {
+            let combo = document.getElementById('inp-combo').value;
+            let dl = document.getElementById('inp-dl-factor');
+            let ll = document.getElementById('inp-ll-factor');
+            if(combo === 'service') { dl.value = 1.0; ll.value = 1.0; }
+            else if(combo === 'ultimate') { dl.value = 1.4; ll.value = 1.7; }
+        }
+
+        function getTotalLength() {
+            let n = parseFloat(document.getElementById('inp-n').value) || 10;
+            let l = parseFloat(document.getElementById('inp-l').value) || 0.5;
+            return n * l;
+        }
+
+        function updateDefaultUniformLoad() {
+            let tb = document.querySelector('#table-uniform tbody');
+            if(tb.children.length === 1) {
+                let x2inp = tb.children[0].querySelector('.x2-inp');
+                if(x2inp) x2inp.value = getTotalLength();
+            }
+        }
+
+        function addUniformLoad(w, x1, x2, chord, type) {
+            let tbody = document.querySelector('#table-uniform tbody');
+            let tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="number" class="w-inp" value="${w}" oninput="updateGeometryPreview()"></td>
+                <td><input type="number" class="x1-inp" value="${x1}" oninput="updateGeometryPreview()"></td>
+                <td><input type="number" class="x2-inp" value="${x2}" oninput="updateGeometryPreview()"></td>
+                <td><select class="chord-inp" onchange="updateGeometryPreview()"><option ${chord=='Top'?'selected':''}>Top</option><option ${chord=='Bottom'?'selected':''}>Bottom</option></select></td>
+                <td><select class="type-inp" onchange="updateGeometryPreview()"><option ${type=='DL'?'selected':''}>DL</option><option ${type=='LL'?'selected':''}>LL</option></select></td>
+                <td><button class="danger" onclick="this.closest('tr').remove(); updateGeometryPreview()">Del</button></td>
+            `;
+            tbody.appendChild(tr);
+            updateGeometryPreview();
+        }
+
+        function addPointLoad(p, x, chord, type) {
+            let tbody = document.querySelector('#table-point tbody');
+            let tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="number" class="p-inp" value="${p}" oninput="updateGeometryPreview()"></td>
+                <td><input type="number" class="x-inp" value="${x}" oninput="updateGeometryPreview()"></td>
+                <td><select class="chord-inp" onchange="updateGeometryPreview()"><option ${chord=='Top'?'selected':''}>Top</option><option ${chord=='Bottom'?'selected':''}>Bottom</option></select></td>
+                <td><select class="type-inp" onchange="updateGeometryPreview()"><option ${type=='DL'?'selected':''}>DL</option><option ${type=='LL'?'selected':''}>LL</option></select></td>
+                <td><button class="danger" onclick="this.closest('tr').remove(); updateGeometryPreview()">Del</button></td>
+            `;
+            tbody.appendChild(tr);
+            updateGeometryPreview();
+        }
+
+        function clearLoadTables() {
+            document.querySelector('#table-uniform tbody').innerHTML = '';
+            document.querySelector('#table-point tbody').innerHTML = '';
+        }
+
+        function switchTab(tabId, btnId) {
+            document.querySelectorAll('.tab').forEach(t => { t.classList.add('inactive'); t.classList.remove('active'); });
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.getElementById(btnId).classList.remove('inactive');
+            document.getElementById(btnId).classList.add('active');
+            document.getElementById(tabId).classList.add('active');
+            renderAll();
+        }
+
+        function populateInputs(p, info) {
+            if(!p) return;
+            document.getElementById('inp-n').value = p.N;
+            document.getElementById('inp-ne-left').value = p.Ne_left !== undefined ? p.Ne_left : (p.Ne || 1);
+            document.getElementById('inp-ne-right').value = p.Ne_right !== undefined ? p.Ne_right : (p.Ne || 1);
+            document.getElementById('inp-l').value = p.L;
+            document.getElementById('inp-he').value = p.He;
+            document.getElementById('inp-hm').value = p.Hm;
+            if(p.truss_type) document.getElementById('inp-truss-type').value = p.truss_type;
+            document.getElementById('inp-ac').value = p.Ac;
+            document.getElementById('inp-aw').value = p.Aw;
+            
+            document.getElementById('inp-dl-factor').value = p.dl_factor !== undefined ? p.dl_factor : 1.0;
+            document.getElementById('inp-ll-factor').value = p.ll_factor !== undefined ? p.ll_factor : 1.0;
+            if(p.combo) document.getElementById('inp-combo').value = p.combo;
+
+            clearLoadTables();
+            if(p.uniform_loads && p.uniform_loads.length > 0) {
+                p.uniform_loads.forEach(l => addUniformLoad(l.w, l.x1, l.x2, l.chord, l.type));
+            } else if (!p.point_loads || p.point_loads.length === 0) {
+                addUniformLoad(100, 0, p.N * p.L, 'Top', 'DL');
+                updateGeometryPreview();
+            }
+
+            if(p.point_loads) {
+                p.point_loads.forEach(l => addPointLoad(l.p, l.x, l.chord, l.type));
+            }
+
+            if(info) {
+                document.getElementById('inp-trussname').value = currentModel.trussName || 'T-1';
+                document.getElementById('inp-project').value = info.project || 'Structure';
+                document.getElementById('inp-company').value = info.company || 'GO Structure';
+                document.getElementById('inp-engineer').value = info.engineer || 'Structural Engineer';
+                document.getElementById('inp-location').value = info.location || 'Bangkok THAILAND';
+            }
+        }
+
+        function generateTrussGeometry(params) {
+            let n = parseInt(params.N) || 10;
+            let ne_left = parseInt(params.Ne_left); if(isNaN(ne_left)) ne_left = 0;
+            let ne_right = parseInt(params.Ne_right); if(isNaN(ne_right)) ne_right = 0;
+            let l = parseFloat(params.L) || 0.5;
+            let type = params.truss_type || 'flat_pratt';
+            
+            let he = parseFloat(params.He); if(isNaN(he)) he = 0.5;
+            let hm = parseFloat(params.Hm) || 1.0;
+            let hb = parseFloat(params.Hb) || 0.5;
+            let hs = parseFloat(params.Hs); if(isNaN(hs)) hs = 2.0;
+            let ac = parseFloat(params.Ac) || 15.0;
+            let aw = parseFloat(params.Aw) || 10.0;
+            
+            if (type.includes('triangular') || type === 'bridge_howe' || type === 'bridge_pratt') he = 0.0;
+            
+            let left_pointy = (he <= 0.001);
+            let right_pointy = (he <= 0.001);
+
+            let nodes = [];
+            let elements = [];
+            let supports = [];
+            let loads = [];
+
+            let W = n * l;
+            
+            for (let i = 0; i <= n; i++) {
+                let x = i * l;
+                let y_btm = 0.0;
+                if (type === 'scissor_sym') y_btm = (i <= n/2) ? (hb/(n/2))*i : hb-(hb/(n/2))*(i-n/2);
+                else if (type === 'scissor_curved' || type === 'barrel') y_btm = 4.0*hb*(x*(W-x))/(W*W);
+                else if (type.startsWith('sloping_flat')) y_btm = (hs/W)*x;
+                else if (type === 'lenticular') y_btm = -4.0*hb*(x*(W-x))/(W*W);
+                nodes.push({ id: i, x: x, y: y_btm, type: 'bottom' });
+            }
+
+            for (let i = 0; i <= n; i++) {
+                let x = i * l;
+                let h = he;
+                if (type === 'scissor_curved' || type === 'bow_string' || type === 'barrel' || type === 'lenticular') {
+                    h = he + 4.0*(hm-he)*(x*(W-x))/(W*W);
+                } else if (type.startsWith('sloping_flat')) {
+                    h = he + (hs/W)*x;
+                } else if (type === 'mono_pitch') {
+                    h = hm * (1.0 - x/W);
+                    if (i === n) right_pointy = (hm * (1.0 - x/W) <= 0.001);
+                } else if (type === 'shed') {
+                    h = (x <= W/3) ? he + (hm-he)*(x/(W/3)) : hm * (1.0 - (x-W/3)/(2*W/3));
+                    if (i === n) right_pointy = (h <= 0.001);
+                } else if (type.includes('parallel') || type.includes('flat_pratt') || type.includes('pratt_asym')) {
+                    h = he;
+                } else if (type.startsWith('bridge_')) {
+                    h = (i === 0 || i === n) ? he : hm;
+                } else {
+                    h = he + (hm - he) * (1.0 - Math.abs(i - n/2) / (n/2));
+                }
+                let is_orphaned = (left_pointy && i === 0) || (right_pointy && i === n);
+                nodes.push({ id: n + 1 + i, x: x, y: h, type: is_orphaned ? 'orphaned' : 'top' });
+            }
+
+            let diag_pattern = 'pratt';
+            let has_verticals = true;
+
+            if (type === 'vierendeel') {
+                diag_pattern = 'none';
+            } else if (type === 'parallel_chord' || type === 'bridge_warren' || type === 'triangular_warren') {
+                diag_pattern = 'warren';
+                has_verticals = false;
+            } else if (type === 'pratt_asym' || type === 'sloping_flat_warren' || type === 'shed_warren' || type.includes('warren')) {
+                diag_pattern = 'warren';
+            } else if (type === 'sloping_flat_asym' || type === 'mono_pitch') {
+                diag_pattern = 'one_way_right';
+            } else if (type === 'mono_pitch_left') {
+                diag_pattern = 'one_way_left';
+            } else if (type === 'bridge_howe') {
+                diag_pattern = 'pratt';
+            } else if (type === 'bridge_pratt') {
+                diag_pattern = 'howe';
+            } else if (type.includes('howe') || type === 'flat_howe' || type === 'shed') {
+                diag_pattern = 'howe';
+            }
+
+            for (let i = 0; i < n; i++) {
+                elements.push({ n1: i, n2: i + 1, type: 'Bottom Chord', A: ac });
+                let n_left = (left_pointy && i === 0) ? 0 : (n + 1 + i);
+                let n_right = (right_pointy && i === n - 1) ? n : (n + 1 + i + 1);
+                if (n_left !== n_right) {
+                    elements.push({ n1: n_left, n2: n_right, type: 'Top Chord', A: ac });
+                }
+            }
+
+            if (has_verticals) {
+                for (let i = 0; i <= n; i++) {
+                    if (left_pointy && i === 0) continue;
+                    if (right_pointy && i === n) continue;
+                    if ((type === 'bridge_howe' || type === 'bridge_pratt') && (i === 0 || i === n)) continue;
+                    elements.push({ n1: i, n2: n + 1 + i, type: 'web', A: aw });
+                }
+            }
+            
+            if (diag_pattern !== 'none') {
+                let peak_index = Math.floor(n / 2);
+                if (type === 'shed' || type === 'shed_warren') {
+                    peak_index = Math.floor(n / 3);
+                }
+                for (let i = 0; i < n; i++) {
+                    let n_tl = (left_pointy && i === 0) ? 0 : (n + 1 + i);
+                    let n_tr = (right_pointy && i === n - 1) ? n : (n + 1 + i + 1);
+                    let n_bl = i;
+                    let n_br = i + 1;
+
+                    if (diag_pattern === 'one_way_right') {
+                        if (n_tl !== n_br) elements.push({ n1: n_tl, n2: n_br, type: 'web', A: aw });
+                    } else if (diag_pattern === 'one_way_left') {
+                        if (n_tr !== n_bl) elements.push({ n1: n_tr, n2: n_bl, type: 'web', A: aw });
+                    } else if (diag_pattern === 'pratt') {
+                        if (i < peak_index) {
+                            if (n_tl !== n_br) elements.push({ n1: n_tl, n2: n_br, type: 'web', A: aw });
+                        } else {
+                            if (n_tr !== n_bl) elements.push({ n1: n_tr, n2: n_bl, type: 'web', A: aw });
+                        }
+                    } else if (diag_pattern === 'howe') {
+                        if (i < peak_index) {
+                            if (n_tr !== n_bl) elements.push({ n1: n_bl, n2: n_tr, type: 'web', A: aw });
+                        } else {
+                            if (n_tl !== n_br) elements.push({ n1: n_br, n2: n_tl, type: 'web', A: aw });
+                        }
+                    } else if (diag_pattern === 'warren') {
+                        if (i % 2 === 0) {
+                            if (n_tl !== n_br) elements.push({ n1: n_tl, n2: n_br, type: 'web', A: aw });
+                        } else {
+                            if (n_tr !== n_bl) elements.push({ n1: n_bl, n2: n_tr, type: 'web', A: aw });
+                        }
+                    }
+                }
+            }
+
+            supports.push({ node: ne_left, dx: true, dy: true });
+            supports.push({ node: n - ne_right, dx: false, dy: true });
+            
+            // Distribute Uniform Loads
+            if (params.uniform_loads) {
+                params.uniform_loads.forEach(ul => {
+                    let w = parseFloat(ul.w) || 0;
+                    let x1 = parseFloat(ul.x1) || 0;
+                    let x2 = parseFloat(ul.x2) || 0;
+                    let chord = ul.chord;
+                    let type = ul.type || 'DL';
+                    let factor = type === 'LL' ? (parseFloat(params.ll_factor)||1) : (parseFloat(params.dl_factor)||1);
+                    let w_factored = w * factor;
+
+                    let chordNodes = nodes.filter(nd => nd.type.toLowerCase() === chord.toLowerCase()).sort((a,b) => a.x - b.x);
+                    
+                    chordNodes.forEach((node, idx) => {
+                        let trib_start = idx === 0 ? node.x : (node.x + chordNodes[idx-1].x) / 2.0;
+                        let trib_end = idx === chordNodes.length - 1 ? node.x : (node.x + chordNodes[idx+1].x) / 2.0;
+                        
+                        let overlap_start = Math.max(trib_start, x1);
+                        let overlap_end = Math.min(trib_end, x2);
+                        
+                        if (overlap_start < overlap_end) {
+                            let trib_length = overlap_end - overlap_start;
+                            loads.push({ node: node.id, fx: 0, fy: -w_factored * trib_length, case: type });
+                        }
+                    });
+                });
+            }
+
+            // Distribute Point Loads
+            if (params.point_loads) {
+                params.point_loads.forEach(pl => {
+                    let p_val = parseFloat(pl.p) || 0;
+                    let x = parseFloat(pl.x) || 0;
+                    let chord = pl.chord;
+                    let type = pl.type || 'DL';
+                    let factor = type === 'LL' ? (parseFloat(params.ll_factor)||1) : (parseFloat(params.dl_factor)||1);
+                    let p_factored = p_val * factor;
+                    
+                    let chordNodes = nodes.filter(nd => nd.type.toLowerCase() === chord.toLowerCase()).sort((a,b) => a.x - b.x);
+                    
+                    let left_node = chordNodes.slice().reverse().find(nd => nd.x <= x + 0.001);
+                    let right_node = chordNodes.find(nd => nd.x >= x - 0.001);
+                    
+                    if (left_node && right_node) {
+                        if (left_node.id === right_node.id) {
+                            loads.push({ node: left_node.id, fx: 0, fy: -p_factored, case: type });
+                        } else {
+                            let span = right_node.x - left_node.x;
+                            let left_ratio = (right_node.x - x) / span;
+                            let right_ratio = (x - left_node.x) / span;
+                            loads.push({ node: left_node.id, fx: 0, fy: -p_factored * left_ratio, case: type });
+                            loads.push({ node: right_node.id, fx: 0, fy: -p_factored * right_ratio, case: type });
+                        }
+                    } else if (left_node) {
+                        loads.push({ node: left_node.id, fx: 0, fy: -p_factored, case: type });
+                    } else if (right_node) {
+                        loads.push({ node: right_node.id, fx: 0, fy: -p_factored, case: type });
+                    }
+                });
+            }
+
+            // Consolidate loads by node
+            let consolidated_loads = [];
+            loads.forEach(l => {
+                let existing = consolidated_loads.find(cl => cl.node === l.node && cl.case === l.case);
+                if (existing) {
+                    existing.fx += l.fx;
+                    existing.fy += l.fy;
+                } else {
+                    consolidated_loads.push(l);
+                }
+            });
+            loads = consolidated_loads.filter(l => Math.abs(l.fx) > 0.01 || Math.abs(l.fy) > 0.01);
+
+            return { nodes, elements, supports, loads };
+        }
+
+        function updateGeometryPreview() {
+            let tType = document.getElementById('inp-truss-type').value;
+            document.getElementById('row-hb').style.display = ['scissor_sym', 'scissor_curved', 'barrel', 'lenticular'].includes(tType) ? 'flex' : 'none';
+            document.getElementById('row-hs').style.display = tType.startsWith('sloping_flat') ? 'flex' : 'none';
+            document.getElementById('row-hm').style.display = tType.startsWith('sloping_flat') || tType.includes('parallel') ? 'none' : 'flex';
+            document.getElementById('row-he').style.display = tType.includes('triangular') || tType.includes('bow_string') ? 'none' : 'flex';
+
+            let model = gatherInputs();
+            let c1 = document.getElementById('canvas-truss');
+            let c2 = document.getElementById('canvas-applied');
+            if(c1 && c1.offsetParent) renderTruss(c1, model.geometry, null);
+            if(c2 && c2.offsetParent) renderAppliedLoads(c2, model.geometry, model.parameters);
+        }
+
+        function gatherInputs() {
+            if(!currentModel) currentModel = { parameters: {}, projectInfo: {} };
+            let u_loads = [];
+            document.querySelectorAll('#table-uniform tbody tr').forEach(tr => {
+                u_loads.push({
+                    w: parseFloat(tr.querySelector('.w-inp').value) || 0,
+                    x1: parseFloat(tr.querySelector('.x1-inp').value) || 0,
+                    x2: parseFloat(tr.querySelector('.x2-inp').value) || 0,
+                    chord: tr.querySelector('.chord-inp').value,
+                    type: tr.querySelector('.type-inp').value
+                });
+            });
+            let p_loads = [];
+            document.querySelectorAll('#table-point tbody tr').forEach(tr => {
+                p_loads.push({
+                    p: parseFloat(tr.querySelector('.p-inp').value) || 0,
+                    x: parseFloat(tr.querySelector('.x-inp').value) || 0,
+                    chord: tr.querySelector('.chord-inp').value,
+                    type: tr.querySelector('.type-inp').value
+                });
+            });
+
+            currentModel.parameters = {
+                N: parseFloat(document.getElementById('inp-n').value),
+                Ne_left: parseFloat(document.getElementById('inp-ne-left').value),
+                Ne_right: parseFloat(document.getElementById('inp-ne-right').value),
+                L: parseFloat(document.getElementById('inp-l').value),
+                He: parseFloat(document.getElementById('inp-he').value),
+                Hm: parseFloat(document.getElementById('inp-hm').value),
+                Hb: parseFloat(document.getElementById('inp-hb').value),
+                Hs: parseFloat(document.getElementById('inp-hs').value),
+                truss_type: document.getElementById('inp-truss-type').value,
+                Ac: parseFloat(document.getElementById('inp-ac').value),
+                Aw: parseFloat(document.getElementById('inp-aw').value),
+                combo: document.getElementById('inp-combo').value,
+                dl_factor: parseFloat(document.getElementById('inp-dl-factor').value),
+                ll_factor: parseFloat(document.getElementById('inp-ll-factor').value),
+                show_node_labels: document.getElementById('chk-show-nodes').checked,
+                show_member_labels: document.getElementById('chk-show-members').checked,
+                show_reactions: document.getElementById('chk-show-reactions').checked,
+                uniform_loads: u_loads,
+                point_loads: p_loads
+            };
+            currentModel.geometry = generateTrussGeometry(currentModel.parameters);
+            return currentModel;
+        }
+
+        function updateModel() {
+            let model = gatherInputs();
+            sketchupCall('gotrussAnalyze', model);
+        }
+
+        function analyzeModel() {
+            updateModel();
+            switchTab('tab-result', 'tabbtn-result');
+        }
+        
+        function draw3D() {
+            if(!currentResult) return alert("Analyze first!");
+            sketchupCall('gotrussDraw3D', { model: currentModel, result: currentResult });
+        }
+
+        function openReport() {
+            if(!currentResult) return alert("Analyze first!");
+            sketchupCall('gotrussReport', currentModel);
+        }
+
+        function setupCanvas(canvas) {
+            let w = canvas.clientWidth || 800;
+            let h = canvas.clientHeight || 240;
+            canvas.width = w;
+            canvas.height = h;
+            let ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, w, h);
+
+            let geo = currentModel.geometry;
+            if (!geo || !geo.nodes) return ctx;
+            
+            function drawDimLine(x1, y1, x2, y2, text, offset_x=0, offset_y=0) {
+                ctx.beginPath();
+                ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+                ctx.strokeStyle = '#888'; ctx.lineWidth = 1; ctx.stroke();
+                let tick = 5;
+                let dx = x2 - x1, dy = y2 - y1;
+                let len = Math.hypot(dx, dy);
+                let nx = -dy/len * tick, ny = dx/len * tick;
+                ctx.beginPath();
+                ctx.moveTo(x1+nx, y1+ny); ctx.lineTo(x1-nx, y1-ny);
+                ctx.moveTo(x2+nx, y2+ny); ctx.lineTo(x2-nx, y2-ny);
+                ctx.stroke();
+                
+                ctx.fillStyle = '#444'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(text, (x1+x2)/2 + offset_x, (y1+y2)/2 + offset_y);
+            }
+            return ctx;
+        }
+
+        function getBounds(nodes) {
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            nodes.forEach(n => {
+                if(n.x < minX) minX = n.x;
+                if(n.x > maxX) maxX = n.x;
+                if(n.y < minY) minY = n.y;
+                if(n.y > maxY) maxY = n.y;
+            });
+            return { minX, maxX, minY, maxY, w: maxX - minX, h: maxY - minY };
+        }
+
+        function getTransform(canvas, bounds, margin = 60) {
+            let scale = Math.min((canvas.width - margin*2) / (bounds.w||1), (canvas.height - margin*2) / (bounds.h||1));
+            return {
+                scale,
+                x: (val) => canvas.width/2 + (val - (bounds.minX+bounds.maxX)/2) * scale,
+                y: (val) => canvas.height/2 - (val - (bounds.minY+bounds.maxY)/2) * scale
+            };
+        }
+
+        function renderTruss(canvas, geo, res) {
+            if(!canvas.offsetParent) return;
+            let ctx = setupCanvas(canvas);
+            let tf = getTransform(canvas, getBounds(geo.nodes), 60);
+
+            // Draw Members
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#0000ff';
+            geo.elements.forEach(el => {
+                let n1 = geo.nodes[el.n1];
+                let n2 = geo.nodes[el.n2];
+                ctx.beginPath();
+                ctx.moveTo(tf.x(n1.x), tf.y(n1.y));
+                ctx.lineTo(tf.x(n2.x), tf.y(n2.y));
+                ctx.stroke();
+            });
+
+            // Draw Nodes
+            ctx.fillStyle = '#ffff00';
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 1;
+            geo.nodes.forEach(n => {
+                if(n.type === 'orphaned') return;
+                ctx.beginPath();
+                ctx.arc(tf.x(n.x), tf.y(n.y), 4, 0, 2*Math.PI);
+                ctx.fill();
+                ctx.stroke();
+            });
+
+            // Draw Supports
+            ctx.fillStyle = '#ffcc00';
+            geo.supports.forEach(sup => {
+                let n = geo.nodes[sup.node];
+                let px = tf.x(n.x);
+                let py = tf.y(n.y) + 6;
+                ctx.beginPath();
+                ctx.moveTo(px, py);
+                ctx.lineTo(px - 10, py + 15);
+                ctx.lineTo(px + 10, py + 15);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                if(sup.dx === false) { // Roller
+                    ctx.beginPath();
+                    ctx.arc(px - 5, py + 18, 3, 0, 2*Math.PI);
+                    ctx.arc(px + 5, py + 18, 3, 0, 2*Math.PI);
+                    ctx.stroke();
+                }
+            });
+
+            // Draw Loads separated by case
+            ctx.lineWidth = 2;
+            let offsetByNode = {};
+            geo.loads.forEach(load => {
+                let n = geo.nodes[load.node];
+                let isDL = load.case !== 'LL';
+                let color = isDL ? '#ff0000' : '#0000ff';
+                ctx.strokeStyle = color;
+                ctx.fillStyle = color;
+                
+                if(load.fy < 0) {
+                    offsetByNode[load.node] = (offsetByNode[load.node] || 0) + 1;
+                    let num = offsetByNode[load.node];
+                    
+                    let px = tf.x(n.x) + (num > 1 ? 10 : 0);
+                    let py = tf.y(n.y) - 5;
+                    drawArrow(ctx, px, py - 30, px, py);
+                    ctx.font = "10px sans-serif";
+                    ctx.fillText(Math.abs(load.fy).toFixed(1) + " kg" + (load.case ? " ["+load.case+"]" : ""), px - 15, py - 35);
+                }
+            });
+
+            // Draw Reactions
+            let showReactions = document.getElementById('chk-show-reactions').checked;
+            if (showReactions && res && res.reactions) {
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#00aa00';
+                ctx.fillStyle = '#00aa00';
+                for (let nodeId in res.reactions) {
+                    let rx = res.reactions[nodeId].rx || 0;
+                    let ry = res.reactions[nodeId].ry || 0;
+                    let n = geo.nodes[nodeId];
+                    if (!n) continue;
+                    let px = tf.x(n.x);
+                    let py = tf.y(n.y);
+                    
+                    if (Math.abs(ry) > 0.1) {
+                        let dir = ry > 0 ? 1 : -1;
+                        drawArrow(ctx, px, py + dir * 30, px, py + dir * 5);
+                        ctx.font = "bold 13px sans-serif";
+                        ctx.fillText(Math.abs(ry).toFixed(1) + " kg", px + 10, py + dir * 20);
+                    }
+                    if (Math.abs(rx) > 0.1) {
+                        let dir = rx > 0 ? -1 : 1;
+                        drawArrow(ctx, px + dir * 30, py, px + dir * 5, py);
+                        ctx.font = "bold 13px sans-serif";
+                        ctx.fillText(Math.abs(rx).toFixed(1) + " kg", px + dir * 35, py - 10);
+                    }
+                }
+            }
+
+            // Removed drawLabels to prevent crash. Loads are not meant to be drawn here anyway, but kept the geo.loads loop just in case.
+            
+            // Draw Dimensions
+            let minX = Math.min(...geo.nodes.map(n=>n.x)), maxX = Math.max(...geo.nodes.map(n=>n.x));
+            let minY = Math.min(...geo.nodes.map(n=>n.y)), maxY = Math.max(...geo.nodes.map(n=>n.y));
+            let p1x = tf.x(minX), p2x = tf.x(maxX);
+            let p1y = tf.y(minY), p2y = tf.y(maxY);
+            let p_btm = tf.y(0); // Assuming bottom chord is mostly near 0
+            
+            ctx.beginPath(); ctx.moveTo(p1x, p_btm+15); ctx.lineTo(p1x, p_btm+35); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(p2x, p_btm+15); ctx.lineTo(p2x, p_btm+35); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(p1x, p_btm+25); ctx.lineTo(p2x, p_btm+25); ctx.stroke();
+            ctx.fillStyle = '#666'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText((maxX-minX).toFixed(2) + ' m', (p1x+p2x)/2, p_btm+20);
+            
+            // Draw Y Dimension
+            if (maxY > minY + 0.1) {
+                let pdx = p2x + 15;
+                ctx.beginPath(); ctx.moveTo(pdx, p1y); ctx.lineTo(pdx+20, p1y); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(pdx, p2y); ctx.lineTo(pdx+20, p2y); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(pdx+10, p1y); ctx.lineTo(pdx+10, p2y); ctx.stroke();
+                
+                ctx.save();
+                ctx.translate(pdx+15, (p1y+p2y)/2);
+                ctx.rotate(-Math.PI/2);
+                ctx.textAlign = 'center';
+                ctx.fillText((maxY-minY).toFixed(2) + ' m', 0, 0);
+                ctx.restore();
+            }
+
+            drawLabels(ctx, geo, tf);
+        }
+
+        function renderDeformation(canvas, geo, res) {
+            if(!canvas.offsetParent) return;
+            let ctx = setupCanvas(canvas);
+            let tf = getTransform(canvas, getBounds(geo.nodes), 60);
+
+            // Draw Base Truss light grey
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = '#cccccc';
+            geo.elements.forEach(el => {
+                let n1 = geo.nodes[el.n1];
+                let n2 = geo.nodes[el.n2];
+                ctx.beginPath();
+                ctx.moveTo(tf.x(n1.x), tf.y(n1.y));
+                ctx.lineTo(tf.x(n2.x), tf.y(n2.y));
+                ctx.stroke();
+            });
+
+            // Draw Supports
+            ctx.fillStyle = '#eeeeee';
+            ctx.strokeStyle = '#cccccc';
+            geo.supports.forEach(sup => {
+                let n = geo.nodes[sup.node];
+                let px = tf.x(n.x);
+                let py = tf.y(n.y) + 6;
+                ctx.beginPath();
+                ctx.moveTo(px, py);
+                ctx.lineTo(px - 10, py + 15);
+                ctx.lineTo(px + 10, py + 15);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                if(sup.dx === false) { // Roller
+                    ctx.beginPath();
+                    ctx.arc(px - 5, py + 18, 3, 0, 2*Math.PI);
+                    ctx.arc(px + 5, py + 18, 3, 0, 2*Math.PI);
+                    ctx.stroke();
+                }
+            });
+
+            // Scale deformation for visibility (e.g., max deformation becomes 20px)
+            let maxDef = Math.max(res.max_dx, res.max_dy);
+            let defScale = maxDef > 0 ? (20.0 / maxDef) / tf.scale : 0; 
+            
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#ff0000'; // Red deformed shape
+            geo.elements.forEach(el => {
+                let n1 = geo.nodes[el.n1];
+                let n2 = geo.nodes[el.n2];
+                let d1x = res.displacements[el.n1].dx * defScale;
+                let d1y = res.displacements[el.n1].dy * defScale;
+                let d2x = res.displacements[el.n2].dx * defScale;
+                let d2y = res.displacements[el.n2].dy * defScale;
+                
+                ctx.beginPath();
+                ctx.moveTo(tf.x(n1.x + d1x), tf.y(n1.y + d1y));
+                ctx.lineTo(tf.x(n2.x + d2x), tf.y(n2.y + d2y));
+                ctx.stroke();
+            });
+
+            // Labels
+            ctx.fillStyle = '#000';
+            ctx.font = '12px sans-serif';
+            ctx.fillText(`Max δy = ${(res.max_dy * 1000).toFixed(2)} mm`, canvas.width/2 - 40, canvas.height - 20);
+            ctx.fillText(`Max δx = ${(res.max_dx * 1000).toFixed(2)} mm`, canvas.width - 120, canvas.height - 20);
+
+            // Point to max displacement
+            if(res.max_dy_n !== undefined && res.max_dy_n >= 0) {
+                let n = geo.nodes[res.max_dy_n];
+                let d1x = res.displacements[res.max_dy_n].dx * defScale;
+                let d1y = res.displacements[res.max_dy_n].dy * defScale;
+                let px = tf.x(n.x + d1x);
+                let py = tf.y(n.y + d1y);
+                
+                // Draw a circle/target
+                ctx.beginPath();
+                ctx.arc(px, py, 6, 0, 2*Math.PI);
+                ctx.strokeStyle = 'rgba(255, 100, 100, 0.8)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // Draw an arrow pointing to it
+                ctx.beginPath();
+                ctx.moveTo(px, py + 30);
+                ctx.lineTo(px, py + 8);
+                ctx.strokeStyle = 'red';
+                ctx.stroke();
+                
+                // Draw arrowhead
+                ctx.beginPath();
+                ctx.moveTo(px, py + 8);
+                ctx.lineTo(px - 4, py + 15);
+                ctx.lineTo(px + 4, py + 15);
+                ctx.fillStyle = 'red';
+                ctx.fill();
+                
+                // Text label
+                ctx.fillStyle = 'red';
+                ctx.font = 'bold 12px sans-serif';
+                ctx.fillText(`Max δy here`, px - 30, py + 45);
+            }
+
+            // Point to max displacement X
+            if(res.max_dx_n !== undefined && res.max_dx_n >= 0) {
+                let n = geo.nodes[res.max_dx_n];
+                let d1x = res.displacements[res.max_dx_n].dx * defScale;
+                let d1y = res.displacements[res.max_dx_n].dy * defScale;
+                let px = tf.x(n.x + d1x);
+                let py = tf.y(n.y + d1y);
+                
+                // Draw a circle/target
+                ctx.beginPath();
+                ctx.arc(px, py, 6, 0, 2*Math.PI);
+                ctx.strokeStyle = 'rgba(100, 100, 255, 0.8)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // Draw an arrow pointing to it (horizontal)
+                ctx.beginPath();
+                ctx.moveTo(px + 30, py);
+                ctx.lineTo(px + 8, py);
+                ctx.strokeStyle = 'blue';
+                ctx.stroke();
+                
+                // Draw arrowhead
+                ctx.beginPath();
+                ctx.moveTo(px + 8, py);
+                ctx.lineTo(px + 15, py - 4);
+                ctx.lineTo(px + 15, py + 4);
+                ctx.fillStyle = 'blue';
+                ctx.fill();
+                
+                // Text label
+                ctx.fillStyle = 'blue';
+                ctx.font = 'bold 12px sans-serif';
+                ctx.fillText(`Max δx here`, px + 35, py + 4);
+            }
+        }
+
+        function renderTextResult(geo, res) {
+            let t_chord_id = res.max_t_chord_m >= 0 ? ` (M${res.max_t_chord_m + 1})` : '';
+            let c_chord_id = res.max_c_chord_m >= 0 ? ` (M${res.max_c_chord_m + 1})` : '';
+            let t_web_id = res.max_t_web_m >= 0 ? ` (M${res.max_t_web_m + 1})` : '';
+            let c_web_id = res.max_c_web_m >= 0 ? ` (M${res.max_c_web_m + 1})` : '';
+
+            let text = `TRUSS ANALYSIS SUMMARY\n`;
+            text += `======================\n\n`;
+            text += `Chord Members:\n`;
+            text += `  Max Tension     : ${res.max_t_chord.toFixed(2)} kg${t_chord_id}\n`;
+            text += `  Max Compression : ${res.max_c_chord.toFixed(2)} kg${c_chord_id}\n\n`;
+            text += `Web Members:\n`;
+            text += `  Max Tension     : ${res.max_t_web.toFixed(2)} kg${t_web_id}\n`;
+            text += `  Max Compression : ${res.max_c_web.toFixed(2)} kg${c_web_id}\n\n`;
+            text += `Overall:\n`;
+            text += `  Max Displacement (Y) : ${(res.max_dy*1000).toFixed(2)} mm\n`;
+            text += `  Max Displacement (X) : ${(res.max_dx*1000).toFixed(2)} mm\n\n`;
+            
+            text += `MEMBER FORCES (kg) & LENGTH (m.)\n`;
+            text += `-------------------------------------------------\n`;
+            
+            let total_chord_len = 0;
+            let total_web_len = 0;
+            
+            res.member_forces.forEach((f, i) => {
+                let el = geo.elements[i];
+                let n1 = geo.nodes[el.n1];
+                let n2 = geo.nodes[el.n2];
+                let dx = n2.x - n1.x;
+                let dy = n2.y - n1.y;
+                let len = Math.sqrt(dx*dx + dy*dy);
+
+                if (el.type.includes('Chord')) {
+                    total_chord_len += len;
+                } else {
+                    total_web_len += len;
+                }
+
+                let type = el.type.padEnd(6);
+                let val = f.toFixed(2).padStart(10);
+                let lenStr = len.toFixed(3).padStart(8);
+                let state = f > 0.01 ? '(T)' : (f < -0.01 ? '(C)' : '(0)');
+                text += `M${(i+1).toString().padStart(3)} [N${el.n1}-N${el.n2}] ${type} : ${val} ${state} | L = ${lenStr} m.\n`;
+            });
+            text += `-------------------------------------------------\n`;
+            text += `Total Chord Length : ${total_chord_len.toFixed(3)} m.\n`;
+            text += `Total Web Length   : ${total_web_len.toFixed(3)} m.\n`;
+            text += `Total Truss Length : ${(total_chord_len + total_web_len).toFixed(3)} m.\n\n`;
+            
+            if (res.summary) {
+                text += `\n${res.summary}\n`;
+            }
+            
+            document.getElementById('result-text-area').innerText = text;
+        }
+
+        function drawArrow(ctx, fromx, fromy, tox, toy) {
+            var headlen = 10;
+            var dx = tox - fromx;
+            var dy = toy - fromy;
+            var angle = Math.atan2(dy, dx);
+            ctx.beginPath();
+            ctx.moveTo(fromx, fromy);
+            ctx.lineTo(tox, toy);
+            ctx.lineTo(tox - headlen * Math.cos(angle - Math.PI / 6), toy - headlen * Math.sin(angle - Math.PI / 6));
+            ctx.moveTo(tox, toy);
+            ctx.lineTo(tox - headlen * Math.cos(angle + Math.PI / 6), toy - headlen * Math.sin(angle + Math.PI / 6));
+            ctx.stroke();
+        }
+
+        function renderAll() {
+            updateGeometryPreview();
+            if(currentResult && currentModel && currentModel.geometry) {
+                renderTextResult(currentModel.geometry, currentResult);
+                let c = document.getElementById('canvas-deformation');
+                if(c) renderDeformation(c, currentModel.geometry, currentResult);
+                let cf = document.getElementById('canvas-forces');
+                if(cf) renderForces(cf, currentModel.geometry, currentResult);
+            }
+        }
+
+        function renderForces(canvas, geo, res) {
+            if(!canvas.offsetParent) return;
+            let ctx = setupCanvas(canvas);
+            let tf = getTransform(canvas, getBounds(geo.nodes), 60);
+
+            let maxF = Math.max(
+                Math.abs(res.max_t_chord || 0), Math.abs(res.max_c_chord || 0),
+                Math.abs(res.max_t_web || 0), Math.abs(res.max_c_web || 0)
+            );
+            if(maxF === 0) maxF = 1;
+
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = '#cccccc';
+            geo.elements.forEach(el => {
+                let n1 = geo.nodes[el.n1];
+                let n2 = geo.nodes[el.n2];
+                ctx.beginPath();
+                ctx.moveTo(tf.x(n1.x), tf.y(n1.y));
+                ctx.lineTo(tf.x(n2.x), tf.y(n2.y));
+                ctx.stroke();
+            });
+
+            // Draw Members with block graphics
+            geo.elements.forEach((el, i) => {
+                let f = res.member_forces[i];
+                if(Math.abs(f) < 0.1) return;
+                
+                let n1 = geo.nodes[el.n1];
+                let n2 = geo.nodes[el.n2];
+                let x1 = tf.x(n1.x), y1 = tf.y(n1.y);
+                let x2 = tf.x(n2.x), y2 = tf.y(n2.y);
+                
+                let dx = x2 - x1, dy = y2 - y1;
+                let len = Math.sqrt(dx*dx + dy*dy);
+                let cx = dx/len, cy = dy/len;
+                let nx = -cy, ny = cx;
+                
+                let width = (Math.abs(f) / maxF) * 15;
+                if(width < 2) width = 2;
+                
+                ctx.fillStyle = f > 0 ? 'rgba(0,0,255,0.4)' : 'rgba(255,0,0,0.4)';
+                ctx.strokeStyle = f > 0 ? 'rgba(0,0,255,0.8)' : 'rgba(255,0,0,0.8)';
+                ctx.lineWidth = 1;
+                
+                ctx.beginPath();
+                ctx.moveTo(x1 + nx*width, y1 + ny*width);
+                ctx.lineTo(x2 + nx*width, y2 + ny*width);
+                ctx.lineTo(x2 - nx*width, y2 - ny*width);
+                ctx.lineTo(x1 - nx*width, y1 - ny*width);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+            });
+            
+            // Draw numerical forces text on top
+            geo.elements.forEach((el, i) => {
+                let f = res.member_forces[i];
+                if(Math.abs(f) < 0.1) return;
+                
+                let n1 = geo.nodes[el.n1];
+                let n2 = geo.nodes[el.n2];
+                let px = (tf.x(n1.x) + tf.x(n2.x)) / 2;
+                let py = (tf.y(n1.y) + tf.y(n2.y)) / 2;
+                
+                ctx.fillStyle = '#000';
+                ctx.font = '11px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                let text = (f >= 0 ? '+' : '') + f.toFixed(1);
+                let w = ctx.measureText(text).width;
+                ctx.fillStyle = 'rgba(255,255,255,0.85)';
+                ctx.fillRect(px - w/2 - 2, py - 7, w + 4, 14);
+                
+                ctx.fillStyle = f > 0 ? '#0000ff' : '#ff0000';
+                ctx.fillText(text, px, py);
+            });
+
+            // Draw Nodes
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#666666';
+            ctx.lineWidth = 1;
+            geo.nodes.forEach(n => {
+                if (n.type === 'orphaned') return;
+                ctx.beginPath();
+                ctx.arc(tf.x(n.x), tf.y(n.y), 3, 0, 2*Math.PI);
+                ctx.fill();
+                ctx.stroke();
+            });
+
+            // Draw Reactions
+            let showReactions = document.getElementById('chk-show-reactions').checked;
+            if (showReactions && res && res.reactions) {
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#00aa00';
+                ctx.fillStyle = '#00aa00';
+                for (let nodeId in res.reactions) {
+                    let rx = res.reactions[nodeId].rx || 0;
+                    let ry = res.reactions[nodeId].ry || 0;
+                    let n = geo.nodes[nodeId];
+                    if (!n) continue;
+                    let px = tf.x(n.x);
+                    let py = tf.y(n.y);
+                    
+                    if (Math.abs(ry) > 0.1) {
+                        let dir = ry > 0 ? 1 : -1;
+                        drawArrow(ctx, px, py + dir * 30, px, py + dir * 5);
+                        ctx.font = "10px sans-serif";
+                        ctx.fillText(Math.abs(ry).toFixed(1) + " kg", px + 10, py + dir * 20);
+                    }
+                    if (Math.abs(rx) > 0.1) {
+                        let dir = rx > 0 ? -1 : 1;
+                        drawArrow(ctx, px + dir * 30, py, px + dir * 5, py);
+                        ctx.font = "10px sans-serif";
+                        ctx.fillText(Math.abs(rx).toFixed(1) + " kg", px + dir * 35, py - 10);
+                    }
+                }
+            }
+
+            drawLabels(ctx, geo, tf);
+        }
+
+        function drawLabels(ctx, geo, tf) {
+            let showNodeLabels = document.getElementById('chk-show-nodes').checked;
+            let showMemberLabels = document.getElementById('chk-show-members').checked;
+
+            if(showNodeLabels) {
+                ctx.fillStyle = '#333';
+                ctx.font = '10px sans-serif';
+                geo.nodes.forEach(n => {
+                    if(n.type === 'orphaned') return;
+                    ctx.fillText("N" + n.id, tf.x(n.x) + 2, tf.y(n.y) + 15);
+                });
+            }
+
+            if(showMemberLabels) {
+                ctx.fillStyle = '#0055ff';
+                ctx.font = '10px sans-serif';
+                geo.elements.forEach((el, idx) => {
+                    let n1 = geo.nodes[el.n1];
+                    let n2 = geo.nodes[el.n2];
+                    let mx = (n1.x + n2.x) / 2.0;
+                    let my = (n1.y + n2.y) / 2.0;
+                    ctx.fillText("M" + (idx + 1), tf.x(mx) + 3, tf.y(my) - 3);
+                });
+            }
+        }
+
+        window.gotrussReceiveAnalysis = function(res) {
+            if(res.error || (res.ok === false)) {
+                alert("Analysis failed: " + res.error);
+                return;
+            }
+            currentResult = res.result || res;
+            renderAll();
+            window.gotrussSetStatus("Analysis successful", true);
+        };
+
+        window.gotrussReceiveModel = function(model, res) {
+            currentModel = model;
+            currentResult = res && res.ok ? (res.result || res) : null;
+            populateInputs(model.parameters, model.projectInfo);
+            renderAll();
+        };
+
+        window.gotrussSetStatus = function(msg, ok) {
+            let el = document.getElementById('status-msg');
+            if(el) {
+                el.innerText = msg;
+                el.style.color = ok ? 'green' : 'red';
+            } else {
+                console.log("Status: " + msg);
+            }
+        };
+
+        function renderAppliedLoads(canvas, geo, params) {
+            if(!canvas.offsetParent) return;
+            let ctx = setupCanvas(canvas);
+            let tf = getTransform(canvas, getBounds(geo.nodes), 60);
+
+            // Draw Base Truss light grey
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = '#cccccc';
+            geo.elements.forEach(el => {
+                let n1 = geo.nodes[el.n1];
+                let n2 = geo.nodes[el.n2];
+                ctx.beginPath();
+                ctx.moveTo(tf.x(n1.x), tf.y(n1.y));
+                ctx.lineTo(tf.x(n2.x), tf.y(n2.y));
+                ctx.stroke();
+            });
+
+            // Draw Uniform Loads
+            ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
+            ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+            
+            function getChordY(x, isTop, geo) {
+                let targetType = isTop ? 'top' : 'bottom';
+                let chordNodes = geo.nodes.filter(n => n.type === targetType && n.type !== 'orphaned').sort((a, b) => a.x - b.x);
+                if (chordNodes.length === 0) return 0;
+                if (x <= chordNodes[0].x) return chordNodes[0].y;
+                if (x >= chordNodes[chordNodes.length - 1].x) return chordNodes[chordNodes.length - 1].y;
+                for (let i = 0; i < chordNodes.length - 1; i++) {
+                    if (x >= chordNodes[i].x && x <= chordNodes[i + 1].x) {
+                        let t = (x - chordNodes[i].x) / (chordNodes[i + 1].x - chordNodes[i].x);
+                        return chordNodes[i].y + t * (chordNodes[i + 1].y - chordNodes[i].y);
+                    }
+                }
+                return 0;
+            }
+
+            if(params.uniform_loads) {
+                params.uniform_loads.forEach(l => {
+                    let isTop = l.chord.toLowerCase() === 'top';
+                    let x1 = parseFloat(l.x1), x2 = parseFloat(l.x2);
+                    
+                    let xVals = new Set([x1, x2]);
+                    geo.nodes.forEach(n => {
+                        if (n.x > x1 && n.x < x2) xVals.add(n.x);
+                    });
+                    let sortedX = Array.from(xVals).sort((a,b) => a - b);
+                    let pts = sortedX.map(x => ({ x: x, y: getChordY(x, isTop, geo) }));
+                    
+                    ctx.beginPath();
+                    pts.forEach((p, i) => {
+                        let px = tf.x(p.x), py = tf.y(p.y) + (isTop ? -20 : 20);
+                        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                    });
+                    for (let i = pts.length - 1; i >= 0; i--) {
+                        let px = tf.x(pts[i].x), py = tf.y(pts[i].y) + (isTop ? -10 : 10);
+                        ctx.lineTo(px, py);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                    
+                    ctx.fillStyle = 'red';
+                    ctx.font = '10px sans-serif';
+                    let midPt = pts[Math.floor(pts.length/2)];
+                    ctx.fillText(l.w + ' kg/m', tf.x(midPt.x) - 15, tf.y(midPt.y) + (isTop ? -25 : 35));
+                    ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
+                });
+            }
+
+            // Draw Point Loads
+            ctx.lineWidth = 2;
+            if(params.point_loads) {
+                params.point_loads.forEach(l => {
+                    let isTop = l.chord.toLowerCase() === 'top';
+                    let x = parseFloat(l.x);
+                    let y = getChordY(x, isTop, geo);
+                    
+                    // find nearest node to snap perfectly
+                    let n = geo.nodes.find(nd => Math.abs(nd.x - x) < 0.1 && nd.type === (isTop ? 'top' : 'bottom') && nd.type !== 'orphaned');
+                    if (n) { x = n.x; y = n.y; }
+                    
+                    let px = tf.x(x);
+                    let py = tf.y(y);
+                    ctx.strokeStyle = 'blue';
+                    ctx.fillStyle = 'blue';
+                    if (isTop) {
+                        drawArrow(ctx, px, py - 30, px, py);
+                        ctx.font = '10px sans-serif';
+                        ctx.fillText(l.p + ' kg', px + 5, py - 15);
+                    } else {
+                        drawArrow(ctx, px, py, px, py + 30);
+                        ctx.font = '10px sans-serif';
+                        ctx.fillText(l.p + ' kg', px + 5, py + 40);
+                    }
+                });
+            }
+
+            drawLabels(ctx, geo, tf);
+        }
+
+    </script>
+</body>
+</html>

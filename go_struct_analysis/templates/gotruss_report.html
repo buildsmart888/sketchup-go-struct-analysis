@@ -1,0 +1,762 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>GO Struct Analysis - GOTruss Report</title>
+    <style>
+      :root {
+        --ink: #172025;
+        --line: #d4dde0;
+        --grid: #d9e2e4;
+        --graphite: #263236;
+        --go: #00a86b;
+        --go-dark: #08764f;
+      }
+      body {
+        margin: 0;
+        background: #9aa4a8;
+        color: var(--ink);
+        font-family: "Segoe UI", Tahoma, sans-serif;
+      }
+      *, svg, polygon, path, canvas {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        color-adjust: exact;
+      }
+      .printbar {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 10px 18px;
+        background: var(--graphite);
+        color: #fff;
+      }
+      .printbar button {
+        border: 1px solid var(--go);
+        border-radius: 7px;
+        background: var(--go);
+        color: #fff;
+        padding: 7px 16px;
+        font-weight: 800;
+        cursor: pointer;
+      }
+      .report-page {
+        width: 210mm;
+        min-height: 297mm;
+        margin: 10mm auto;
+        background: #fff;
+        padding: 12mm;
+        box-shadow: 0 2px 18px rgba(0,0,0,0.28);
+        page-break-after: always;
+        box-sizing: border-box;
+      }
+      .report-head {
+        display: grid;
+        grid-template-columns: 26mm 1fr;
+        border: 1px solid var(--graphite);
+      }
+      .logo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 26mm;
+        color: #fff;
+        background: var(--go);
+        font-weight: 900;
+        font-size: 19px;
+        line-height: 1.05;
+        border-right: 1px solid var(--graphite);
+        text-align: center;
+      }
+      .report-head table { width: 100%; border-collapse: collapse; }
+      .report-head td { border: 1px solid var(--line); padding: 4px 7px; font-size: 11px; }
+      .report-head tr:first-child td { border-top: 0; }
+      .report-head tr:last-child td { border-bottom: 0; }
+      .report-head td:first-child { border-left: 0; }
+      .report-head td:last-child { border-right: 0; }
+      h1 {
+        margin: 16px 0 12px;
+        text-align: center;
+        color: var(--graphite);
+        font-size: 16px;
+      }
+      h2 {
+        margin: 13px 0 8px;
+        color: var(--go-dark);
+        font-size: 13px;
+      }
+      .diagram {
+        width: 100%;
+        height: 60mm;
+        margin: 2mm 0 5mm;
+      }
+      .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 11px;
+      }
+      .data-table th, .data-table td {
+        border: 1px solid #c8d2d5;
+        padding: 6px 8px;
+        text-align: left;
+      }
+      .data-table th { background: #eef4f3; color: #17212b; }
+      @media print {
+        body { background: #fff; }
+        .printbar { display: none; }
+        .report-page {
+          width: auto;
+          min-height: auto;
+          margin: 0;
+          padding: 10mm;
+          box-shadow: none;
+          page-break-after: always;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <script id="model-json" type="application/json">{{MODEL_JSON}}</script>
+    <script id="result-json" type="application/json">{{RESULT_JSON}}</script>
+    <div class="printbar">
+      <button onclick="window.print()">Print Report</button>
+      <span>GOTruss V.1.0.0 / ผู้พัฒนา Phornjed Phongmanee / Report generated {{REPORT_DATE}}</span>
+    </div>
+    {{BODY_HTML}}
+
+    <script>
+      var model = JSON.parse(document.getElementById("model-json").textContent);
+      var result = JSON.parse(document.getElementById("result-json").textContent);
+
+      function renderReportDiagrams() {
+        var res = result.result || result;
+        var geo = model.geometry;
+
+        document.querySelectorAll('[data-diagram]').forEach(function(el) {
+          var kind = el.getAttribute('data-diagram');
+          var canvas = document.createElement('canvas');
+          canvas.width = 1200;
+          canvas.height = 400;
+          canvas.style.width = "100%";
+          canvas.style.height = "100%";
+          el.appendChild(canvas);
+          
+          if (kind === 'applied') renderAppliedLoads(canvas, geo, model.parameters);
+          if (kind === 'truss') renderTruss(canvas, geo, res);
+          if (kind === 'forces') renderForces(canvas, geo, res);
+          if (kind === 'deformation') renderDeformation(canvas, geo, res);
+        });
+      }
+
+      function setupCanvas(canvas) {
+          let ctx = canvas.getContext('2d');
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.scale(1.5, 1.5);
+          return ctx;
+      }
+
+      function getBounds(nodes) {
+          let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+          nodes.forEach(n => {
+              if(n.x < minX) minX = n.x;
+              if(n.x > maxX) maxX = n.x;
+              if(n.y < minY) minY = n.y;
+              if(n.y > maxY) maxY = n.y;
+          });
+          return { minX, maxX, minY, maxY, w: maxX - minX, h: maxY - minY };
+      }
+
+      function getTransform(canvas, bounds, margin = 50) {
+          let cw = canvas.width / 1.5;
+          let ch = canvas.height / 1.5;
+          let scaleX = (cw - margin * 2) / (bounds.w || 1);
+          let scaleY = (ch - margin * 2) / (bounds.h || 1);
+          let scale = Math.min(scaleX, scaleY);
+          
+          let cx = (bounds.minX + bounds.maxX) / 2;
+          let cy = (bounds.minY + bounds.maxY) / 2;
+          
+          return {
+              scale: scale,
+              x: (val) => cw/2 + (val - cx) * scale,
+              y: (val) => ch/2 - (val - cy) * scale
+          };
+      }
+
+      function drawLabels(ctx, geo, tf) {
+          let params = (typeof model !== 'undefined' ? model.parameters : {}) || {};
+          let showNodeLabels = params.show_node_labels !== false;
+          let showMemberLabels = params.show_member_labels !== false;
+
+          if (showNodeLabels) {
+              ctx.fillStyle = '#666';
+              ctx.font = '10px sans-serif';
+              geo.nodes.forEach(n => {
+                  if(n.type === 'orphaned') return;
+                  ctx.fillText('N' + n.id, tf.x(n.x) + 5, tf.y(n.y) - 5);
+              });
+          }
+
+          if(showMemberLabels) {
+              ctx.fillStyle = '#0055ff';
+              ctx.font = '10px sans-serif';
+              geo.elements.forEach((el, idx) => {
+                  let n1 = geo.nodes[el.n1];
+                  let n2 = geo.nodes[el.n2];
+                  let mx = (n1.x + n2.x) / 2.0;
+                  let my = (n1.y + n2.y) / 2.0;
+                  ctx.fillText("M" + (idx + 1), tf.x(mx) + 3, tf.y(my) - 3);
+              });
+          }
+      }
+
+      function renderAppliedLoads(canvas, geo, params) {
+          let ctx = setupCanvas(canvas);
+          let bounds = getBounds(geo.nodes);
+          let tf = getTransform(canvas, bounds, 80);
+
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = '#cccccc';
+          geo.elements.forEach(el => {
+              let n1 = geo.nodes[el.n1];
+              let n2 = geo.nodes[el.n2];
+              ctx.beginPath(); ctx.moveTo(tf.x(n1.x), tf.y(n1.y)); ctx.lineTo(tf.x(n2.x), tf.y(n2.y)); ctx.stroke();
+          });
+
+          if (params.uniform_loads) {
+              let uOffsetTop = 0;
+              let uOffsetBot = 0;
+              params.uniform_loads.forEach((ul, idx) => {
+                  let w = ul.w; if(!w) return;
+                  let x1 = ul.x1; let x2 = ul.x2;
+                  let chord = ul.chord || 'Top'; let type = ul.type || 'DL';
+                  let isDL = type === 'DL';
+                  let isTop = chord.toLowerCase() === 'top';
+                  
+                  let yOffsetPx = isTop ? -20 - (uOffsetTop * 18) : 20 + (uOffsetBot * 18);
+                  if(isTop) uOffsetTop++; else uOffsetBot++;
+                  
+                  ctx.strokeStyle = isDL ? 'rgba(255, 0, 0, 0.4)' : 'rgba(0, 0, 255, 0.4)';
+                  ctx.fillStyle = isDL ? 'rgba(255, 0, 0, 0.1)' : 'rgba(0, 0, 255, 0.1)';
+                  
+                  ctx.beginPath();
+                  function getChordY(x, isTop, geo) {
+                      let targetType = isTop ? 'top' : 'bottom';
+                      let chordNodes = geo.nodes.filter(n => n.type === targetType && n.type !== 'orphaned').sort((a, b) => a.x - b.x);
+                      if (chordNodes.length === 0) return 0;
+                      if (x <= chordNodes[0].x) return chordNodes[0].y;
+                      if (x >= chordNodes[chordNodes.length - 1].x) return chordNodes[chordNodes.length - 1].y;
+                      for (let i = 0; i < chordNodes.length - 1; i++) {
+                          if (x >= chordNodes[i].x && x <= chordNodes[i + 1].x) {
+                              let t = (x - chordNodes[i].x) / (chordNodes[i + 1].x - chordNodes[i].x);
+                              return chordNodes[i].y + t * (chordNodes[i + 1].y - chordNodes[i].y);
+                          }
+                      }
+                      return 0;
+                  }
+
+                  let xVals = new Set([x1, x2]);
+                  geo.nodes.forEach(n => {
+                      if (n.x > x1 && n.x < x2) xVals.add(n.x);
+                  });
+                  // Also sample evenly for smooth arrows if spacing is large
+                  for(let cx = x1; cx <= x2; cx += (params.L || 1)) xVals.add(cx);
+                  
+                  let sortedX = Array.from(xVals).sort((a,b) => a - b);
+                  let pts = sortedX.map(x => ({ x: x, y: getChordY(x, isTop, geo) }));
+                  
+                  pts.forEach((p, i) => {
+                      let px = tf.x(p.x); let py = tf.y(p.y) + yOffsetPx;
+                      if(i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                  });
+                  for(let i = pts.length - 1; i >= 0; i--) {
+                      let px = tf.x(pts[i].x); let py = tf.y(pts[i].y) + yOffsetPx + (isTop ? -10 : 10);
+                      ctx.lineTo(px, py);
+                  }
+                  ctx.closePath();
+                  ctx.fill();
+                  ctx.stroke();
+                  
+                  ctx.strokeStyle = isDL ? 'rgba(255, 0, 0, 0.6)' : 'rgba(0, 0, 255, 0.6)';
+                  pts.forEach(p => {
+                      let px = tf.x(p.x);
+                      let py = tf.y(p.y) + yOffsetPx;
+                      let arrowLen = isTop ? -10 : 10;
+                      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py + arrowLen); ctx.stroke();
+                      ctx.beginPath();
+                      ctx.moveTo(px, py);
+                      ctx.lineTo(px - 3, py + (isTop ? -3 : 3));
+                      ctx.lineTo(px + 3, py + (isTop ? -3 : 3));
+                      ctx.fill();
+                  });
+                  
+                  ctx.fillStyle = isDL ? '#ff0000' : '#0000ff';
+                  ctx.font = "10px sans-serif";
+                  let midPt = pts[Math.floor(pts.length/2)];
+                  ctx.fillText(w + " kg/m [" + type + "]", tf.x(midPt.x) - 30, tf.y(midPt.y) + yOffsetPx + (isTop ? -15 : 25));
+              });
+          }
+
+          if (params.point_loads) {
+              let pOffsets = {};
+              params.point_loads.forEach((pl, idx) => {
+                  let p = pl.p; if(!p) return;
+                  let x = pl.x;
+                  let chord = pl.chord || 'Top'; let type = pl.type || 'DL';
+                  let isDL = type === 'DL';
+                  let isTop = chord.toLowerCase() === 'top';
+                  
+                  let key = x + "_" + isTop;
+                  if(!pOffsets[key]) pOffsets[key] = 0;
+                  let offset = pOffsets[key];
+                  pOffsets[key]++;
+                  
+                  let xOffsetPx = (offset % 2 === 1 ? 1 : -1) * Math.ceil(offset/2) * 15;
+                  let yOffsetPx = isTop ? -30 : 30;
+                  
+                  let targetType = isTop ? 'top' : 'bottom';
+                  let chordNodes = geo.nodes.filter(n => n.type === targetType && n.type !== 'orphaned').sort((a, b) => a.x - b.x);
+                  
+                  let y = 0;
+                  if (chordNodes.length > 0) {
+                      if (x <= chordNodes[0].x) y = chordNodes[0].y;
+                      else if (x >= chordNodes[chordNodes.length - 1].x) y = chordNodes[chordNodes.length - 1].y;
+                      else {
+                          for (let i = 0; i < chordNodes.length - 1; i++) {
+                              if (x >= chordNodes[i].x && x <= chordNodes[i + 1].x) {
+                                  let t = (x - chordNodes[i].x) / (chordNodes[i + 1].x - chordNodes[i].x);
+                                  y = chordNodes[i].y + t * (chordNodes[i + 1].y - chordNodes[i].y);
+                                  break;
+                              }
+                          }
+                      }
+                  }
+                  
+                  // find closest node if any to adjust y perfectly
+                  let n = geo.nodes.find(nd => Math.abs(nd.x - x) < 0.1 && (isTop ? nd.type==='top' : nd.type==='bottom')); 
+                  let px = tf.x(x) + xOffsetPx;
+                  let py = tf.y(n ? n.y : y);
+                  
+                  ctx.strokeStyle = isDL ? '#ff0000' : '#0000ff';
+                  ctx.fillStyle = isDL ? '#ff0000' : '#0000ff';
+                  
+                  if (isTop) {
+                      ctx.beginPath(); ctx.moveTo(px, py - 30); ctx.lineTo(px, py); ctx.stroke();
+                      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px-4, py-8); ctx.lineTo(px+4, py-8); ctx.fill();
+                      ctx.font = "10px sans-serif";
+                      ctx.fillText(p + " kg [" + type + "]", px + 5, py - 15);
+                  } else {
+                      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py + 30); ctx.stroke();
+                      ctx.beginPath(); ctx.moveTo(px, py + 30); ctx.lineTo(px-4, py+22); ctx.lineTo(px+4, py+22); ctx.fill();
+                      ctx.font = "10px sans-serif";
+                      ctx.fillText(p + " kg [" + type + "]", px + 5, py + 40);
+                  }
+              });
+          }
+
+          drawDimensions(ctx, params, tf);
+      }
+
+      function drawDimensions(ctx, params, tf) {
+          let N = parseFloat(params.N);
+          let L = parseFloat(params.L);
+          let He = parseFloat(params.He);
+          let Hm = parseFloat(params.Hm);
+          let totalL = N * L;
+          
+          ctx.strokeStyle = '#666666';
+          ctx.fillStyle = '#666666';
+          ctx.font = '10px sans-serif';
+          ctx.lineWidth = 1;
+          
+          function drawDim(px1, py1, px2, py2, text, textOffsetX, textOffsetY) {
+              ctx.beginPath(); ctx.moveTo(px1, py1); ctx.lineTo(px2, py2); ctx.stroke();
+              let angle = Math.atan2(py2 - py1, px2 - px1);
+              let tickLen = 5;
+              ctx.beginPath(); ctx.moveTo(px1 - Math.cos(angle - Math.PI/2)*tickLen, py1 - Math.sin(angle - Math.PI/2)*tickLen);
+              ctx.lineTo(px1 + Math.cos(angle - Math.PI/2)*tickLen, py1 + Math.sin(angle - Math.PI/2)*tickLen); ctx.stroke();
+              ctx.beginPath(); ctx.moveTo(px2 - Math.cos(angle - Math.PI/2)*tickLen, py2 - Math.sin(angle - Math.PI/2)*tickLen);
+              ctx.lineTo(px2 + Math.cos(angle - Math.PI/2)*tickLen, py2 + Math.sin(angle - Math.PI/2)*tickLen); ctx.stroke();
+              ctx.fillText(text, (px1+px2)/2 + textOffsetX, (py1+py2)/2 + textOffsetY);
+          }
+          
+          // Total Length
+          let pyTotal = tf.y(0) + 40; 
+          ctx.beginPath(); ctx.moveTo(tf.x(0), tf.y(0)+10); ctx.lineTo(tf.x(0), pyTotal + 10); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(tf.x(totalL), tf.y(0)+10); ctx.lineTo(tf.x(totalL), pyTotal + 10); ctx.stroke();
+          drawDim(tf.x(0), pyTotal, tf.x(totalL), pyTotal, "L=" + totalL.toFixed(2) + " m", -25, 12);
+          
+          // Panel Length
+          let pyL = tf.y(0) + 20;
+          ctx.beginPath(); ctx.moveTo(tf.x(L), tf.y(0)+10); ctx.lineTo(tf.x(L), pyL + 10); ctx.stroke();
+          drawDim(tf.x(0), pyL, tf.x(L), pyL, L.toFixed(2) + " m", -15, 12);
+          
+          // Ends H (He)
+          let pxHe = tf.x(0) - 25;
+          ctx.beginPath(); ctx.moveTo(tf.x(0)-5, tf.y(0)); ctx.lineTo(pxHe - 5, tf.y(0)); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(tf.x(0)-5, tf.y(He)); ctx.lineTo(pxHe - 5, tf.y(He)); ctx.stroke();
+          drawDim(pxHe, tf.y(0), pxHe, tf.y(He), He.toFixed(2) + " m", -35, 3);
+          
+          // Mid H (Hm)
+          let pxHm = tf.x(totalL / 2) + 10;
+          drawDim(pxHm, tf.y(0), pxHm, tf.y(Hm), Hm.toFixed(2) + " m", 5, 3);
+      }
+
+      function drawArrow(ctx, fromx, fromy, tox, toy) {
+          var headlen = 10;
+          var dx = tox - fromx;
+          var dy = toy - fromy;
+          var angle = Math.atan2(dy, dx);
+          ctx.beginPath();
+          ctx.moveTo(fromx, fromy);
+          ctx.lineTo(tox, toy);
+          ctx.lineTo(tox - headlen * Math.cos(angle - Math.PI / 6), toy - headlen * Math.sin(angle - Math.PI / 6));
+          ctx.moveTo(tox, toy);
+          ctx.lineTo(tox - headlen * Math.cos(angle + Math.PI / 6), toy - headlen * Math.sin(angle + Math.PI / 6));
+          ctx.stroke();
+      }
+
+      function renderTruss(canvas, geo, res) {
+          let ctx = setupCanvas(canvas);
+          let bounds = getBounds(geo.nodes);
+          let tf = getTransform(canvas, bounds, 60);
+
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = '#0000ff';
+          geo.elements.forEach(el => {
+              let n1 = geo.nodes[el.n1];
+              let n2 = geo.nodes[el.n2];
+              ctx.beginPath();
+              ctx.moveTo(tf.x(n1.x), tf.y(n1.y));
+              ctx.lineTo(tf.x(n2.x), tf.y(n2.y));
+              ctx.stroke();
+          });
+
+          ctx.fillStyle = '#ffff00';
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = 1;
+          geo.nodes.forEach(n => {
+              if(n.type === 'orphaned') return;
+              ctx.beginPath();
+              ctx.arc(tf.x(n.x), tf.y(n.y), 4, 0, 2*Math.PI);
+              ctx.fill();
+              ctx.stroke();
+          });
+
+          ctx.fillStyle = '#ffcc00';
+          geo.supports.forEach(sup => {
+              let n = geo.nodes[sup.node];
+              let px = tf.x(n.x);
+              let py = tf.y(n.y) + 6;
+              ctx.beginPath();
+              ctx.moveTo(px, py);
+              ctx.lineTo(px - 10, py + 15);
+              ctx.lineTo(px + 10, py + 15);
+              ctx.closePath();
+              ctx.fill();
+              ctx.stroke();
+              if(sup.dx === false) { 
+                  ctx.beginPath();
+                  ctx.arc(px - 5, py + 18, 3, 0, 2*Math.PI);
+                  ctx.arc(px + 5, py + 18, 3, 0, 2*Math.PI);
+                  ctx.stroke();
+              }
+          });
+
+          let nodeLoads = {};
+          geo.loads.forEach(load => {
+              if(!nodeLoads[load.node]) nodeLoads[load.node] = [];
+              nodeLoads[load.node].push(load);
+          });
+          
+          for(let nodeId in nodeLoads) {
+              let loadsArr = nodeLoads[nodeId];
+              let n = geo.nodes[nodeId];
+              loadsArr.forEach((load, idx) => {
+                  if(load.fy >= 0) return;
+                  let isDL = load.case === 'DL';
+                  ctx.strokeStyle = isDL ? '#ff0000' : '#0000ff';
+                  ctx.fillStyle = isDL ? '#ff0000' : '#0000ff';
+                  ctx.lineWidth = 2;
+                  
+                  let offset = 0;
+                  if(loadsArr.length > 1) {
+                      offset = (idx === 0) ? -12 : 12;
+                  }
+                  
+                  let px = tf.x(n.x);
+                  let py = tf.y(n.y) - 5;
+                  drawArrow(ctx, px + offset, py - 40, px + offset, py);
+                  ctx.font = "12px sans-serif";
+                  ctx.fillText(Math.abs(load.fy).toFixed(2) + " kg", px + offset - 20, py - 45);
+              });
+          }
+
+          // Draw Reactions
+          let params = (typeof model !== 'undefined' ? model.parameters : {}) || {};
+          let showReactions = params.show_reactions !== false;
+          
+          if (showReactions && res && res.reactions) {
+              ctx.lineWidth = 2;
+              ctx.strokeStyle = '#00aa00';
+              ctx.fillStyle = '#00aa00';
+              for (let nodeId in res.reactions) {
+                  let rx = res.reactions[nodeId].rx || 0;
+                  let ry = res.reactions[nodeId].ry || 0;
+                  let n = geo.nodes[nodeId];
+                  if (!n) continue;
+                  let px = tf.x(n.x);
+                  let py = tf.y(n.y);
+                  
+                  if (Math.abs(ry) > 0.1) {
+                      let dir = ry > 0 ? 1 : -1;
+                      drawArrow(ctx, px, py + dir * 30, px, py + dir * 5);
+                      ctx.font = "12px sans-serif";
+                      ctx.fillText(Math.abs(ry).toFixed(1) + " kg", px + 10, py + dir * 20);
+                  }
+                  if (Math.abs(rx) > 0.1) {
+                      let dir = rx > 0 ? -1 : 1;
+                      drawArrow(ctx, px + dir * 30, py, px + dir * 5, py);
+                      ctx.font = "12px sans-serif";
+                      ctx.fillText(Math.abs(rx).toFixed(1) + " kg", px + dir * 35, py - 10);
+                  }
+              }
+          }
+
+          drawLabels(ctx, geo, tf);
+      }
+
+      function renderForces(canvas, geo, res) {
+          let ctx = setupCanvas(canvas);
+          let bounds = getBounds(geo.nodes);
+          let tf = getTransform(canvas, bounds, 80);
+
+          let maxF = Math.max(
+              Math.abs(res.max_t_chord || 0), Math.abs(res.max_c_chord || 0),
+              Math.abs(res.max_t_web || 0), Math.abs(res.max_c_web || 0)
+          );
+          if(maxF === 0) maxF = 1;
+
+          if (res.member_forces) {
+              ctx.lineWidth = 1;
+              ctx.strokeStyle = '#cccccc';
+              geo.elements.forEach((el, idx) => {
+                  let n1 = geo.nodes[el.n1];
+                  let n2 = geo.nodes[el.n2];
+                  ctx.beginPath();
+                  ctx.moveTo(tf.x(n1.x), tf.y(n1.y));
+                  ctx.lineTo(tf.x(n2.x), tf.y(n2.y));
+                  ctx.stroke();
+              });
+
+              geo.elements.forEach((el, idx) => {
+                  let f = res.member_forces[idx];
+                  if(Math.abs(f) < 0.1) return;
+                  
+                  let n1 = geo.nodes[el.n1];
+                  let n2 = geo.nodes[el.n2];
+                  let x1 = tf.x(n1.x), y1 = tf.y(n1.y);
+                  let x2 = tf.x(n2.x), y2 = tf.y(n2.y);
+                  
+                  let dx = x2 - x1, dy = y2 - y1;
+                  let len = Math.sqrt(dx*dx + dy*dy);
+                  let cx = dx/len, cy = dy/len;
+                  let nx = -cy, ny = cx;
+                  
+                  let width = (Math.abs(f) / maxF) * 15;
+                  if(width < 2) width = 2;
+                  
+                  ctx.fillStyle = f > 0 ? 'rgba(0,0,255,0.4)' : 'rgba(255,0,0,0.4)';
+                  ctx.strokeStyle = f > 0 ? 'rgba(0,0,255,0.8)' : 'rgba(255,0,0,0.8)';
+                  ctx.lineWidth = 1;
+                  
+                  ctx.beginPath();
+                  ctx.moveTo(x1 + nx*width, y1 + ny*width);
+                  ctx.lineTo(x2 + nx*width, y2 + ny*width);
+                  ctx.lineTo(x2 - nx*width, y2 - ny*width);
+                  ctx.lineTo(x1 - nx*width, y1 - ny*width);
+                  ctx.closePath();
+                  ctx.fill();
+                  ctx.stroke();
+              });
+          }
+
+          ctx.fillStyle = '#000';
+          ctx.font = 'bold 12px sans-serif';
+          let t_chord_id = res.max_t_chord_m >= 0 ? ` (M${res.max_t_chord_m + 1})` : '';
+          let c_chord_id = res.max_c_chord_m >= 0 ? ` (M${res.max_c_chord_m + 1})` : '';
+          let t_web_id = res.max_t_web_m >= 0 ? ` (M${res.max_t_web_m + 1})` : '';
+          let c_web_id = res.max_c_web_m >= 0 ? ` (M${res.max_c_web_m + 1})` : '';
+          
+          ctx.fillText(`Max Tension (Chord) = ${(res.max_t_chord || 0).toFixed(0)} kg${t_chord_id}`, 10, 15);
+          ctx.fillText(`Max Compression (Chord) = ${(res.max_c_chord || 0).toFixed(0)} kg${c_chord_id}`, 10, 30);
+          ctx.fillText(`Max Tension (Web) = ${(res.max_t_web || 0).toFixed(0)} kg${t_web_id}`, 250, 15);
+          ctx.fillText(`Max Compression (Web) = ${(res.max_c_web || 0).toFixed(0)} kg${c_web_id}`, 250, 30);
+
+          let params = (typeof model !== 'undefined' ? model.parameters : {}) || {};
+          let showReactions = params.show_reactions !== false;
+          if (showReactions && res && res.reactions) {
+              ctx.lineWidth = 2;
+              ctx.strokeStyle = '#00aa00';
+              ctx.fillStyle = '#00aa00';
+              for (let nodeId in res.reactions) {
+                  let rx = res.reactions[nodeId].rx || 0;
+                  let ry = res.reactions[nodeId].ry || 0;
+                  let n = geo.nodes[nodeId];
+                  if (!n) continue;
+                  let px = tf.x(n.x);
+                  let py = tf.y(n.y);
+                  
+                  if (Math.abs(ry) > 0.1) {
+                      let dir = ry > 0 ? 1 : -1;
+                      drawArrow(ctx, px, py + dir * 30, px, py + dir * 5);
+                      ctx.font = "12px sans-serif";
+                      ctx.fillText(Math.abs(ry).toFixed(1) + " kg", px + 10, py + dir * 20);
+                  }
+                  if (Math.abs(rx) > 0.1) {
+                      let dir = rx > 0 ? -1 : 1;
+                      drawArrow(ctx, px + dir * 30, py, px + dir * 5, py);
+                      ctx.font = "12px sans-serif";
+                      ctx.fillText(Math.abs(rx).toFixed(1) + " kg", px + dir * 35, py - 10);
+                  }
+              }
+          }
+
+          drawLabels(ctx, geo, tf);
+      }
+
+      function renderDeformation(canvas, geo, res) {
+          let ctx = setupCanvas(canvas);
+          let bounds = getBounds(geo.nodes);
+          let tf = getTransform(canvas, bounds, 80);
+
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = '#cccccc';
+          geo.elements.forEach(el => {
+              let n1 = geo.nodes[el.n1];
+              let n2 = geo.nodes[el.n2];
+              ctx.beginPath();
+              ctx.moveTo(tf.x(n1.x), tf.y(n1.y));
+              ctx.lineTo(tf.x(n2.x), tf.y(n2.y));
+              ctx.stroke();
+          });
+
+          ctx.strokeStyle = '#cccccc';
+          ctx.fillStyle = '#f0f0f0';
+          ctx.lineWidth = 1;
+          geo.supports.forEach(sup => {
+              let n = geo.nodes[sup.node];
+              let px = tf.x(n.x);
+              let py = tf.y(n.y) + 6;
+              ctx.beginPath();
+              ctx.moveTo(px, py);
+              ctx.lineTo(px - 10, py + 15);
+              ctx.lineTo(px + 10, py + 15);
+              ctx.closePath();
+              ctx.fill();
+              ctx.stroke();
+              if(sup.dx === false) { 
+                  ctx.beginPath();
+                  ctx.arc(px - 5, py + 18, 3, 0, 2*Math.PI);
+                  ctx.arc(px + 5, py + 18, 3, 0, 2*Math.PI);
+                  ctx.stroke();
+              }
+          });
+
+          let maxDef = Math.max(res.max_dx || 0, res.max_dy || 0);
+          let defScale = maxDef > 0 ? (20.0 / maxDef) / tf.scale : 0; 
+          if (res.displacements) {
+              ctx.lineWidth = 2;
+              ctx.strokeStyle = '#ff0000'; 
+              geo.elements.forEach(el => {
+                  let n1 = geo.nodes[el.n1];
+                  let n2 = geo.nodes[el.n2];
+                  let d1x = res.displacements[el.n1].dx * defScale;
+                  let d1y = res.displacements[el.n1].dy * defScale;
+                  let d2x = res.displacements[el.n2].dx * defScale;
+                  let d2y = res.displacements[el.n2].dy * defScale;
+                  
+                  ctx.beginPath();
+                  ctx.moveTo(tf.x(n1.x + d1x), tf.y(n1.y + d1y));
+                  ctx.lineTo(tf.x(n2.x + d2x), tf.y(n2.y + d2y));
+                  ctx.stroke();
+              });
+          }
+
+          ctx.fillStyle = '#000';
+          ctx.font = '12px sans-serif';
+          let cw = canvas.width / 1.5;
+          let ch = canvas.height / 1.5;
+          ctx.fillText(`Max δy = ${((res.max_dy || 0) * 1000).toFixed(2)} mm`, cw/2 - 40, ch - 5);
+          ctx.fillText(`Max δx = ${((res.max_dx || 0) * 1000).toFixed(2)} mm`, cw - 120, ch - 5);
+
+          if(res.max_dy_n !== undefined && res.max_dy_n >= 0 && res.displacements) {
+              let n = geo.nodes[res.max_dy_n];
+              let d1x = res.displacements[res.max_dy_n].dx * defScale;
+              let d1y = res.displacements[res.max_dy_n].dy * defScale;
+              let px = tf.x(n.x + d1x);
+              let py = tf.y(n.y + d1y);
+              
+              ctx.beginPath();
+              ctx.arc(px, py, 6, 0, 2*Math.PI);
+              ctx.strokeStyle = 'rgba(255, 100, 100, 0.8)';
+              ctx.lineWidth = 2;
+              ctx.stroke();
+              
+              ctx.beginPath();
+              ctx.moveTo(px, py + 30);
+              ctx.lineTo(px, py + 8);
+              ctx.strokeStyle = 'red';
+              ctx.stroke();
+              
+              ctx.beginPath();
+              ctx.moveTo(px, py + 8);
+              ctx.lineTo(px - 4, py + 15);
+              ctx.lineTo(px + 4, py + 15);
+              ctx.fillStyle = 'red';
+              ctx.fill();
+              
+              ctx.fillStyle = 'red';
+              ctx.font = 'bold 12px sans-serif';
+              ctx.fillText(`Max δy here`, px - 30, py + 45);
+          }
+
+          if(res.max_dx_n !== undefined && res.max_dx_n >= 0 && res.displacements) {
+              let n = geo.nodes[res.max_dx_n];
+              let d1x = res.displacements[res.max_dx_n].dx * defScale;
+              let d1y = res.displacements[res.max_dx_n].dy * defScale;
+              let px = tf.x(n.x + d1x);
+              let py = tf.y(n.y + d1y);
+              
+              ctx.beginPath();
+              ctx.arc(px, py, 6, 0, 2*Math.PI);
+              ctx.strokeStyle = 'rgba(100, 100, 255, 0.8)';
+              ctx.lineWidth = 2;
+              ctx.stroke();
+              
+              ctx.beginPath();
+              ctx.moveTo(px + 30, py);
+              ctx.lineTo(px + 8, py);
+              ctx.strokeStyle = 'blue';
+              ctx.stroke();
+              
+              ctx.beginPath();
+              ctx.moveTo(px + 8, py);
+              ctx.lineTo(px + 15, py - 4);
+              ctx.lineTo(px + 15, py + 4);
+              ctx.fillStyle = 'blue';
+              ctx.fill();
+              
+              ctx.fillStyle = 'blue';
+              ctx.font = 'bold 12px sans-serif';
+              ctx.fillText(`Max δx here`, px + 35, py + 4);
+          }
+      }
+
+      renderReportDiagrams();
+    </script>
+  </body>
+</html>
