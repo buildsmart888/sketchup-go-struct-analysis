@@ -113,9 +113,9 @@
           <legend onclick="toggleGroup('grp-gen')">▶ Frame Generators</legend>
           <div id="grp-gen" class="collapsible-body">
             <div style="display:flex; gap:4px; margin-bottom: 8px;">
-              <select id="sel-template" style="flex:1;">
+              <select id="sel-template" onchange="onTemplateChange()" style="flex:1;">
                 <option value="portal">Portal Frame (1 Span)</option>
-                <option value="multistory">Multi-story Frame</option>
+                <option value="multistory" selected>Multi-story Frame</option>
                 <option value="gable">Gable Roof Frame</option>
               </select>
             </div>
@@ -719,28 +719,53 @@
       sketchupCall('export_report', data);
     }
 
-    function generateTemplate() {
-      // TODO: auto-fill tables based on template selection
+    function onTemplateChange() {
       let type = document.getElementById('sel-template').value;
-      let nx = parseInt(document.getElementById('gen-nx').value);
-      let ny = parseInt(document.getElementById('gen-ny').value);
-      let lx = parseFloat(document.getElementById('gen-lx').value);
-      let ly = parseFloat(document.getElementById('gen-ly').value);
+      if (type === 'gable') {
+        document.getElementById('gen-nx').value = 1;
+        document.getElementById('gen-lx').value = 20;
+        document.getElementById('gen-ly').value = 6;
+        document.getElementById('gen-ny').value = 8;
+      } else if (type === 'portal') {
+        document.getElementById('gen-nx').value = 1;
+        document.getElementById('gen-lx').value = 6;
+        document.getElementById('gen-ly').value = 3.5;
+        document.getElementById('gen-ny').value = 1;
+      }
+      generateTemplate();
+    }
+
+    function generateTemplate() {
+      let type = document.getElementById('sel-template').value;
+      let nx = parseInt(document.getElementById('gen-nx').value) || 1;
+      let ny = parseInt(document.getElementById('gen-ny').value) || 1;
+      let lx = parseFloat(document.getElementById('gen-lx').value) || 1.0;
+      let ly = parseFloat(document.getElementById('gen-ly').value) || 1.0;
 
       document.querySelector('#tbl-nodes tbody').innerHTML = '';
       document.querySelector('#tbl-elements tbody').innerHTML = '';
+      document.querySelector('#tbl-sections tbody').innerHTML = '';
+      
       nodeIdCounter = 1;
       elemIdCounter = 1;
+      secIdCounter = 1;
+
+      if(type === 'portal' || type === 'multistory') {
+        addSectionRow(secIdCounter, 2e9, 900, 67500); // Sec 1: Column 0.3x0.3m (Concrete E=2e9 kg/m2)
+        addSectionRow(secIdCounter, 2e9, 1500, 312500); // Sec 2: Beam 0.3x0.5m
+      } else if (type === 'gable') {
+        addSectionRow(secIdCounter, 2e10, 63.5, 4720); // Sec 1: Column H200x200 (Steel E=2e10 kg/m2)
+        addSectionRow(secIdCounter, 2e10, 63.1, 13600); // Sec 2: Gable H350x175
+      }
 
       if(type === 'portal') {
-        // Simple 1 span portal
         addNodeRow(0, 0, 'Fixed');
         addNodeRow(lx, 0, 'Fixed');
         addNodeRow(0, ly, 'Free');
         addNodeRow(lx, ly, 'Free');
         addElementRow(1, 3, 1); // Left column
         addElementRow(2, 4, 1); // Right column
-        addElementRow(3, 4, 1); // Beam
+        addElementRow(3, 4, 2); // Beam
       } else if (type === 'multistory') {
         // Multi-span multi-story
         let nodes = [];
@@ -763,17 +788,26 @@
           for(let i=0; i<nx; i++) {
             let n1 = nodes.find(n => n.x===i && n.y===j).id;
             let n2 = nodes.find(n => n.x===i+1 && n.y===j).id;
-            addElementRow(n1, n2, 1);
+            addElementRow(n1, n2, 2);
           }
         }
+      } else if (type === 'gable') {
+        addNodeRow(0, 0, 'Pinned');
+        addNodeRow(lx, 0, 'Pinned');
+        addNodeRow(0, ly, 'Free');
+        addNodeRow(lx, ly, 'Free');
+        addNodeRow(lx/2.0, ny, 'Free'); // Ridge node uses ny as height
+        
+        addElementRow(1, 3, 1); // Left Col
+        addElementRow(2, 4, 1); // Right Col
+        addElementRow(3, 5, 2); // Left Gable
+        addElementRow(5, 4, 2); // Right Gable
       }
     }
 
     // Setup
     window.onload = function() {
-      // Defaults: Steel section (E=2x10^10 kg/m^2), Portal Frame
-      addSectionRow(1, 2e10, 50, 5000);
-      generateTemplate();
+      onTemplateChange();
     };
   </script>
 </body>
