@@ -1,0 +1,50 @@
+require 'json'
+require_relative 'go_struct_analysis/suite.rb'
+require_relative 'go_struct_analysis/goframe.rb'
+
+# Reconstruct exactly what is passed from the UI
+data_json = <<~JSON
+{
+  "settings": {
+    "include_self_weight": true
+  },
+  "nodes": [
+    { "id": 1, "x": 0, "y": 0, "support": "Fixed" },
+    { "id": 2, "x": 4, "y": 0, "support": "Fixed" },
+    { "id": 3, "x": 8, "y": 0, "support": "Fixed" },
+    { "id": 4, "x": 0, "y": 3, "support": "Free" },
+    { "id": 5, "x": 4, "y": 3, "support": "Free" },
+    { "id": 6, "x": 8, "y": 3, "support": "Free" },
+    { "id": 7, "x": 0, "y": 6, "support": "Free" },
+    { "id": 8, "x": 4, "y": 6, "support": "Free" },
+    { "id": 9, "x": 8, "y": 6, "support": "Free" }
+  ],
+  "elements": [
+    { "id": 1, "n1": 1, "n2": 4, "sec": 1 },
+    { "id": 2, "n1": 2, "n2": 5, "sec": 1 },
+    { "id": 3, "n1": 3, "n2": 6, "sec": 1 },
+    { "id": 4, "n1": 4, "n2": 7, "sec": 1 },
+    { "id": 5, "n1": 5, "n2": 8, "sec": 1 },
+    { "id": 6, "n1": 6, "n2": 9, "sec": 1 },
+    { "id": 7, "n1": 4, "n2": 5, "sec": 2 },
+    { "id": 8, "n1": 5, "n2": 6, "sec": 2 },
+    { "id": 9, "n1": 7, "n2": 8, "sec": 2 },
+    { "id": 10, "n1": 8, "n2": 9, "sec": 2 }
+  ],
+  "sections": [
+    { "id": 1, "e": 2000000000, "a": 900, "i": 67500, "density": 2400 },
+    { "id": 2, "e": 2000000000, "a": 1500, "i": 312500, "density": 2400 }
+  ],
+  "nloads": [],
+  "eloads": [
+    { "elem": 9, "dir": "Local Y", "w": -500 },
+    { "elem": 10, "dir": "Local Y", "w": -500 }
+  ]
+}
+JSON
+
+data = JSON.parse(data_json)
+
+res = GOStructAnalysis::Goframe.analyze(data)
+puts "Result ok: #{res[:ok]}"
+puts "Error: #{res[:error]}" if !res[:ok]

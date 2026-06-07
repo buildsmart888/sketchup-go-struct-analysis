@@ -42,7 +42,7 @@ module GOStructAnalysis
         inv = m.inverse
         inv.to_a
       rescue StandardError => e
-        raise ArgumentError, "Matrix Singular. Structure may be unstable."
+        raise ArgumentError, "Invert failed: #{e.class} - #{e.message}"
       end
     end
 

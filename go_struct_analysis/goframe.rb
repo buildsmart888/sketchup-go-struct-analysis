@@ -97,6 +97,13 @@ module GOStructAnalysis
     end
 
     def analyze(data)
+      # --- DEBUG ---
+      begin
+        File.open(File.join(File.dirname(__FILE__), 'debug_data.txt'), 'w') { |f| f.puts data.inspect }
+      rescue => e
+      end
+      # -------------
+
       nodes = data['nodes'] || []
       elements = data['elements'] || []
       sections = data['sections'] || []
