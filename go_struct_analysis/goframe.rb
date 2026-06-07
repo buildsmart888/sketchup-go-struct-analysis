@@ -321,7 +321,37 @@ module GOStructAnalysis
     end
 
     def generate_report(data)
-      # TODO: Implement HTML report generation
+      model_data = data['model']
+      result_data = data['result']
+
+      template_path = File.join(GOStructAnalysis::TEMPLATE_ROOT, 'goframe_report.html')
+      html = File.read(template_path, encoding: 'UTF-8')
+
+      # Replace placeholders
+      html.gsub!('{{MODEL_JSON}}', json_script_value(model_data))
+      html.gsub!('{{RESULT_JSON}}', json_script_value(result_data))
+      html.gsub!('{{REPORT_DATE}}', Time.now.strftime('%d/%m/%Y %H:%M'))
+
+      # Show dialog
+      report_dialog = UI::HtmlDialog.new(
+        {
+          dialog_title: 'GO Frame Analysis Report',
+          preferences_key: 'com.gostruct.goframe.report',
+          scrollable: true,
+          resizable: true,
+          width: 1000,
+          height: 800,
+          left: 150,
+          top: 150,
+          style: UI::HtmlDialog::STYLE_DIALOG
+        }
+      )
+      report_dialog.set_html(html)
+      report_dialog.show
+    end
+
+    def json_script_value(val)
+      val.nil? ? 'null' : JSON.generate(val).gsub("</", "<\\/")
     end
 
     def round_value(val)

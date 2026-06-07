@@ -735,6 +735,15 @@
       let data = { model: collectData(), result: currentResult };
       sketchupCall('export_3d', data);
     }
+    
+    function openReport() {
+      if(!currentResult || !currentResult.ok) {
+        alert("Please analyze the frame successfully before printing a report.");
+        return;
+      }
+      let data = { model: collectData(), result: currentResult };
+      sketchupCall('export_report', data);
+    }
 
     function generateTemplate() {
       // TODO: auto-fill tables based on template selection

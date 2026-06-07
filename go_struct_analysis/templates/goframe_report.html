@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>GO Frame Analysis Report</title>
+    <style>
+      body {
+        font-family: 'Segoe UI', Arial, sans-serif;
+        color: #333;
+        line-height: 1.6;
+        margin: 0;
+        padding: 40px;
+        background: #f4f7f6;
+      }
+      .page {
+        max-width: 900px;
+        margin: 0 auto;
+        background: #fff;
+        padding: 40px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        border-radius: 8px;
+      }
+      h1, h2, h3 { color: #2c3e50; border-bottom: 2px solid #ecf0f1; padding-bottom: 8px; }
+      table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 13px; }
+      th, td { border: 1px solid #bdc3c7; padding: 8px 12px; text-align: right; }
+      th { background: #34495e; color: #fff; text-align: center; }
+      td.center { text-align: center; }
+      @media print {
+        body { background: #fff; padding: 0; }
+        .page { box-shadow: none; padding: 0; max-width: 100%; }
+        .no-print { display: none; }
+      }
+      .btn {
+        background: #27ae60; color: #fff; border: none; padding: 10px 20px;
+        border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold;
+        text-decoration: none; display: inline-block;
+      }
+      .btn:hover { background: #2ecc71; }
+    </style>
+</head>
+<body>
+  <div class="page">
+    <div class="no-print" style="text-align: right; margin-bottom: 20px;">
+      <button class="btn" onclick="window.print()">Print / Save PDF</button>
+    </div>
+    
+    <h1>2D Frame Analysis Report</h1>
+    <p><strong>Date:</strong> {{REPORT_DATE}}</p>
+
+    <h2>1. Nodal Displacements & Reactions</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Node ID</th>
+          <th>dX (m)</th>
+          <th>dY (m)</th>
+          <th>Rz (rad)</th>
+          <th>Reaction Fx (kg)</th>
+          <th>Reaction Fy (kg)</th>
+          <th>Reaction Mz (kg.m)</th>
+        </tr>
+      </thead>
+      <tbody id="tbody-nodes"></tbody>
+    </table>
+
+    <h2>2. Member Forces (Local Axes)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Elem ID</th>
+          <th>Node</th>
+          <th>Axial Force (kg)</th>
+          <th>Shear Force (kg)</th>
+          <th>Bending Moment (kg.m)</th>
+        </tr>
+      </thead>
+      <tbody id="tbody-elements"></tbody>
+    </table>
+  </div>
+
+  <script>
+    const data = {
+      model: {{MODEL_JSON}},
+      result: {{RESULT_JSON}}
+    };
+
+    function renderReport() {
+      const res = data.result;
+      if(!res || !res.ok) {
+        document.getElementById('tbody-nodes').innerHTML = '<tr><td colspan="7" class="center">No valid results found.</td></tr>';
+        return;
+      }
+
+      let nodesHtml = '';
+      res.nodes.forEach(n => {
+        nodesHtml += `<tr>
+          <td class="center">${n.id}</td>
+          <td>${n.dx.toFixed(6)}</td>
+          <td>${n.dy.toFixed(6)}</td>
+          <td>${n.rz.toFixed(6)}</td>
+          <td>${Math.abs(n.fx) < 1e-4 ? '0.00' : n.fx.toFixed(2)}</td>
+          <td>${Math.abs(n.fy) < 1e-4 ? '0.00' : n.fy.toFixed(2)}</td>
+          <td>${Math.abs(n.mz) < 1e-4 ? '0.00' : n.mz.toFixed(2)}</td>
+        </tr>`;
+      });
+      document.getElementById('tbody-nodes').innerHTML = nodesHtml;
+
+      let elemsHtml = '';
+      res.elements.forEach(el => {
+        elemsHtml += `<tr>
+          <td class="center" rowspan="2"><strong>${el.id}</strong></td>
+          <td class="center">N${el.n1}</td>
+          <td>${el.n1_forces.axial.toFixed(2)}</td>
+          <td>${el.n1_forces.shear.toFixed(2)}</td>
+          <td>${el.n1_forces.moment.toFixed(2)}</td>
+        </tr>
+        <tr>
+          <td class="center">N${el.n2}</td>
+          <td>${el.n2_forces.axial.toFixed(2)}</td>
+          <td>${el.n2_forces.shear.toFixed(2)}</td>
+          <td>${el.n2_forces.moment.toFixed(2)}</td>
+        </tr>`;
+      });
+      document.getElementById('tbody-elements').innerHTML = elemsHtml;
+    }
+
+    renderReport();
+  </script>
+</body>
+</html>
