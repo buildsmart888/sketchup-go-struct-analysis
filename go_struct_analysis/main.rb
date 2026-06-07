@@ -11,6 +11,8 @@ Sketchup.require 'go_struct_analysis/gobeam'
 Sketchup.require 'go_struct_analysis/draw_gobeam'
 Sketchup.require 'go_struct_analysis/gotruss'
 Sketchup.require 'go_struct_analysis/draw_gotruss'
+Sketchup.require 'go_struct_analysis/goframe'
+Sketchup.require 'go_struct_analysis/draw_goframe'
 
 module GOStructAnalysis
   extend self
@@ -21,6 +23,8 @@ module GOStructAnalysis
   extend DrawGobeam
   extend Gotruss
   extend DrawGotruss
+  extend Goframe
+  extend DrawGoframe
 
   VERSION = 1
   TEMPLATE_ROOT = File.join(File.dirname(__FILE__), 'templates')
@@ -40,6 +44,7 @@ module GOStructAnalysis
     menu.add_item('Open') { show_main_dialog }
     menu.add_item('Continuous Beam') { show_gobeam_dialog }
     menu.add_item('Truss Analysis') { show_gotruss_dialog }
+    menu.add_item('2D Frame Analysis') { Goframe.show_dialog }
 
     toolbar = UI::Toolbar.new('GO Struct Analysis')
     
@@ -60,6 +65,17 @@ module GOStructAnalysis
     cmd_truss.menu_text = 'Truss Analysis'
     
     toolbar.add_item(cmd_truss)
+
+    cmd_frame = UI::Command.new('2D Frame Analysis') { Goframe.show_dialog }
+    # Using the existing beam/truss icon as a placeholder until we have frame icons
+    cmd_frame.small_icon = File.join(File.dirname(__FILE__), 'icons', 'gotruss_16.png')
+    cmd_frame.large_icon = File.join(File.dirname(__FILE__), 'icons', 'gotruss_24.png')
+    cmd_frame.tooltip = '2D Rigid Frame Analysis'
+    cmd_frame.status_bar_text = 'Open 2D Frame Analysis'
+    cmd_frame.menu_text = '2D Frame Analysis'
+    
+    toolbar.add_item(cmd_frame)
+
     toolbar.show
 
     @menu_installed = true

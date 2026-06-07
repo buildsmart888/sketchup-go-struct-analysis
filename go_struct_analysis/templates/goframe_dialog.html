@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>2D Frame Analysis</title>
+    <style>
+      :root {
+        --ink: #172025;
+        --muted: #66757d;
+        --line: #dce4e7;
+        --panel: #ffffff;
+        --paper: #eef3f3;
+        --graphite: #263236;
+        --graphite-2: #344247;
+        --go: #00a86b;
+        --go-dark: #08764f;
+        --shadow: rgba(25, 42, 47, 0.12);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: linear-gradient(90deg, rgba(38,50,54,0.05) 1px, transparent 1px), linear-gradient(180deg, rgba(38,50,54,0.05) 1px, transparent 1px), var(--paper);
+        background-size: 28px 28px;
+        color: var(--ink);
+        font-family: 'Segoe UI', Tahoma, sans-serif;
+        font-size: 13px;
+        height: 100vh;
+        overflow: hidden;
+      }
+      button, input, select { font: inherit; }
+      button {
+        border: 1px solid #c7d2d5;
+        background: #fff;
+        color: var(--graphite);
+        border-radius: 6px;
+        min-height: 28px;
+        padding: 4px 10px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      button:hover { border-color: var(--go); color: var(--go-dark); }
+      button.primary { background: var(--go); color: #fff; border-color: var(--go); text-transform: uppercase; font-weight: 800; letter-spacing: 0.1em; }
+      button.soft { background: #e8f7f1; color: var(--go-dark); border-color: #b9e6d4; }
+      button.danger { background: #fbeaea; color: #d32f2f; border-color: #f3c9c9; }
+      button.danger:hover { background: #f3c9c9; }
+      input, select {
+        border: 1px solid #c9d4d7;
+        background: #fff;
+        color: var(--ink);
+        border-radius: 4px;
+        height: 24px;
+        padding: 2px 6px;
+      }
+      input[type='number'] { text-align: right; }
+      .app { height: 100vh; padding: 10px 14px; display: flex; flex-direction: column; }
+      .topbar {
+        display: flex; align-items: center; justify-content: space-between;
+        background: var(--graphite); color: #fff; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; flex-shrink: 0;
+      }
+      .brand { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 800; }
+      .go-mark { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 6px; background: var(--go); font-weight: 900; letter-spacing: -1px; }
+      .brand-title { display: flex; flex-direction: column; }
+      .brand-title small { color: #b7c5c9; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; }
+      .grid { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 10px; flex: 1; min-height: 0; }
+      aside { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; padding-right: 4px; }
+      fieldset { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 12px; margin: 0; }
+      legend { color: var(--graphite); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; padding: 0 5px; cursor: pointer;}
+      .row { display: grid; grid-template-columns: 100px minmax(0, 1fr) 30px; gap: 4px; align-items: center; margin-bottom: 6px; }
+      .row:last-child { margin-bottom: 0; }
+      .unit { font-size: 11px; color: var(--muted); padding-left: 2px; }
+      .analyze { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+      .stage { border: 1px solid var(--line); border-radius: 8px; background: #fff; display: flex; flex-direction: column; overflow: hidden; }
+      .tabs { display: flex; gap: 4px; padding: 8px 10px 0; background: #f7faf9; border-bottom: 1px solid var(--line); }
+      .tab { background: var(--graphite); border-radius: 6px 6px 0 0; color: #fff; padding: 6px 14px; min-height: 30px; border: none; font-size: 12px; }
+      .tab.inactive { color: #607177; background: #e8eeee; cursor: pointer; border-bottom: 1px solid var(--line); }
+      .canvas-area { flex: 1; position: relative; padding: 10px; min-height: 0; }
+      .tab-content { display: none; width: 100%; height: 100%; position: absolute; top:0; left:0; padding:10px; box-sizing: border-box; overflow-y: auto; }
+      .tab-content.active { display: block; }
+      canvas { display: block; width: 100%; height: 100%; }
+      table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 11px; }
+      th, td { border: 1px solid var(--line); padding: 4px; text-align: center; }
+      th { background: #eef4f3; color: #34404d; }
+      td input, td select { width: 100%; height: 22px; padding: 1px 4px; border: 1px solid transparent; border-radius: 2px; background: transparent; text-align: center; }
+      td input:focus, td select:focus { border-color: var(--go); background: #fff; outline: none; }
+      .tbl-add-row { margin-top: 4px; width: 100%; }
+      
+      .collapsible-body { display: none; margin-top: 8px; }
+      .collapsible-body.open { display: block; }
+
+      .modal-overlay {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(25, 42, 47, 0.4); backdrop-filter: blur(2px);
+        display: none; align-items: center; justify-content: center; z-index: 100;
+      }
+      .modal-box {
+        background: #fff; border-radius: 10px; padding: 20px;
+        box-shadow: 0 10px 30px rgba(25, 42, 47, 0.2); width: 320px;
+      }
+    </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="brand">
+        <div class="go-mark">GO</div>
+        <div class="brand-title"><small>Struct Analysis</small><span>2D Rigid Frame</span></div>
+      </div>
+    </div>
+    
+    <div class="grid">
+      <aside>
+        <fieldset>
+          <legend onclick="toggleGroup('grp-gen')">▶ Frame Generators</legend>
+          <div id="grp-gen" class="collapsible-body">
+            <div style="display:flex; gap:4px; margin-bottom: 8px;">
+              <select id="sel-template" style="flex:1;">
+                <option value="portal">Portal Frame (1 Span)</option>
+                <option value="multistory">Multi-story Frame</option>
+                <option value="gable">Gable Roof Frame</option>
+              </select>
+              <button class="soft" onclick="generateTemplate()">Generate</button>
+            </div>
+            <div class="row"><label>Spans (X)</label><input type="number" id="gen-nx" value="1" min="1"><span class="unit"></span></div>
+            <div class="row"><label>Stories (Y)</label><input type="number" id="gen-ny" value="1" min="1"><span class="unit"></span></div>
+            <div class="row"><label>Span Width</label><input type="number" id="gen-lx" value="6.0" step="0.5"><span class="unit">m</span></div>
+            <div class="row"><label>Story Height</label><input type="number" id="gen-ly" value="3.5" step="0.5"><span class="unit">m</span></div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend onclick="toggleGroup('grp-sec')">▼ Sections Calculator</legend>
+          <div id="grp-sec" class="collapsible-body open">
+            <div style="display:flex; gap:4px; margin-bottom:4px;">
+              <button class="soft" onclick="addSectionRow(1, 20000000, 100, 1000)" style="flex:1; font-size:10px;">+ Add Custom Section</button>
+              <button class="ghost" onclick="openSectionCalc()" style="flex:1; font-size:10px;">Calculator (A, I)</button>
+            </div>
+            <table id="tbl-sections">
+              <thead><tr><th>ID</th><th>E (kg/m²)</th><th>A (cm²)</th><th>I (cm⁴)</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend onclick="toggleGroup('grp-nodes')">▼ Nodes & Supports</legend>
+          <div id="grp-nodes" class="collapsible-body open">
+            <table id="tbl-nodes">
+              <thead><tr><th>ID</th><th>X (m)</th><th>Y (m)</th><th>Support</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <button class="soft tbl-add-row" onclick="addNodeRow(0,0,'Free')">+ Add Node</button>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend onclick="toggleGroup('grp-elem')">▼ Elements</legend>
+          <div id="grp-elem" class="collapsible-body open">
+            <table id="tbl-elements">
+              <thead><tr><th>ID</th><th>N1</th><th>N2</th><th>Sec ID</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <button class="soft tbl-add-row" onclick="addElementRow(1,2,1)">+ Add Element</button>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend onclick="toggleGroup('grp-loads')">▼ Loads</legend>
+          <div id="grp-loads" class="collapsible-body open">
+            <div style="font-weight:bold; font-size:11px; margin-bottom:4px; color:var(--graphite);">Nodal Loads</div>
+            <table id="tbl-nloads">
+              <thead><tr><th>Node</th><th>Fx (kg)</th><th>Fy (kg)</th><th>Mz (kg.m)</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <button class="soft tbl-add-row" onclick="addNodalLoadRow(1, 0, -1000, 0)">+ Add Nodal Load</button>
+            
+            <div style="font-weight:bold; font-size:11px; margin-top:10px; margin-bottom:4px; color:var(--graphite);">Element Uniform Loads</div>
+            <table id="tbl-eloads">
+              <thead><tr><th>Elem</th><th>Dir</th><th>w (kg/m)</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <button class="soft tbl-add-row" onclick="addElemLoadRow(1, 'Local Y', -500)">+ Add Element Load</button>
+          </div>
+        </fieldset>
+
+        <div class="analyze">
+          <button class="primary" onclick="analyzeFrame()">Analyze Frame</button>
+          <button class="soft" onclick="draw3D()">Draw 3D SketchUp</button>
+          <button class="ghost" onclick="openReport()">Print Report</button>
+        </div>
+      </aside>
+
+      <main class="stage">
+        <div class="tabs">
+          <button class="tab" id="tabbtn-preview" onclick="switchTab('tab-preview', 'tabbtn-preview')">Preview</button>
+          <button class="tab inactive" id="tabbtn-result" onclick="switchTab('tab-result', 'tabbtn-result')">Text Results</button>
+          <button class="tab inactive" id="tabbtn-diagrams" onclick="switchTab('tab-diagrams', 'tabbtn-diagrams')">Diagrams</button>
+        </div>
+        <div class="canvas-area">
+          <div id="tab-preview" class="tab-content active">
+            <canvas id="canvas-preview"></canvas>
+          </div>
+          <div id="tab-result" class="tab-content"><div id="result-text-area" style="font-family:monospace; white-space:pre-wrap;">Results will appear here...</div></div>
+          <div id="tab-diagrams" class="tab-content">
+            <div style="display:flex; gap:10px; margin-bottom: 10px;">
+              <label><input type="radio" name="diag-type" value="afd" checked onchange="drawDiagrams()"> Axial Force (AFD)</label>
+              <label><input type="radio" name="diag-type" value="sfd" onchange="drawDiagrams()"> Shear Force (SFD)</label>
+              <label><input type="radio" name="diag-type" value="bmd" onchange="drawDiagrams()"> Bending Moment (BMD)</label>
+              <label><input type="radio" name="diag-type" value="def" onchange="drawDiagrams()"> Deformation</label>
+            </div>
+            <canvas id="canvas-diagrams" style="width:100%; height:calc(100% - 30px); border:1px solid #ddd;"></canvas>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div id="modal-calc" class="modal-overlay">
+    <div class="modal-box">
+      <div style="font-weight:800; margin-bottom:10px; color:var(--graphite);">Cross-Section Calculator</div>
+      <div class="row">
+        <label>Shape</label>
+        <select id="calc-shape" onchange="updateCalcFields()">
+          <option value="rect">Rectangle (Solid)</option>
+          <option value="ibeam">I-Beam / H-Beam</option>
+          <option value="pipe">Pipe (Hollow Circular)</option>
+        </select>
+      </div>
+      <div id="calc-fields"></div>
+      <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--line);">
+        <div class="row"><label>Area (A)</label><input type="number" id="calc-a" readonly><span class="unit">cm&sup2;</span></div>
+        <div class="row"><label>Inertia (Ixx)</label><input type="number" id="calc-i" readonly><span class="unit">cm&sup4;</span></div>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:14px;">
+        <button class="ghost" onclick="closeSectionCalc()">Cancel</button>
+        <button class="primary" onclick="applySectionCalc()">Add Section</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Modal logic
+    function openSectionCalc() { document.getElementById('modal-calc').style.display = 'flex'; updateCalcFields(); }
+    function closeSectionCalc() { document.getElementById('modal-calc').style.display = 'none'; }
+    function updateCalcFields() {
+      let shape = document.getElementById('calc-shape').value;
+      let html = '';
+      if(shape === 'rect') {
+        html = `<div class="row"><label>Width (b)</label><input type="number" id="calc-b" value="20" oninput="doCalc()"><span class="unit">cm</span></div>
+                <div class="row"><label>Height (h)</label><input type="number" id="calc-h" value="40" oninput="doCalc()"><span class="unit">cm</span></div>`;
+      } else if(shape === 'ibeam') {
+        html = `<div class="row"><label>Depth (h)</label><input type="number" id="calc-h" value="20" oninput="doCalc()"><span class="unit">cm</span></div>
+                <div class="row"><label>Flange W. (b)</label><input type="number" id="calc-b" value="10" oninput="doCalc()"><span class="unit">cm</span></div>
+                <div class="row"><label>Web Thk (tw)</label><input type="number" id="calc-tw" value="0.5" oninput="doCalc()"><span class="unit">cm</span></div>
+                <div class="row"><label>Flange Thk (tf)</label><input type="number" id="calc-tf" value="0.8" oninput="doCalc()"><span class="unit">cm</span></div>`;
+      } else if(shape === 'pipe') {
+        html = `<div class="row"><label>Outer Dia (D)</label><input type="number" id="calc-d" value="10" oninput="doCalc()"><span class="unit">cm</span></div>
+                <div class="row"><label>Thickness (t)</label><input type="number" id="calc-t" value="0.3" oninput="doCalc()"><span class="unit">cm</span></div>`;
+      }
+      document.getElementById('calc-fields').innerHTML = html;
+      doCalc();
+    }
+    function doCalc() {
+      let shape = document.getElementById('calc-shape').value;
+      let a = 0, i = 0;
+      if(shape === 'rect') {
+        let b = parseFloat(document.getElementById('calc-b').value)||0;
+        let h = parseFloat(document.getElementById('calc-h').value)||0;
+        a = b * h;
+        i = (b * Math.pow(h, 3)) / 12;
+      } else if(shape === 'ibeam') {
+        let h = parseFloat(document.getElementById('calc-h').value)||0;
+        let b = parseFloat(document.getElementById('calc-b').value)||0;
+        let tw = parseFloat(document.getElementById('calc-tw').value)||0;
+        let tf = parseFloat(document.getElementById('calc-tf').value)||0;
+        let hw = h - 2*tf;
+        a = 2*(b*tf) + (hw*tw);
+        i = (b*Math.pow(h,3)/12) - ((b-tw)*Math.pow(hw,3)/12);
+      } else if(shape === 'pipe') {
+        let d = parseFloat(document.getElementById('calc-d').value)||0;
+        let t = parseFloat(document.getElementById('calc-t').value)||0;
+        let di = d - 2*t;
+        a = (Math.PI/4) * (d*d - di*di);
+        i = (Math.PI/64) * (Math.pow(d,4) - Math.pow(di,4));
+      }
+      document.getElementById('calc-a').value = a.toFixed(2);
+      document.getElementById('calc-i').value = i.toFixed(2);
+    }
+    function applySectionCalc() {
+      let a = document.getElementById('calc-a').value;
+      let i = document.getElementById('calc-i').value;
+      // Default E to Concrete 2,000,000 kg/m2 or Steel 20,000,000 kg/m2 based on shape
+      let shape = document.getElementById('calc-shape').value;
+      let e = shape === 'rect' ? 2000000 : 20000000;
+      addSectionRow(secIdCounter, e, a, i);
+      closeSectionCalc();
+    }
+    function toggleGroup(id) {
+      let el = document.getElementById(id);
+      if (el.classList.contains('open')) {
+        el.classList.remove('open');
+        el.previousElementSibling.innerText = el.previousElementSibling.innerText.replace('▼', '▶');
+      } else {
+        el.classList.add('open');
+        el.previousElementSibling.innerText = el.previousElementSibling.innerText.replace('▶', '▼');
+      }
+    }
+
+    function switchTab(tabId, btnId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab').forEach(el => el.classList.add('inactive'));
+      document.getElementById(tabId).classList.add('active');
+      document.getElementById(btnId).classList.remove('inactive');
+      if(tabId === 'tab-preview') drawPreview();
+      if(tabId === 'tab-diagrams') drawDiagrams();
+    }
+
+    // Row management functions
+    let secIdCounter = 1;
+    let nodeIdCounter = 1;
+    let elemIdCounter = 1;
+
+    function addSectionRow(id, e, a, i) {
+      let tbody = document.querySelector('#tbl-sections tbody');
+      let tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${id || secIdCounter++}</td>
+        <td><input type="number" value="${e}"></td>
+        <td><input type="number" value="${a}"></td>
+        <td><input type="number" value="${i}"></td>
+        <td><button class="danger" onclick="this.closest('tr').remove(); drawPreview()">X</button></td>
+      `;
+      tbody.appendChild(tr);
+      drawPreview();
+    }
+
+    function addNodeRow(x, y, support) {
+      let tbody = document.querySelector('#tbl-nodes tbody');
+      let tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${nodeIdCounter++}</td>
+        <td><input type="number" value="${x}" onchange="drawPreview()"></td>
+        <td><input type="number" value="${y}" onchange="drawPreview()"></td>
+        <td>
+          <select onchange="drawPreview()">
+            <option value="Free" ${support=='Free'?'selected':''}>Free</option>
+            <option value="Pinned" ${support=='Pinned'?'selected':''}>Pinned</option>
+            <option value="Fixed" ${support=='Fixed'?'selected':''}>Fixed</option>
+            <option value="RollerX" ${support=='RollerX'?'selected':''}>Roller(X)</option>
+            <option value="RollerY" ${support=='RollerY'?'selected':''}>Roller(Y)</option>
+          </select>
+        </td>
+        <td><button class="danger" onclick="this.closest('tr').remove(); drawPreview()">X</button></td>
+      `;
+      tbody.appendChild(tr);
+      drawPreview();
+    }
+
+    function addElementRow(n1, n2, sec) {
+      let tbody = document.querySelector('#tbl-elements tbody');
+      let tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${elemIdCounter++}</td>
+        <td><input type="number" value="${n1}" onchange="drawPreview()"></td>
+        <td><input type="number" value="${n2}" onchange="drawPreview()"></td>
+        <td><input type="number" value="${sec}" onchange="drawPreview()"></td>
+        <td><button class="danger" onclick="this.closest('tr').remove(); drawPreview()">X</button></td>
+      `;
+      tbody.appendChild(tr);
+      drawPreview();
+    }
+
+    function addNodalLoadRow(node, fx, fy, mz) {
+      let tbody = document.querySelector('#tbl-nloads tbody');
+      let tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="number" value="${node}" onchange="drawPreview()"></td>
+        <td><input type="number" value="${fx}" onchange="drawPreview()"></td>
+        <td><input type="number" value="${fy}" onchange="drawPreview()"></td>
+        <td><input type="number" value="${mz}" onchange="drawPreview()"></td>
+        <td><button class="danger" onclick="this.closest('tr').remove(); drawPreview()">X</button></td>
+      `;
+      tbody.appendChild(tr);
+      drawPreview();
+    }
+
+    function addElemLoadRow(elem, dir, w) {
+      let tbody = document.querySelector('#tbl-eloads tbody');
+      let tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="number" value="${elem}" onchange="drawPreview()"></td>
+        <td>
+          <select onchange="drawPreview()">
+            <option value="Local Y" ${dir=='Local Y'?'selected':''}>Local Y (Perpendicular)</option>
+            <option value="Global Y" ${dir=='Global Y'?'selected':''}>Global Y (Gravity)</option>
+          </select>
+        </td>
+        <td><input type="number" value="${w}" onchange="drawPreview()"></td>
+        <td><button class="danger" onclick="this.closest('tr').remove(); drawPreview()">X</button></td>
+      `;
+      tbody.appendChild(tr);
+      drawPreview();
+    }
+
+    // Canvas drawing
+    function getNodes() {
+      let nodes = [];
+      document.querySelectorAll('#tbl-nodes tbody tr').forEach(tr => {
+        let inputs = tr.querySelectorAll('input, select');
+        nodes.push({
+          id: parseInt(tr.cells[0].innerText),
+          x: parseFloat(inputs[0].value),
+          y: parseFloat(inputs[1].value),
+          support: inputs[2].value
+        });
+      });
+      return nodes;
+    }
+    function getElements() {
+      let elems = [];
+      document.querySelectorAll('#tbl-elements tbody tr').forEach(tr => {
+        let inputs = tr.querySelectorAll('input');
+        elems.push({
+          id: parseInt(tr.cells[0].innerText),
+          n1: parseInt(inputs[0].value),
+          n2: parseInt(inputs[1].value)
+        });
+      });
+      return elems;
+    }
+
+    function drawPreview() {
+      let canvas = document.getElementById('canvas-preview');
+      if(!canvas) return;
+      let ctx = canvas.getContext('2d');
+      let rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+      
+      let nodes = getNodes();
+      let elements = getElements();
+      
+      if(nodes.length === 0) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
+
+      // Find bounds
+      let minX = Math.min(...nodes.map(n=>n.x)), maxX = Math.max(...nodes.map(n=>n.x));
+      let minY = Math.min(...nodes.map(n=>n.y)), maxY = Math.max(...nodes.map(n=>n.y));
+      let dx = maxX - minX, dy = maxY - minY;
+      if(dx === 0) dx = 1; if(dy === 0) dy = 1;
+      
+      let padding = 60;
+      let scaleX = (canvas.width - padding*2) / dx;
+      let scaleY = (canvas.height - padding*2) / dy;
+      let scale = Math.min(scaleX, scaleY);
+      
+      let cx = (minX + maxX)/2;
+      let cy = (minY + maxY)/2;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.translate(canvas.width/2, canvas.height/2);
+      ctx.scale(1, -1); // flip Y so up is positive
+      
+      function projX(x) { return (x - cx) * scale; }
+      function projY(y) { return (y - cy) * scale; }
+
+      // Draw Elements
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#2c3e50';
+      elements.forEach(el => {
+        let n1 = nodes.find(n => n.id === el.n1);
+        let n2 = nodes.find(n => n.id === el.n2);
+        if(n1 && n2) {
+          ctx.beginPath();
+          ctx.moveTo(projX(n1.x), projY(n1.y));
+          ctx.lineTo(projX(n2.x), projY(n2.y));
+          ctx.stroke();
+        }
+      });
+
+      // Draw Supports & Nodes
+      nodes.forEach(n => {
+        let px = projX(n.x);
+        let py = projY(n.y);
+        
+        ctx.fillStyle = '#e74c3c';
+        if(n.support === 'Fixed') {
+          ctx.fillRect(px - 10, py - 10, 20, 10);
+        } else if (n.support === 'Pinned') {
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px - 8, py - 12);
+          ctx.lineTo(px + 8, py - 12);
+          ctx.fill();
+        } else if (n.support.startsWith('Roller')) {
+          ctx.beginPath();
+          ctx.arc(px, py-6, 6, 0, Math.PI*2);
+          ctx.fill();
+        }
+        
+        // Draw Node dot
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#e74c3c';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(px, py, 4, 0, Math.PI*2);
+        ctx.fill();
+        ctx.stroke();
+      });
+
+      ctx.restore();
+    }
+
+    function drawDiagrams() {
+      // TODO: implement AFD/SFD/BMD
+    }
+
+    function getSections() {
+      let secs = [];
+      document.querySelectorAll('#tbl-sections tbody tr').forEach(tr => {
+        let inputs = tr.querySelectorAll('input');
+        secs.push({
+          id: parseInt(tr.cells[0].innerText),
+          e: parseFloat(inputs[0].value),
+          a: parseFloat(inputs[1].value),
+          i: parseFloat(inputs[2].value)
+        });
+      });
+      return secs;
+    }
+    
+    function getNLoads() {
+      let loads = [];
+      document.querySelectorAll('#tbl-nloads tbody tr').forEach(tr => {
+        let inputs = tr.querySelectorAll('input');
+        loads.push({
+          node: parseInt(inputs[0].value),
+          fx: parseFloat(inputs[1].value),
+          fy: parseFloat(inputs[2].value),
+          mz: parseFloat(inputs[3].value)
+        });
+      });
+      return loads;
+    }
+    
+    function getELoads() {
+      let loads = [];
+      document.querySelectorAll('#tbl-eloads tbody tr').forEach(tr => {
+        let inputs = tr.querySelectorAll('input, select');
+        loads.push({
+          elem: parseInt(inputs[0].value),
+          dir: inputs[1].value,
+          w: parseFloat(inputs[2].value)
+        });
+      });
+      return loads;
+    }
+
+    function collectData() {
+      return {
+        nodes: getNodes(),
+        elements: getElements(),
+        sections: getSections(),
+        nloads: getNLoads(),
+        eloads: getELoads()
+      };
+    }
+
+    let isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    function sketchupCall(command, payload) {
+      if (window.sketchup) {
+        window.sketchup[command](payload);
+      } else if (isMac) {
+        window.location.href = 'skp:' + command + '@' + encodeURIComponent(JSON.stringify(payload));
+      } else {
+        console.log('Sketchup call:', command, payload);
+      }
+    }
+
+    let currentResult = null;
+
+    function analyzeFrame() {
+      document.getElementById('result-text-area').innerText = 'Analyzing...';
+      let data = collectData();
+      sketchupCall('analyze_frame', data);
+    }
+
+    function displayResults(res) {
+      currentResult = res;
+      if (!res.ok) {
+        document.getElementById('result-text-area').innerText = "ERROR:\n" + res.error;
+        switchTab('tab-result', 'tabbtn-result');
+        return;
+      }
+
+      let text = "=== GO FRAME ANALYSIS RESULTS ===\n\n";
+      text += "--- NODAL DISPLACEMENTS & REACTIONS ---\n";
+      text += "Node | dX (m)    | dY (m)    | Rz (rad)   | Fx (kg)   | Fy (kg)   | Mz (kg.m)\n";
+      text += "--------------------------------------------------------------------------------\n";
+      res.nodes.forEach(n => {
+        text += `${n.id.toString().padEnd(4)} | ` +
+                `${n.dx.toFixed(6).padEnd(9)} | ` +
+                `${n.dy.toFixed(6).padEnd(9)} | ` +
+                `${n.rz.toFixed(6).padEnd(10)} | ` +
+                `${n.fx.toFixed(2).padEnd(9)} | ` +
+                `${n.fy.toFixed(2).padEnd(9)} | ` +
+                `${n.mz.toFixed(2)}\n`;
+      });
+
+      text += "\n--- MEMBER FORCES (Local Axes) ---\n";
+      text += "Elem | Node | Axial (kg) | Shear (kg) | Moment (kg.m)\n";
+      text += "--------------------------------------------------------\n";
+      res.elements.forEach(el => {
+        text += `${el.id.toString().padEnd(4)} | ${el.n1.toString().padEnd(4)} | ` +
+                `${el.n1_forces.axial.toFixed(2).padEnd(10)} | ` +
+                `${el.n1_forces.shear.toFixed(2).padEnd(10)} | ` +
+                `${el.n1_forces.moment.toFixed(2)}\n`;
+        text += `     | ${el.n2.toString().padEnd(4)} | ` +
+                `${el.n2_forces.axial.toFixed(2).padEnd(10)} | ` +
+                `${el.n2_forces.shear.toFixed(2).padEnd(10)} | ` +
+                `${el.n2_forces.moment.toFixed(2)}\n`;
+        text += "--------------------------------------------------------\n";
+      });
+
+      document.getElementById('result-text-area').innerText = text;
+      switchTab('tab-result', 'tabbtn-result');
+    }
+
+    function draw3D() {
+      let data = { model: collectData(), result: currentResult };
+      sketchupCall('export_3d', data);
+    }
+
+    function generateTemplate() {
+      // TODO: auto-fill tables based on template selection
+      let type = document.getElementById('sel-template').value;
+      let nx = parseInt(document.getElementById('gen-nx').value);
+      let ny = parseInt(document.getElementById('gen-ny').value);
+      let lx = parseFloat(document.getElementById('gen-lx').value);
+      let ly = parseFloat(document.getElementById('gen-ly').value);
+
+      document.querySelector('#tbl-nodes tbody').innerHTML = '';
+      document.querySelector('#tbl-elements tbody').innerHTML = '';
+      nodeIdCounter = 1;
+      elemIdCounter = 1;
+
+      if(type === 'portal') {
+        // Simple 1 span portal
+        addNodeRow(0, 0, 'Fixed');
+        addNodeRow(lx, 0, 'Fixed');
+        addNodeRow(0, ly, 'Free');
+        addNodeRow(lx, ly, 'Free');
+        addElementRow(1, 3, 1); // Left column
+        addElementRow(2, 4, 1); // Right column
+        addElementRow(3, 4, 1); // Beam
+      } else if (type === 'multistory') {
+        // Multi-span multi-story
+        let nodes = [];
+        for(let j=0; j<=ny; j++) {
+          for(let i=0; i<=nx; i++) {
+            addNodeRow(i*lx, j*ly, j===0 ? 'Fixed' : 'Free');
+            nodes.push({x: i, y: j, id: nodeIdCounter-1});
+          }
+        }
+        // Columns
+        for(let j=0; j<ny; j++) {
+          for(let i=0; i<=nx; i++) {
+            let n1 = nodes.find(n => n.x===i && n.y===j).id;
+            let n2 = nodes.find(n => n.x===i && n.y===j+1).id;
+            addElementRow(n1, n2, 1);
+          }
+        }
+        // Beams
+        for(let j=1; j<=ny; j++) {
+          for(let i=0; i<nx; i++) {
+            let n1 = nodes.find(n => n.x===i && n.y===j).id;
+            let n2 = nodes.find(n => n.x===i+1 && n.y===j).id;
+            addElementRow(n1, n2, 1);
+          }
+        }
+      }
+    }
+
+    // Setup
+    window.onload = function() {
+      // Defaults: Steel section (E=2x10^10 kg/m^2), Portal Frame
+      addSectionRow(1, 2e10, 50, 5000);
+      generateTemplate();
+    };
+  </script>
+</body>
+</html>
