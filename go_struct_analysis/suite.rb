@@ -8,6 +8,44 @@ module GOStructAnalysis
       { id: 'mixed_system', name: 'Mixed System', status: 'PLANNED', command: nil, description: 'Combined beam, truss, and frame system workflow.' }
     ].freeze
 
+    module MatrixOperations
+      def self.multiply(a, b)
+        m = a.length
+        n = a[0].length
+        p = b[0].length
+        res = Array.new(m) { Array.new(p, 0.0) }
+        m.times do |i|
+          p.times do |j|
+            n.times do |k|
+              res[i][j] += a[i][k] * b[k][j]
+            end
+          end
+        end
+        res
+      end
+
+      def self.multiply_vector(mat, vec)
+        m = mat.length
+        n = mat[0].length
+        res = Array.new(m, 0.0)
+        m.times do |i|
+          n.times do |j|
+            res[i] += mat[i][j] * vec[j]
+          end
+        end
+        res
+      end
+
+      def self.invert(matrix)
+        require 'matrix'
+        m = Matrix[*matrix]
+        inv = m.inverse
+        inv.to_a
+      rescue StandardError => e
+        raise ArgumentError, "Matrix Singular. Structure may be unstable."
+      end
+    end
+
     def show_main_dialog
       puts '[GO Struct Analysis] Opening main dialog...'
       dialog = ensure_main_dialog
