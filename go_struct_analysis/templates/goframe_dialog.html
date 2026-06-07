@@ -118,12 +118,22 @@
                 <option value="multistory">Multi-story Frame</option>
                 <option value="gable">Gable Roof Frame</option>
               </select>
-              <button class="soft" onclick="generateTemplate()">Generate</button>
             </div>
-            <div class="row"><label>Spans (X)</label><input type="number" id="gen-nx" value="1" min="1"><span class="unit"></span></div>
-            <div class="row"><label>Stories (Y)</label><input type="number" id="gen-ny" value="1" min="1"><span class="unit"></span></div>
-            <div class="row"><label>Span Width</label><input type="number" id="gen-lx" value="6.0" step="0.5"><span class="unit">m</span></div>
-            <div class="row"><label>Story Height</label><input type="number" id="gen-ly" value="3.5" step="0.5"><span class="unit">m</span></div>
+            <div style="margin-bottom: 5px;">
+              <label style="display:inline-block; width: 40px;">Nx:</label>
+              <input type="number" id="gen-nx" value="2" min="1" style="width: 50px;" oninput="generateTemplate()">
+              <label style="display:inline-block; width: 40px;">Lx (m):</label>
+              <input type="number" id="gen-lx" value="4" step="0.5" style="width: 60px;" oninput="generateTemplate()">
+            </div>
+            <div style="margin-bottom: 5px;">
+              <label style="display:inline-block; width: 40px;">Ny:</label>
+              <input type="number" id="gen-ny" value="2" min="1" style="width: 50px;" oninput="generateTemplate()">
+              <label style="display:inline-block; width: 40px;">Ly (m):</label>
+              <input type="number" id="gen-ly" value="3" step="0.5" style="width: 60px;" oninput="generateTemplate()">
+            </div>
+            <div style="text-align: right; margin-top: 10px;">
+              <button onclick="generateTemplate()">Generate</button>
+            </div>
           </div>
         </fieldset>
 
@@ -196,7 +206,13 @@
           <button class="tab inactive" id="tabbtn-diagrams" onclick="switchTab('tab-diagrams', 'tabbtn-diagrams')">Diagrams</button>
         </div>
         <div class="canvas-area">
-          <div id="tab-preview" class="tab-content active">
+          <div style="position: absolute; top: 10px; right: 10px; z-index: 10; background: rgba(255,255,255,0.9); padding: 5px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; display: flex; gap: 10px;">
+            <label><input type="checkbox" id="chk-nodes" checked onchange="drawPreview()"> Node Labels</label>
+            <label><input type="checkbox" id="chk-members" checked onchange="drawPreview()"> Member Labels</label>
+            <label><input type="checkbox" id="chk-reactions" checked onchange="drawPreview()"> Reactions</label>
+          </div>
+
+          <div id="tab-preview" class="tab-content active" style="position: relative; width: 100%; height: 100%;">
             <canvas id="canvas-preview"></canvas>
           </div>
           <div id="tab-result" class="tab-content"><div id="result-text-area" style="font-family:monospace; white-space:pre-wrap;">Results will appear here...</div></div>
@@ -238,7 +254,6 @@
   </div>
 
   <script>
-    // Modal logic
     function openSectionCalc() { document.getElementById('modal-calc').style.display = 'flex'; updateCalcFields(); }
     function closeSectionCalc() { document.getElementById('modal-calc').style.display = 'none'; }
     function updateCalcFields() {
@@ -288,7 +303,6 @@
     function applySectionCalc() {
       let a = document.getElementById('calc-a').value;
       let i = document.getElementById('calc-i').value;
-      // Default E to Concrete 2,000,000 kg/m2 or Steel 20,000,000 kg/m2 based on shape
       let shape = document.getElementById('calc-shape').value;
       let e = shape === 'rect' ? 2000000 : 20000000;
       addSectionRow(secIdCounter, e, a, i);
@@ -314,7 +328,6 @@
       if(tabId === 'tab-diagrams') drawDiagrams();
     }
 
-    // Row management functions
     let secIdCounter = 1;
     let nodeIdCounter = 1;
     let elemIdCounter = 1;
@@ -401,7 +414,6 @@
       drawPreview();
     }
 
-    // Canvas drawing
     function getNodes() {
       let nodes = [];
       document.querySelectorAll('#tbl-nodes tbody tr').forEach(tr => {
@@ -438,78 +450,84 @@
       
       let nodes = getNodes();
       let elements = getElements();
+      let showNodes = document.getElementById('chk-nodes').checked;
+      let showMembers = document.getElementById('chk-members').checked;
+      let showReactions = document.getElementById('chk-reactions').checked;
       
       if(nodes.length === 0) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         return;
       }
 
-      // Find bounds
       let minX = Math.min(...nodes.map(n=>n.x)), maxX = Math.max(...nodes.map(n=>n.x));
       let minY = Math.min(...nodes.map(n=>n.y)), maxY = Math.max(...nodes.map(n=>n.y));
-      let dx = maxX - minX, dy = maxY - minY;
-      if(dx === 0) dx = 1; if(dy === 0) dy = 1;
+      let dx = maxX - minX || 1, dy = maxY - minY || 1;
       
       let padding = 60;
-      let scaleX = (canvas.width - padding*2) / dx;
-      let scaleY = (canvas.height - padding*2) / dy;
-      let scale = Math.min(scaleX, scaleY);
-      
-      let cx = (minX + maxX)/2;
-      let cy = (minY + maxY)/2;
+      let scale = Math.min((canvas.width - padding*2) / dx, (canvas.height - padding*2) / dy);
+      let cx = (minX + maxX)/2, cy = (minY + maxY)/2;
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.save();
       ctx.translate(canvas.width/2, canvas.height/2);
-      ctx.scale(1, -1); // flip Y so up is positive
+      ctx.scale(1, -1);
       
       function projX(x) { return (x - cx) * scale; }
       function projY(y) { return (y - cy) * scale; }
 
-      // Draw Elements
       ctx.lineWidth = 3;
       ctx.strokeStyle = '#2c3e50';
       elements.forEach(el => {
-        let n1 = nodes.find(n => n.id === el.n1);
-        let n2 = nodes.find(n => n.id === el.n2);
+        let n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
         if(n1 && n2) {
           ctx.beginPath();
           ctx.moveTo(projX(n1.x), projY(n1.y));
           ctx.lineTo(projX(n2.x), projY(n2.y));
           ctx.stroke();
+          if (showMembers) {
+            ctx.save(); ctx.scale(1, -1); ctx.fillStyle = '#2980b9'; ctx.font = '12px Arial'; ctx.textAlign = 'center';
+            ctx.fillText("M"+el.id, projX((n1.x+n2.x)/2), -projY((n1.y+n2.y)/2) - 10); ctx.restore();
+          }
         }
       });
 
-      // Draw Supports & Nodes
       nodes.forEach(n => {
-        let px = projX(n.x);
-        let py = projY(n.y);
-        
-        ctx.fillStyle = '#e74c3c';
         if(n.support === 'Fixed') {
-          ctx.fillRect(px - 10, py - 10, 20, 10);
+          ctx.fillStyle = '#e74c3c';
+          ctx.fillRect(projX(n.x)-10, projY(n.y)-10, 20, 10);
         } else if (n.support === 'Pinned') {
           ctx.beginPath();
-          ctx.moveTo(px, py);
-          ctx.lineTo(px - 8, py - 12);
-          ctx.lineTo(px + 8, py - 12);
+          ctx.moveTo(projX(n.x), projY(n.y));
+          ctx.lineTo(projX(n.x)-10, projY(n.y)-15);
+          ctx.lineTo(projX(n.x)+10, projY(n.y)-15);
+          ctx.closePath();
+          ctx.fillStyle = '#e74c3c';
           ctx.fill();
         } else if (n.support.startsWith('Roller')) {
           ctx.beginPath();
-          ctx.arc(px, py-6, 6, 0, Math.PI*2);
+          ctx.arc(projX(n.x), projY(n.y)-5, 5, 0, Math.PI*2);
+          ctx.fillStyle = '#e74c3c';
           ctx.fill();
         }
-        
-        // Draw Node dot
-        ctx.fillStyle = '#fff';
-        ctx.strokeStyle = '#e74c3c';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(px, py, 4, 0, Math.PI*2);
-        ctx.fill();
-        ctx.stroke();
+        ctx.beginPath(); ctx.arc(projX(n.x), projY(n.y), 4, 0, Math.PI*2);
+        ctx.fillStyle = '#fff'; ctx.fill(); ctx.stroke();
+        if (showNodes) {
+          ctx.save(); ctx.scale(1, -1); ctx.fillStyle = '#000'; ctx.font = 'bold 12px Arial';
+          ctx.fillText("N"+n.id, projX(n.x) + 10, -projY(n.y) + 15); ctx.restore();
+        }
       });
 
+      if(showReactions && currentResult && currentResult.ok) {
+        ctx.save(); ctx.scale(1, -1); ctx.font = 'bold 12px Arial'; ctx.textAlign = 'left';
+        currentResult.nodes.forEach(n_res => {
+          let n = nodes.find(nd => nd.id === n_res.id);
+          if(!n || n.support === 'Free') return;
+          let textX = projX(n.x) + 15, textY = -projY(n.y) - 15;
+          if(Math.abs(n_res.fx) > 1e-3) { ctx.fillStyle = '#e74c3c'; ctx.fillText(`Rx: ${n_res.fx.toFixed(1)}`, textX, textY); }
+          if(Math.abs(n_res.fy) > 1e-3) { ctx.fillStyle = '#27ae60'; ctx.fillText(`Ry: ${n_res.fy.toFixed(1)}`, textX, textY+15); }
+        });
+        ctx.restore();
+      }
       ctx.restore();
     }
 
@@ -522,101 +540,49 @@
       canvas.height = rect.height;
 
       let type = document.querySelector('input[name="diag-type"]:checked').value;
-      
-      let nodes = getNodes();
-      let res_elems = currentResult.elements;
-      let elements = getElements();
-
-      // Find bounds
+      let nodes = getNodes(), res_elems = currentResult.elements, elements = getElements();
       let minX = Math.min(...nodes.map(n=>n.x)), maxX = Math.max(...nodes.map(n=>n.x));
       let minY = Math.min(...nodes.map(n=>n.y)), maxY = Math.max(...nodes.map(n=>n.y));
-      let dx = maxX - minX, dy = maxY - minY;
-      if(dx === 0) dx = 1; if(dy === 0) dy = 1;
-      
+      let dx = maxX - minX || 1, dy = maxY - minY || 1;
       let padding = 60;
-      let scaleX = (canvas.width - padding*2) / dx;
-      let scaleY = (canvas.height - padding*2) / dy;
-      let scale = Math.min(scaleX, scaleY);
-      
-      let cx = (minX + maxX)/2;
-      let cy = (minY + maxY)/2;
+      let scale = Math.min((canvas.width - padding*2) / dx, (canvas.height - padding*2) / dy);
+      let cx = (minX + maxX)/2, cy = (minY + maxY)/2;
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.save();
       ctx.translate(canvas.width/2, canvas.height/2);
-      ctx.scale(1, -1); // flip Y so up is positive
+      ctx.scale(1, -1);
       
       function projX(x) { return (x - cx) * scale; }
       function projY(y) { return (y - cy) * scale; }
 
-      // Draw base elements
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = '#ccc';
+      ctx.lineWidth = 1; ctx.strokeStyle = '#ccc';
       elements.forEach(el => {
-        let n1 = nodes.find(n => n.id === el.n1);
-        let n2 = nodes.find(n => n.id === el.n2);
-        if(n1 && n2) {
-          ctx.beginPath();
-          ctx.moveTo(projX(n1.x), projY(n1.y));
-          ctx.lineTo(projX(n2.x), projY(n2.y));
-          ctx.stroke();
-        }
+        let n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
+        if(n1 && n2) { ctx.beginPath(); ctx.moveTo(projX(n1.x), projY(n1.y)); ctx.lineTo(projX(n2.x), projY(n2.y)); ctx.stroke(); }
       });
 
-      // Find max value to scale diagrams
       let maxVal = 0.001;
       res_elems.forEach(re => {
-        let v1=0, v2=0;
-        if(type==='afd') { v1 = Math.abs(re.n1_forces.axial); v2 = Math.abs(re.n2_forces.axial); }
-        if(type==='sfd') { v1 = Math.abs(re.n1_forces.shear); v2 = Math.abs(re.n2_forces.shear); }
-        if(type==='bmd') { v1 = Math.abs(re.n1_forces.moment); v2 = Math.abs(re.n2_forces.moment); }
-        maxVal = Math.max(maxVal, v1, v2);
+        let v1 = Math.abs(re.n1_forces[type==='afd'?'axial':type==='sfd'?'shear':'moment']);
+        maxVal = Math.max(maxVal, v1);
       });
-
       let diagScale = (padding * 0.8) / maxVal;
-
-      ctx.fillStyle = type==='afd'?'rgba(231, 76, 60, 0.4)':type==='sfd'?'rgba(52, 152, 219, 0.4)':'rgba(46, 204, 113, 0.4)';
-      ctx.strokeStyle = type==='afd'?'#c0392b':type==='sfd'?'#2980b9':'#27ae60';
-      ctx.lineWidth = 2;
 
       res_elems.forEach(re => {
         let el = elements.find(e => e.id === re.id);
         if(!el) return;
-        let n1 = nodes.find(n => n.id === el.n1);
-        let n2 = nodes.find(n => n.id === el.n2);
-        
-        let dx = n2.x - n1.x;
-        let dy = n2.y - n1.y;
-        let angle = Math.atan2(dy, dx);
-        let len = Math.sqrt(dx*dx + dy*dy);
+        let n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
+        let angle = Math.atan2(n2.y - n1.y, n2.x - n1.x);
+        let len = Math.sqrt(Math.pow(n2.x-n1.x, 2) + Math.pow(n2.y-n1.y, 2));
+        let v1 = type==='afd' ? re.n1_forces.axial : type==='sfd' ? re.n1_forces.shear : -re.n1_forces.moment;
+        let v2 = type==='afd' ? -re.n2_forces.axial : type==='sfd' ? -re.n2_forces.shear : re.n2_forces.moment;
 
-        let v1=0, v2=0;
-        if(type==='afd') { v1 = re.n1_forces.axial; v2 = -re.n2_forces.axial; }
-        if(type==='sfd') { v1 = re.n1_forces.shear; v2 = -re.n2_forces.shear; }
-        if(type==='bmd') { v1 = -re.n1_forces.moment; v2 = re.n2_forces.moment; }
-
-        ctx.save();
-        ctx.translate(projX(n1.x), projY(n1.y));
-        ctx.rotate(angle);
-
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(0, v1 * diagScale);
-        ctx.lineTo(len * scale, v2 * diagScale);
-        ctx.lineTo(len * scale, 0);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        
-        // Draw values text (need to flip Y back for text)
-        ctx.scale(1, -1);
-        ctx.fillStyle = '#000';
-        ctx.font = '10px Arial';
-        ctx.fillText(v1.toFixed(1), 5, -v1*diagScale - 5);
-        ctx.fillText(v2.toFixed(1), len*scale - 30, -v2*diagScale - 5);
+        ctx.save(); ctx.translate(projX(n1.x), projY(n1.y)); ctx.rotate(angle);
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, v1 * diagScale); ctx.lineTo(len * scale, v2 * diagScale); ctx.lineTo(len * scale, 0);
+        ctx.closePath(); ctx.fillStyle = 'rgba(231, 76, 60, 0.4)'; ctx.fill(); ctx.stroke();
         ctx.restore();
       });
-
       ctx.restore();
     }
 
@@ -733,6 +699,14 @@
 
     function draw3D() {
       let data = { model: collectData(), result: currentResult };
+      
+      // Pass the view options to sketchup
+      data.options = {
+        showNodes: document.getElementById('chk-nodes').checked,
+        showMembers: document.getElementById('chk-members').checked,
+        showReactions: document.getElementById('chk-reactions').checked
+      };
+
       sketchupCall('export_3d', data);
     }
     
