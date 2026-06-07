@@ -67,9 +67,8 @@ module GOStructAnalysis
     toolbar.add_item(cmd_truss)
 
     cmd_frame = UI::Command.new('2D Frame Analysis') { Goframe.show_dialog }
-    # Using the existing beam/truss icon as a placeholder until we have frame icons
-    cmd_frame.small_icon = File.join(File.dirname(__FILE__), 'icons', 'gotruss_16.png')
-    cmd_frame.large_icon = File.join(File.dirname(__FILE__), 'icons', 'gotruss_24.png')
+    cmd_frame.small_icon = File.join(File.dirname(__FILE__), 'icons', 'goframe_icon.png')
+    cmd_frame.large_icon = File.join(File.dirname(__FILE__), 'icons', 'goframe_icon.png')
     cmd_frame.tooltip = '2D Rigid Frame Analysis'
     cmd_frame.status_bar_text = 'Open 2D Frame Analysis'
     cmd_frame.menu_text = '2D Frame Analysis'
