@@ -102,6 +102,9 @@ module GOStructAnalysis
       sections = data['sections'] || []
       nloads = data['nloads'] || []
       eloads = data['eloads'] || []
+      
+      settings = data['settings'] || {}
+      include_sw = settings['include_self_weight'] == true
 
       num_nodes = nodes.length
       total_dofs = num_nodes * 3
@@ -116,7 +119,7 @@ module GOStructAnalysis
         # Convert A from cm2 to m2, I from cm4 to m4
         a_m2 = s['a'].to_f * 1e-4
         i_m4 = s['i'].to_f * 1e-8
-        sec_map[s['id']] = { e: s['e'].to_f, a: a_m2, i: i_m4 }
+        sec_map[s['id']] = { e: s['e'].to_f, a: a_m2, i: i_m4, density: s['density'].to_f }
       end
 
       # 1. Assemble Global Stiffness Matrix (K) and Fixed End Forces
@@ -171,6 +174,20 @@ module GOStructAnalysis
         # Calculate Element Loads and Fixed End Forces
         local_f_fixed = Array.new(6, 0.0)
         
+        # Self-weight
+        if include_sw && sec[:density] > 0
+          w_self = sec[:a] * sec[:density] # kg/m
+          sw_wx = (-w_self) * Math.sin(angle)
+          sw_wy = (-w_self) * Math.cos(angle)
+          
+          local_f_fixed[0] += -sw_wx * l / 2.0
+          local_f_fixed[1] += -sw_wy * l / 2.0
+          local_f_fixed[2] += -sw_wy * (l**2) / 12.0
+          local_f_fixed[3] += -sw_wx * l / 2.0
+          local_f_fixed[4] += -sw_wy * l / 2.0
+          local_f_fixed[5] += sw_wy * (l**2) / 12.0
+        end
+        
         el_loads = eloads.select { |load| load['elem'] == id }
         el_loads.each do |load|
           w = load['w'].to_f
@@ -194,7 +211,8 @@ module GOStructAnalysis
         end
 
         # Convert fixed end forces to global and subtract from global load vector (Equivalent Nodal Loads)
-        if el_loads.any?
+        has_elem_loads = el_loads.any? || (include_sw && sec[:density] > 0)
+        if has_elem_loads
           global_f_fixed = GOStructAnalysis::Suite::MatrixOperations.multiply_vector(tt, local_f_fixed)
           6.times do |i|
             f_global[dof_map[i]] -= global_f_fixed[i]

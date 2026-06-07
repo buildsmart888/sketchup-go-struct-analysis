@@ -145,7 +145,7 @@
               <button class="ghost" onclick="openSectionCalc()" style="flex:1; font-size:10px;">Calculator (A, I)</button>
             </div>
             <table id="tbl-sections">
-              <thead><tr><th>ID</th><th>E (kg/m²)</th><th>A (cm²)</th><th>I (cm⁴)</th><th></th></tr></thead>
+              <thead><tr><th>ID</th><th>E (kg/m²)</th><th>A (cm²)</th><th>I (cm⁴)</th><th>Density (kg/m³)</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -189,6 +189,13 @@
               <tbody></tbody>
             </table>
             <button class="soft tbl-add-row" onclick="addElemLoadRow(1, 'Local Y', -500)">+ Add Element Load</button>
+
+            <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line);">
+              <label style="display:flex; align-items:center; gap:5px; font-weight:bold; cursor:pointer;">
+                <input type="checkbox" id="chk-self-weight" checked>
+                Include Self-Weight in Calculation
+              </label>
+            </div>
           </div>
         </fieldset>
 
@@ -304,8 +311,9 @@
       let a = document.getElementById('calc-a').value;
       let i = document.getElementById('calc-i').value;
       let shape = document.getElementById('calc-shape').value;
-      let e = shape === 'rect' ? 2000000 : 20000000;
-      addSectionRow(secIdCounter, e, a, i);
+      let e = shape === 'rect' ? 2000000000 : 20000000000;
+      let den = shape === 'rect' ? 2400 : 7850;
+      addSectionRow(secIdCounter, e, a, i, den);
       closeSectionCalc();
     }
     function toggleGroup(id) {
@@ -332,7 +340,8 @@
     let nodeIdCounter = 1;
     let elemIdCounter = 1;
 
-    function addSectionRow(id, e, a, i) {
+    function addSectionRow(id, e, a, i, density) {
+      if (density === undefined) density = 2400;
       let tbody = document.querySelector('#tbl-sections tbody');
       let tr = document.createElement('tr');
       tr.innerHTML = `
@@ -340,6 +349,7 @@
         <td><input type="number" value="${e}"></td>
         <td><input type="number" value="${a}"></td>
         <td><input type="number" value="${i}"></td>
+        <td><input type="number" value="${density}"></td>
         <td><button class="danger" onclick="this.closest('tr').remove(); drawPreview()">X</button></td>
       `;
       tbody.appendChild(tr);
@@ -594,7 +604,8 @@
           id: parseInt(tr.cells[0].innerText),
           e: parseFloat(inputs[0].value),
           a: parseFloat(inputs[1].value),
-          i: parseFloat(inputs[2].value)
+          i: parseFloat(inputs[2].value),
+          density: parseFloat(inputs[3].value)
         });
       });
       return secs;
@@ -629,6 +640,9 @@
 
     function collectData() {
       return {
+        settings: {
+          include_self_weight: document.getElementById('chk-self-weight').checked
+        },
         nodes: getNodes(),
         elements: getElements(),
         sections: getSections(),
@@ -751,11 +765,11 @@
       secIdCounter = 1;
 
       if(type === 'portal' || type === 'multistory') {
-        addSectionRow(secIdCounter++, 2e9, 900, 67500); // Sec 1: Column 0.3x0.3m (Concrete E=2e9 kg/m2)
-        addSectionRow(secIdCounter++, 2e9, 1500, 312500); // Sec 2: Beam 0.3x0.5m
+        addSectionRow(secIdCounter++, 2e9, 900, 67500, 2400); // Sec 1: Column 0.3x0.3m (Concrete E=2e9 kg/m2)
+        addSectionRow(secIdCounter++, 2e9, 1500, 312500, 2400); // Sec 2: Beam 0.3x0.5m
       } else if (type === 'gable') {
-        addSectionRow(secIdCounter++, 2e10, 63.5, 4720); // Sec 1: Column H200x200 (Steel E=2e10 kg/m2)
-        addSectionRow(secIdCounter++, 2e10, 63.1, 13600); // Sec 2: Gable H350x175
+        addSectionRow(secIdCounter++, 2e10, 63.5, 4720, 7850); // Sec 1: Column H200x200 (Steel E=2e10 kg/m2)
+        addSectionRow(secIdCounter++, 2e10, 63.1, 13600, 7850); // Sec 2: Gable H350x175
       }
 
       if(type === 'portal') {
