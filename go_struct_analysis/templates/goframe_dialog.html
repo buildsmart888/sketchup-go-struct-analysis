@@ -514,7 +514,110 @@
     }
 
     function drawDiagrams() {
-      // TODO: implement AFD/SFD/BMD
+      let canvas = document.getElementById('canvas-diagrams');
+      if(!canvas || !currentResult || !currentResult.ok) return;
+      let ctx = canvas.getContext('2d');
+      let rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+
+      let type = document.querySelector('input[name="diag-type"]:checked').value;
+      
+      let nodes = getNodes();
+      let res_elems = currentResult.elements;
+      let elements = getElements();
+
+      // Find bounds
+      let minX = Math.min(...nodes.map(n=>n.x)), maxX = Math.max(...nodes.map(n=>n.x));
+      let minY = Math.min(...nodes.map(n=>n.y)), maxY = Math.max(...nodes.map(n=>n.y));
+      let dx = maxX - minX, dy = maxY - minY;
+      if(dx === 0) dx = 1; if(dy === 0) dy = 1;
+      
+      let padding = 60;
+      let scaleX = (canvas.width - padding*2) / dx;
+      let scaleY = (canvas.height - padding*2) / dy;
+      let scale = Math.min(scaleX, scaleY);
+      
+      let cx = (minX + maxX)/2;
+      let cy = (minY + maxY)/2;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.translate(canvas.width/2, canvas.height/2);
+      ctx.scale(1, -1); // flip Y so up is positive
+      
+      function projX(x) { return (x - cx) * scale; }
+      function projY(y) { return (y - cy) * scale; }
+
+      // Draw base elements
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = '#ccc';
+      elements.forEach(el => {
+        let n1 = nodes.find(n => n.id === el.n1);
+        let n2 = nodes.find(n => n.id === el.n2);
+        if(n1 && n2) {
+          ctx.beginPath();
+          ctx.moveTo(projX(n1.x), projY(n1.y));
+          ctx.lineTo(projX(n2.x), projY(n2.y));
+          ctx.stroke();
+        }
+      });
+
+      // Find max value to scale diagrams
+      let maxVal = 0.001;
+      res_elems.forEach(re => {
+        let v1=0, v2=0;
+        if(type==='afd') { v1 = Math.abs(re.n1_forces.axial); v2 = Math.abs(re.n2_forces.axial); }
+        if(type==='sfd') { v1 = Math.abs(re.n1_forces.shear); v2 = Math.abs(re.n2_forces.shear); }
+        if(type==='bmd') { v1 = Math.abs(re.n1_forces.moment); v2 = Math.abs(re.n2_forces.moment); }
+        maxVal = Math.max(maxVal, v1, v2);
+      });
+
+      let diagScale = (padding * 0.8) / maxVal;
+
+      ctx.fillStyle = type==='afd'?'rgba(231, 76, 60, 0.4)':type==='sfd'?'rgba(52, 152, 219, 0.4)':'rgba(46, 204, 113, 0.4)';
+      ctx.strokeStyle = type==='afd'?'#c0392b':type==='sfd'?'#2980b9':'#27ae60';
+      ctx.lineWidth = 2;
+
+      res_elems.forEach(re => {
+        let el = elements.find(e => e.id === re.id);
+        if(!el) return;
+        let n1 = nodes.find(n => n.id === el.n1);
+        let n2 = nodes.find(n => n.id === el.n2);
+        
+        let dx = n2.x - n1.x;
+        let dy = n2.y - n1.y;
+        let angle = Math.atan2(dy, dx);
+        let len = Math.sqrt(dx*dx + dy*dy);
+
+        let v1=0, v2=0;
+        if(type==='afd') { v1 = re.n1_forces.axial; v2 = -re.n2_forces.axial; }
+        if(type==='sfd') { v1 = re.n1_forces.shear; v2 = -re.n2_forces.shear; }
+        if(type==='bmd') { v1 = -re.n1_forces.moment; v2 = re.n2_forces.moment; }
+
+        ctx.save();
+        ctx.translate(projX(n1.x), projY(n1.y));
+        ctx.rotate(angle);
+
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, v1 * diagScale);
+        ctx.lineTo(len * scale, v2 * diagScale);
+        ctx.lineTo(len * scale, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        
+        // Draw values text (need to flip Y back for text)
+        ctx.scale(1, -1);
+        ctx.fillStyle = '#000';
+        ctx.font = '10px Arial';
+        ctx.fillText(v1.toFixed(1), 5, -v1*diagScale - 5);
+        ctx.fillText(v2.toFixed(1), len*scale - 30, -v2*diagScale - 5);
+        ctx.restore();
+      });
+
+      ctx.restore();
     }
 
     function getSections() {
