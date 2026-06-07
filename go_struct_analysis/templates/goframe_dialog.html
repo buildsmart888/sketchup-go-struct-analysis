@@ -751,11 +751,11 @@
       secIdCounter = 1;
 
       if(type === 'portal' || type === 'multistory') {
-        addSectionRow(secIdCounter, 2e9, 900, 67500); // Sec 1: Column 0.3x0.3m (Concrete E=2e9 kg/m2)
-        addSectionRow(secIdCounter, 2e9, 1500, 312500); // Sec 2: Beam 0.3x0.5m
+        addSectionRow(secIdCounter++, 2e9, 900, 67500); // Sec 1: Column 0.3x0.3m (Concrete E=2e9 kg/m2)
+        addSectionRow(secIdCounter++, 2e9, 1500, 312500); // Sec 2: Beam 0.3x0.5m
       } else if (type === 'gable') {
-        addSectionRow(secIdCounter, 2e10, 63.5, 4720); // Sec 1: Column H200x200 (Steel E=2e10 kg/m2)
-        addSectionRow(secIdCounter, 2e10, 63.1, 13600); // Sec 2: Gable H350x175
+        addSectionRow(secIdCounter++, 2e10, 63.5, 4720); // Sec 1: Column H200x200 (Steel E=2e10 kg/m2)
+        addSectionRow(secIdCounter++, 2e10, 63.1, 13600); // Sec 2: Gable H350x175
       }
 
       if(type === 'portal') {
