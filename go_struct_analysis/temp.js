@@ -1,0 +1,2030 @@
+
+    // Camera State
+    let camScale = 50;
+    let camPanX = 0;
+    let camPanY = 0;
+    let isDragging = false;
+    let dragStartX = 0, dragStartY = 0;
+    let isWindowZooming = false;
+    let zoomRect = null;
+    let hasAutoZoomed = false;
+
+    function zoomIn() { camScale *= 1.2; drawPreview(); drawDiagrams(); }
+    function zoomOut() { camScale /= 1.2; drawPreview(); drawDiagrams(); }
+    function toggleZoomWindow() {
+      isWindowZooming = !isWindowZooming;
+      document.getElementById('btn-zoom-win').style.background = isWindowZooming ? '#ddd' : 'transparent';
+    }
+    function zoomAll() {
+      let nodes = getNodes();
+      if(nodes.length === 0) return;
+      let minX = Math.min(...nodes.map(n=>n.x)), maxX = Math.max(...nodes.map(n=>n.x));
+      let minY = Math.min(...nodes.map(n=>n.y)), maxY = Math.max(...nodes.map(n=>n.y));
+      let dx = (maxX - minX) || 1, dy = (maxY - minY) || 1;
+      let cw = document.getElementById('canvas-preview').width;
+      let ch = document.getElementById('canvas-preview').height;
+      if (cw === 0) cw = 800; if (ch === 0) ch = 600;
+      let padding = 80;
+      camScale = Math.min((cw - padding*2) / dx, (ch - padding*2) / dy);
+      camPanX = (minX + maxX)/2;
+      camPanY = (minY + maxY)/2;
+      hasAutoZoomed = true;
+      drawPreview(); drawDiagrams();
+    }
+
+    // Canvas Events
+    document.addEventListener("DOMContentLoaded", () => {
+      let area = document.querySelector('.canvas-area');
+      
+      area.addEventListener('wheel', (e) => {
+        if(e.target.tagName !== 'CANVAS') return;
+        e.preventDefault();
+        let rect = e.target.getBoundingClientRect();
+        let mouseX = e.clientX - rect.left;
+        let mouseY = e.clientY - rect.top;
+        
+        // Convert mouse to world coords
+        let worldX = (mouseX - rect.width/2) / camScale + camPanX;
+        let worldY = -(mouseY - rect.height/2) / camScale + camPanY;
+        
+        if (e.deltaY < 0) { camScale *= 1.1; } else { camScale /= 1.1; }
+        
+        // Adjust pan so mouse stays at same world coordinate
+        camPanX = worldX - (mouseX - rect.width/2) / camScale;
+        camPanY = worldY + (mouseY - rect.height/2) / camScale;
+        
+        drawPreview(); drawDiagrams();
+      });
+
+      area.addEventListener('mousedown', (e) => {
+        if(e.target.tagName !== 'CANVAS') return;
+        if(e.button === 1 || (e.button === 0 && !isWindowZooming)) {
+          // Pan
+          isDragging = true;
+          dragStartX = e.clientX;
+          dragStartY = e.clientY;
+          area.style.cursor = 'grabbing';
+        } else if (e.button === 0 && isWindowZooming) {
+          // Window Zoom start
+          let rect = e.target.getBoundingClientRect();
+          zoomRect = {
+            startX: e.clientX - rect.left,
+            startY: e.clientY - rect.top,
+            endX: e.clientX - rect.left,
+            endY: e.clientY - rect.top
+          };
+        }
+      });
+
+      area.addEventListener('mousemove', (e) => {
+        if(e.target.tagName !== 'CANVAS') return;
+        if(isDragging) {
+          let dx = e.clientX - dragStartX;
+          let dy = e.clientY - dragStartY;
+          camPanX -= dx / camScale;
+          camPanY += dy / camScale;
+          dragStartX = e.clientX;
+          dragStartY = e.clientY;
+          drawPreview(); drawDiagrams();
+        } else if (zoomRect) {
+          let rect = e.target.getBoundingClientRect();
+          zoomRect.endX = e.clientX - rect.left;
+          zoomRect.endY = e.clientY - rect.top;
+          drawPreview(); drawDiagrams();
+        }
+      });
+
+      area.addEventListener('mouseup', (e) => {
+        if(isDragging) {
+          isDragging = false;
+          area.style.cursor = 'default';
+        } else if (zoomRect) {
+          let rect = e.target.getBoundingClientRect();
+          zoomRect.endX = e.clientX - rect.left;
+          zoomRect.endY = e.clientY - rect.top;
+          
+          let minScreenX = Math.min(zoomRect.startX, zoomRect.endX);
+          let maxScreenX = Math.max(zoomRect.startX, zoomRect.endX);
+          let minScreenY = Math.min(zoomRect.startY, zoomRect.endY);
+          let maxScreenY = Math.max(zoomRect.startY, zoomRect.endY);
+          
+          if(maxScreenX - minScreenX > 10 && maxScreenY - minScreenY > 10) {
+            let worldCenterX = ((minScreenX + maxScreenX)/2 - rect.width/2) / camScale + camPanX;
+            let worldCenterY = -((minScreenY + maxScreenY)/2 - rect.height/2) / camScale + camPanY;
+            
+            let scaleX = rect.width / (maxScreenX - minScreenX);
+            let scaleY = rect.height / (maxScreenY - minScreenY);
+            
+            camScale *= Math.min(scaleX, scaleY);
+            camPanX = worldCenterX;
+            camPanY = worldCenterY;
+          }
+          
+          zoomRect = null;
+          isWindowZooming = false;
+          document.getElementById('btn-zoom-win').style.background = 'transparent';
+          drawPreview(); drawDiagrams();
+        }
+      });
+      
+      area.addEventListener('mouseleave', () => { isDragging = false; zoomRect = null; area.style.cursor='default'; });
+    });
+
+    function openSectionCalc() { document.getElementById('modal-calc').style.display = 'flex'; updateCalcFields(); }
+    function closeSectionCalc() { document.getElementById('modal-calc').style.display = 'none'; }
+    function updateCalcFields() {
+      let shape = document.getElementById('calc-shape').value;
+      let html = '';
+      if(shape === 'rect') {
+        html = `<div class="row"><label>Width (b)</label><input type="number" id="calc-b" value="20" oninput="doCalc()"><span class="unit">cm</span></div>
+                <div class="row"><label>Height (h)</label><input type="number" id="calc-h" value="40" oninput="doCalc()"><span class="unit">cm</span></div>`;
+      } else if(shape === 'ibeam') {
+        html = `<div class="row"><label>Depth (h)</label><input type="number" id="calc-h" value="20" oninput="doCalc()"><span class="unit">cm</span></div>
+                <div class="row"><label>Flange W. (b)</label><input type="number" id="calc-b" value="10" oninput="doCalc()"><span class="unit">cm</span></div>
+                <div class="row"><label>Web Thk (tw)</label><input type="number" id="calc-tw" value="0.5" oninput="doCalc()"><span class="unit">cm</span></div>
+                <div class="row"><label>Flange Thk (tf)</label><input type="number" id="calc-tf" value="0.8" oninput="doCalc()"><span class="unit">cm</span></div>`;
+      } else if(shape === 'pipe') {
+        html = `<div class="row"><label>Outer Dia (D)</label><input type="number" id="calc-d" value="10" oninput="doCalc()"><span class="unit">cm</span></div>
+                <div class="row"><label>Thickness (t)</label><input type="number" id="calc-t" value="0.3" oninput="doCalc()"><span class="unit">cm</span></div>`;
+      }
+      document.getElementById('calc-fields').innerHTML = html;
+      doCalc();
+    }
+    function doCalc() {
+      let shape = document.getElementById('calc-shape').value;
+      let a = 0, i = 0;
+      if(shape === 'rect') {
+        let b = parseFloat(document.getElementById('calc-b').value)||0;
+        let h = parseFloat(document.getElementById('calc-h').value)||0;
+        a = b * h;
+        i = (b * Math.pow(h, 3)) / 12;
+      } else if(shape === 'ibeam') {
+        let h = parseFloat(document.getElementById('calc-h').value)||0;
+        let b = parseFloat(document.getElementById('calc-b').value)||0;
+        let tw = parseFloat(document.getElementById('calc-tw').value)||0;
+        let tf = parseFloat(document.getElementById('calc-tf').value)||0;
+        let hw = h - 2*tf;
+        a = 2*(b*tf) + (hw*tw);
+        i = (b*Math.pow(h,3)/12) - ((b-tw)*Math.pow(hw,3)/12);
+      } else if(shape === 'pipe') {
+        let d = parseFloat(document.getElementById('calc-d').value)||0;
+        let t = parseFloat(document.getElementById('calc-t').value)||0;
+        let di = d - 2*t;
+        a = (Math.PI/4) * (d*d - di*di);
+        i = (Math.PI/64) * (Math.pow(d,4) - Math.pow(di,4));
+      }
+      document.getElementById('calc-a').value = a.toFixed(2);
+      document.getElementById('calc-i').value = i.toFixed(2);
+    }
+    function applySectionCalc() {
+      let a = document.getElementById('calc-a').value;
+      let i = document.getElementById('calc-i').value;
+      let shape = document.getElementById('calc-shape').value;
+      let e = shape === 'rect' ? 2000000000 : 20000000000;
+      let den = shape === 'rect' ? 2400 : 7850;
+      addSectionRow(secIdCounter, e, a, i, den);
+      closeSectionCalc();
+    }
+    function toggleGroup(id) {
+      let el = document.getElementById(id);
+      if (el.classList.contains('open')) {
+        el.classList.remove('open');
+        el.previousElementSibling.innerText = el.previousElementSibling.innerText.replace('▼', '▶');
+      } else {
+        el.classList.add('open');
+        el.previousElementSibling.innerText = el.previousElementSibling.innerText.replace('▶', '▼');
+      }
+    }
+
+    function switchTab(tabId, btnId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab').forEach(el => el.classList.add('inactive'));
+      document.getElementById(tabId).classList.add('active');
+      document.getElementById(btnId).classList.remove('inactive');
+      if(tabId === 'tab-preview') drawPreview();
+      if(tabId === 'tab-diagrams') drawDiagrams();
+    }
+
+    let secIdCounter = 1;
+    let nodeIdCounter = 1;
+    let elemIdCounter = 1;
+
+    function addSectionRow(id, e, a, i, density) {
+      if (density === undefined) density = 2400;
+      let tbody = document.querySelector('#tbl-sections tbody');
+      let tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${id || secIdCounter++}</td>
+        <td><input type="number" value="${e}"></td>
+        <td><input type="number" value="${a}"></td>
+        <td><input type="number" value="${i}"></td>
+        <td><input type="number" value="${density}"></td>
+        <td><button class="danger" onclick="this.closest('tr').remove(); drawPreview()">X</button></td>
+      `;
+      tbody.appendChild(tr);
+      drawPreview();
+    }
+
+    function addNodeRow(x, y, support) {
+      let tbody = document.querySelector('#tbl-nodes tbody');
+      let tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${nodeIdCounter++}</td>
+        <td><input type="number" value="${x}" onchange="drawPreview()"></td>
+        <td><input type="number" value="${y}" onchange="drawPreview()"></td>
+        <td>
+          <select onchange="drawPreview()">
+            <option value="Free" ${support=='Free'?'selected':''}>Free</option>
+            <option value="Pinned" ${support=='Pinned'?'selected':''}>Pinned</option>
+            <option value="Fixed" ${support=='Fixed'?'selected':''}>Fixed</option>
+            <option value="RollerX" ${support=='RollerX'?'selected':''}>Roller(X)</option>
+            <option value="RollerY" ${support=='RollerY'?'selected':''}>Roller(Y)</option>
+          </select>
+        </td>
+        <td><button class="danger" onclick="this.closest('tr').remove(); drawPreview()">X</button></td>
+      `;
+      tbody.appendChild(tr);
+      drawPreview();
+    }
+
+    function addElementRow(n1, n2, sec, release) {
+      if (release === undefined) release = 'Rigid-Rigid';
+      let tbody = document.querySelector('#tbl-elements tbody');
+      let tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${elemIdCounter++}</td>
+        <td><input type="number" value="${n1}" onchange="drawPreview()"></td>
+        <td><input type="number" value="${n2}" onchange="drawPreview()"></td>
+        <td><input type="number" value="${sec}" onchange="drawPreview()"></td>
+        <td>
+          <select class="release-select" onchange="drawPreview()">
+            <option value="Rigid-Rigid" ${release=='Rigid-Rigid'?'selected':''}>Rigid-Rigid</option>
+            <option value="Pin-Pin" ${release=='Pin-Pin'?'selected':''}>Pin-Pin</option>
+            <option value="Pin-Rigid" ${release=='Pin-Rigid'?'selected':''}>Pin-Rigid</option>
+            <option value="Rigid-Pin" ${release=='Rigid-Pin'?'selected':''}>Rigid-Pin</option>
+          </select>
+        </td>
+        <td><button class="danger" onclick="this.closest('tr').remove(); drawPreview()">X</button></td>
+      `;
+      tbody.appendChild(tr);
+      drawPreview();
+    }
+
+    let loadCaseIdCounter = 1;
+    let loadComboIdCounter = 1;
+    
+    function updateLoadCaseDropdowns() {
+      let cases = Array.from(document.querySelectorAll('#tbl-loadcases tbody tr')).map(tr => tr.querySelector('.case-name').value);
+      if (cases.length === 0) cases = ['DL'];
+      
+      document.querySelectorAll('.case-select').forEach(select => {
+        let currentVal = select.value;
+        select.innerHTML = cases.map(c => `<option value="${c}">${c}</option>`).join('');
+        if (cases.includes(currentVal)) {
+          select.value = currentVal;
+        }
+      });
+    }
+
+    function _addLoadCaseRowNoUpdate(name) {
+      let tbody = document.querySelector('#tbl-loadcases tbody');
+      let tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${loadCaseIdCounter++}</td>
+        <td><input type="text" class="case-name" value="${name}" onchange="updateLoadCaseDropdowns()"></td>
+        <td><button class="danger" onclick="this.closest('tr').remove(); updateLoadCaseDropdowns()">X</button></td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    function addLoadCaseRow(name) {
+      _addLoadCaseRowNoUpdate(name);
+      updateLoadCaseDropdowns();
+    }
+
+    function updateComboMatrixColumns() {
+      let cases = getLoadCases();
+      let theadTr = document.querySelector('#row-combo-header');
+      if(theadTr) {
+        theadTr.innerHTML = '<th>ID</th><th style="min-width:100px;">Name</th>' + cases.map(c => `<th>${c}</th>`).join('') + '<th></th>';
+      }
+      
+      document.querySelectorAll('#tbl-loadcombos tbody tr').forEach(tr => {
+        let nameInput = tr.querySelector('.combo-name').value;
+        let factorInputs = Array.from(tr.querySelectorAll('.combo-factor')).map(inp => ({ case: inp.dataset.case, val: inp.value }));
+        
+        let tds = `<td>${tr.cells[0].innerText}</td>`;
+        tds += `<td><input type="text" class="combo-name" style="width:100%;" value="${nameInput}"></td>`;
+        cases.forEach(c => {
+          let existing = factorInputs.find(f => f.case === c);
+          let val = existing ? existing.val : '';
+          tds += `<td><input type="number" class="combo-factor" data-case="${c}" style="width:60px;" step="0.05" value="${val}"></td>`;
+        });
+        tds += `<td><button class="danger" onclick="this.closest('tr').remove()">X</button></td>`;
+        tr.innerHTML = tds;
+      });
+    }
+
+    // Override updateLoadCaseDropdowns to also update matrix columns
+    function updateLoadCaseDropdowns() {
+      let cases = getLoadCases();
+      document.querySelectorAll('.case-select').forEach(select => {
+        let currentVal = select.value;
+        select.innerHTML = cases.map(c => `<option value="${c}">${c}</option>`).join('');
+        if (cases.includes(currentVal)) {
+          select.value = currentVal;
+        }
+      });
+      updateComboMatrixColumns();
+      drawPreview();
+    }
+
+    function addLoadComboRow(name, factorsObj = {}) {
+      let tbody = document.querySelector('#tbl-loadcombos tbody');
+      let cases = getLoadCases();
+      let tr = document.createElement('tr');
+      let tds = `<td>${loadComboIdCounter++}</td>`;
+      tds += `<td><input type="text" class="combo-name" style="width:100%;" value="${name}"></td>`;
+      cases.forEach(c => {
+        let val = factorsObj[c] !== undefined ? factorsObj[c] : '';
+        tds += `<td><input type="number" class="combo-factor" data-case="${c}" style="width:60px;" step="0.05" value="${val}"></td>`;
+      });
+      tds += `<td><button class="danger" onclick="this.closest('tr').remove()">X</button></td>`;
+      tr.innerHTML = tds;
+      tbody.appendChild(tr);
+    }
+
+    function loadThai2566Combos() {
+      let casesTbody = document.querySelector('#tbl-loadcases tbody');
+      casesTbody.innerHTML = '';
+      loadCaseIdCounter = 1;
+      ['DL', 'LL', 'W(X+)', 'W(X-)', 'W(Y+)', 'W(Y-)'].forEach(lc => _addLoadCaseRowNoUpdate(lc));
+      updateComboMatrixColumns();
+      
+      let tbody = document.querySelector('#tbl-loadcombos tbody');
+      tbody.innerHTML = '';
+      loadComboIdCounter = 1;
+      
+      addLoadComboRow('ASD-1', {'DL': 1.0});
+      addLoadComboRow('ASD-2', {'DL': 1.0, 'LL': 1.0});
+      addLoadComboRow('ASD-3', {'DL': 1.0, 'LL': 0.75, 'W(X+)': 0.75});
+      addLoadComboRow('ASD-4', {'DL': 1.0, 'LL': 0.75, 'W(X-)': 0.75});
+      addLoadComboRow('ASD-5', {'DL': 1.0, 'LL': 0.75, 'W(Y+)': 0.75});
+      addLoadComboRow('ASD-6', {'DL': 1.0, 'LL': 0.75, 'W(Y-)': 0.75});
+      addLoadComboRow('ASD-7', {'DL': 0.6, 'W(X+)': 1.0});
+      addLoadComboRow('ASD-8', {'DL': 0.6, 'W(X-)': 1.0});
+      addLoadComboRow('ASD-9', {'DL': 0.6, 'W(Y+)': 1.0});
+      addLoadComboRow('ASD-10', {'DL': 0.6, 'W(Y-)': 1.0});
+      addLoadComboRow('LRFD-1', {'DL': 1.4});
+      addLoadComboRow('LRFD-2', {'DL': 1.4, 'LL': 1.7});
+      addLoadComboRow('LRFD-3', {'DL': 1.05, 'LL': 1.275, 'W(X+)': 1.6});
+      addLoadComboRow('LRFD-4', {'DL': 1.05, 'LL': 1.275, 'W(X-)': 1.6});
+      addLoadComboRow('LRFD-5', {'DL': 1.05, 'LL': 1.275, 'W(Y+)': 1.6});
+      addLoadComboRow('LRFD-6', {'DL': 1.05, 'LL': 1.275, 'W(Y-)': 1.6});
+      addLoadComboRow('LRFD-7', {'DL': 0.9, 'W(X+)': 1.6});
+      addLoadComboRow('LRFD-8', {'DL': 0.9, 'W(X-)': 1.6});
+      addLoadComboRow('LRFD-9', {'DL': 0.9, 'W(Y+)': 1.6});
+      addLoadComboRow('LRFD-10', {'DL': 0.9, 'W(Y-)': 1.6});
+      
+      updateLoadCaseDropdowns();
+    }
+
+    function addNodalLoadRow(node, lcase, fx, fy, mz) {
+      let tbody = document.querySelector('#tbl-nloads tbody');
+      let tr = document.createElement('tr');
+      
+      let cases = getLoadCases();
+      let options = cases.map(c => `<option value="${c}" ${c === lcase ? 'selected' : ''}>${c}</option>`).join('');
+      
+      tr.innerHTML = `
+        <td><input type="number" value="${node}" onchange="drawPreview()"></td>
+        <td><select class="case-select" onchange="drawPreview()">${options}</select></td>
+        <td><input type="number" value="${fx}" onchange="drawPreview()"></td>
+        <td><input type="number" value="${fy}" onchange="drawPreview()"></td>
+        <td><input type="number" value="${mz}" onchange="drawPreview()"></td>
+        <td><button class="danger" onclick="this.closest('tr').remove(); drawPreview()">X</button></td>
+      `;
+      tbody.appendChild(tr);
+      drawPreview();
+    }
+
+    function addElemLoadRow(elem, lcase, dir, w1, w2) {
+      let tbody = document.querySelector('#tbl-eloads tbody');
+      let tr = document.createElement('tr');
+      
+      let cases = getLoadCases();
+      let options = cases.map(c => `<option value="${c}" ${c === lcase ? 'selected' : ''}>${c}</option>`).join('');
+
+      tr.innerHTML = `
+        <td><input type="number" value="${elem}" onchange="drawPreview()"></td>
+        <td><select class="case-select" onchange="drawPreview()">${options}</select></td>
+        <td>
+          <select onchange="drawPreview()">
+            <option value="Local Y" ${dir=='Local Y'?'selected':''}>Local Y (Perpendicular)</option>
+            <option value="Global Y" ${dir=='Global Y'?'selected':''}>Global Y (Gravity)</option>
+          </select>
+        </td>
+        <td><input type="number" value="${w1}" onchange="drawPreview()"></td>
+        <td><input type="number" value="${w2}" onchange="drawPreview()"></td>
+        <td><button class="danger" onclick="this.closest('tr').remove(); drawPreview()">X</button></td>
+      `;
+      tbody.appendChild(tr);
+      drawPreview();
+    }
+
+    function getNodes() {
+      let nodes = [];
+      document.querySelectorAll('#tbl-nodes tbody tr').forEach(tr => {
+        let inputs = tr.querySelectorAll('input, select');
+        nodes.push({
+          id: parseInt(tr.cells[0].innerText),
+          x: parseFloat(inputs[0].value),
+          y: parseFloat(inputs[1].value),
+          support: inputs[2].value
+        });
+      });
+      return nodes;
+    }
+    function getLoadCases() {
+      let cases = [];
+      document.querySelectorAll('#tbl-loadcases tbody tr').forEach(tr => {
+        cases.push(tr.querySelector('.case-name').value);
+      });
+      return cases.length > 0 ? cases : ['DL'];
+    }
+
+    function getLoadCombos() {
+      let combos = [];
+      document.querySelectorAll('#tbl-loadcombos tbody tr').forEach(tr => {
+        let name = tr.querySelector('.combo-name').value;
+        let factors = {};
+        tr.querySelectorAll('.combo-factor').forEach(inp => {
+          if (inp.value !== '') {
+            factors[inp.dataset.case] = parseFloat(inp.value);
+          }
+        });
+        combos.push({
+          name: name,
+          factors: factors
+        });
+      });
+      return combos.length > 0 ? combos : [{name: 'Comb 1', factors: {'DL': 1.0}}];
+    }
+
+    function getElements() {
+      let elems = [];
+      document.querySelectorAll('#tbl-elements tbody tr').forEach(tr => {
+        let inputs = tr.querySelectorAll('input');
+        let selects = tr.querySelectorAll('select');
+        elems.push({
+          id: parseInt(tr.cells[0].innerText),
+          n1: parseInt(inputs[0].value),
+          n2: parseInt(inputs[1].value),
+          sec: parseInt(inputs[2].value),
+          release: selects.length > 0 ? selects[0].value : 'Rigid-Rigid'
+        });
+      });
+      return elems;
+    }
+
+    function drawPreview() {
+      let canvas = document.getElementById('canvas-preview');
+      if(!canvas) return;
+      let ctx = canvas.getContext('2d');
+      let rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+      
+      let nodes = getNodes();
+      let elements = getElements();
+      let nloads = getNLoads();
+      let eloads = getELoads();
+      let showNodes = document.getElementById('chk-nodes').checked;
+      let showMembers = document.getElementById('chk-members').checked;
+      let showReactions = document.getElementById('chk-reactions').checked;
+      
+      if(nodes.length === 0) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
+
+      if(!hasAutoZoomed) {
+        zoomAll();
+        return;
+      }
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.translate(canvas.width/2, canvas.height/2);
+      ctx.scale(1, -1);
+      
+      function projX(x) { return (x - camPanX) * camScale; }
+      function projY(y) { return (y - camPanY) * camScale; }
+      
+      // Draw grid
+      let gType = document.getElementById('grid-type').value;
+      if (gType !== 'none') {
+        let gdx = parseFloat(document.getElementById('grid-dx').value) || 1.0;
+        let gdy = parseFloat(document.getElementById('grid-dy').value) || 1.0;
+        let viewMinX = camPanX - (canvas.width/2)/camScale;
+        let viewMaxX = camPanX + (canvas.width/2)/camScale;
+        let viewMinY = camPanY - (canvas.height/2)/camScale;
+        let viewMaxY = camPanY + (canvas.height/2)/camScale;
+        
+        let startX = Math.floor(viewMinX / gdx) * gdx;
+        let startY = Math.floor(viewMinY / gdy) * gdy;
+        
+        ctx.strokeStyle = '#e0e0e0';
+        ctx.fillStyle = '#cccccc';
+        ctx.lineWidth = 1;
+        
+        for (let x = startX; x <= viewMaxX; x += gdx) {
+          if (gType === 'lines') {
+            ctx.beginPath(); ctx.moveTo(projX(x), projY(viewMinY)); ctx.lineTo(projX(x), projY(viewMaxY)); ctx.stroke();
+          } else if (gType === 'dots') {
+            for (let y = startY; y <= viewMaxY; y += gdy) {
+              ctx.beginPath(); ctx.arc(projX(x), projY(y), 2, 0, Math.PI*2); ctx.fill();
+            }
+          }
+        }
+        if (gType === 'lines') {
+          for (let y = startY; y <= viewMaxY; y += gdy) {
+             ctx.beginPath(); ctx.moveTo(projX(viewMinX), projY(y)); ctx.lineTo(projX(viewMaxX), projY(y)); ctx.stroke();
+          }
+        }
+      }
+
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#2c3e50';
+      elements.forEach(el => {
+        let n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
+        if(n1 && n2) {
+          ctx.beginPath();
+          ctx.moveTo(projX(n1.x), projY(n1.y));
+          ctx.lineTo(projX(n2.x), projY(n2.y));
+          ctx.stroke();
+          if (showMembers) {
+            ctx.save(); ctx.scale(1, -1); ctx.fillStyle = '#2980b9'; ctx.font = '12px Arial'; ctx.textAlign = 'center';
+            ctx.fillText("M"+el.id, projX((n1.x+n2.x)/2), -projY((n1.y+n2.y)/2) - 10); ctx.restore();
+          }
+        }
+      });
+
+      nodes.forEach(n => {
+        if(n.support === 'Fixed') {
+          ctx.fillStyle = '#e74c3c';
+          ctx.fillRect(projX(n.x)-10, projY(n.y)-10, 20, 10);
+        } else if (n.support === 'Pinned') {
+          ctx.beginPath();
+          ctx.moveTo(projX(n.x), projY(n.y));
+          ctx.lineTo(projX(n.x)-10, projY(n.y)-15);
+          ctx.lineTo(projX(n.x)+10, projY(n.y)-15);
+          ctx.closePath();
+          ctx.fillStyle = '#e74c3c';
+          ctx.fill();
+        } else if (n.support.startsWith('Roller')) {
+          ctx.beginPath();
+          ctx.arc(projX(n.x), projY(n.y)-5, 5, 0, Math.PI*2);
+          ctx.fillStyle = '#e74c3c';
+          ctx.fill();
+        }
+        ctx.beginPath(); ctx.arc(projX(n.x), projY(n.y), 4, 0, Math.PI*2);
+        ctx.fillStyle = '#fff'; ctx.fill(); ctx.stroke();
+        if (showNodes) {
+          ctx.save(); ctx.scale(1, -1); ctx.fillStyle = '#000'; ctx.font = 'bold 12px Arial';
+          ctx.fillText("N"+n.id, projX(n.x) + 10, -projY(n.y) + 15); ctx.restore();
+        }
+      });
+
+      let lcColors = { 'DL': '#e67e22', 'LL': '#3498db', 'WL': '#9b59b6', 'EX': '#1abc9c', 'EY': '#f1c40f', 'W(X-)': '#9b59b6', 'W(X+)': '#9b59b6' };
+      let defaultColors = ['#e67e22', '#3498db', '#9b59b6', '#1abc9c', '#f1c40f', '#e74c3c', '#34495e'];
+      function getColorForLC(lc) {
+          if(lcColors[lc]) return lcColors[lc];
+          let hash = 0; for(let i=0;i<lc.length;i++) hash = lc.charCodeAt(i) + ((hash<<5)-hash);
+          return defaultColors[Math.abs(hash) % defaultColors.length];
+      }
+      let elemLoadStacks = {};
+
+      eloads.forEach(ld => {
+        let el = elements.find(e => e.id === ld.elem);
+        if(!el) return;
+        let n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
+        if(!n1 || !n2) return;
+        
+        let angle = Math.atan2(n2.y - n1.y, n2.x - n1.x);
+        let len = Math.sqrt(Math.pow(n2.x-n1.x, 2) + Math.pow(n2.y-n1.y, 2));
+        
+        ctx.save();
+        ctx.translate(projX(n1.x), projY(n1.y));
+        if(ld.dir === 'Local Y') ctx.rotate(angle);
+        
+        let cColor = getColorForLC(ld.lcase);
+        ctx.strokeStyle = cColor; ctx.fillStyle = cColor; ctx.lineWidth = 1;
+        let w1 = ld.w1, w2 = ld.w2;
+        let maxW = Math.max(Math.abs(w1), Math.abs(w2));
+        if (maxW === 0) { ctx.restore(); return; }
+
+        let numArrows = Math.max(3, Math.floor(len));
+        let points = [];
+        
+        for(let i=0; i<=numArrows; i++) {
+          let t = i/numArrows;
+          let pos = t * (len*scale);
+          let currentW = w1 + (w2 - w1) * t;
+          let sign = currentW < 0 ? 1 : -1;
+          
+          let signW = w1 < 0 ? 1 : -1;
+          if (w1 === 0 && w2 !== 0) signW = w2 < 0 ? 1 : -1;
+          let stackKey = el.id + "_" + ld.dir + "_" + signW;
+          if (elemLoadStacks[stackKey] === undefined) elemLoadStacks[stackKey] = 0;
+          if (i === 0) elemLoadStacks[stackKey]++;
+          let stackIdx = elemLoadStacks[stackKey] - 1;
+          let yOff = stackIdx * 25 * sign;
+
+          let arrowLen = Math.abs(currentW / maxW) * 15;
+          if (arrowLen < 2 && currentW !== 0) arrowLen = 2;
+          
+          ctx.beginPath();
+          if(ld.dir === 'Local Y') {
+            points.push({x: pos, y: sign * arrowLen + yOff});
+            ctx.moveTo(pos, sign * arrowLen + yOff); ctx.lineTo(pos, yOff);
+            if (arrowLen > 3) {
+              ctx.lineTo(pos - 3, sign * 3 + yOff); ctx.moveTo(pos, yOff); ctx.lineTo(pos + 3, sign * 3 + yOff);
+            }
+          } else {
+            let gx = Math.cos(angle)*pos;
+            let gy = Math.sin(angle)*pos;
+            points.push({x: gx, y: gy + sign * arrowLen + yOff});
+            ctx.moveTo(gx, gy + sign * arrowLen + yOff); ctx.lineTo(gx, gy + yOff);
+            if (arrowLen > 3) {
+              ctx.lineTo(gx - 3, gy + sign * 3 + yOff); ctx.moveTo(gx, gy + yOff); ctx.lineTo(gx + 3, gy + sign * 3 + yOff);
+            }
+          }
+          ctx.stroke();
+        }
+
+        if (points.length > 1) {
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+            for(let i=1; i<points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+            ctx.stroke();
+        }
+        
+        ctx.scale(1, -1);
+        ctx.font = '10px Arial'; ctx.textAlign = 'center';
+        
+        let signW = w1 < 0 ? 1 : -1;
+        if (w1 === 0 && w2 !== 0) signW = w2 < 0 ? 1 : -1;
+        let stackKey = el.id + "_" + ld.dir + "_" + signW;
+        let stackIdx = (elemLoadStacks[stackKey] || 1) - 1;
+        let txtYOff = stackIdx * 25;
+
+        if(ld.dir === 'Local Y') {
+          if (w1 === w2) {
+            let sign = w1 < 0 ? 1 : -1;
+            ctx.fillText(w1 + " kg/m", (len*scale)/2, sign > 0 ? -15 - 5 - txtYOff : 15 + 10 + txtYOff);
+          } else {
+            let sign1 = w1 < 0 ? 1 : -1;
+            let sign2 = w2 < 0 ? 1 : -1;
+            let h1 = Math.abs(w1/maxW)*15;
+            let h2 = Math.abs(w2/maxW)*15;
+            if (w1 !== 0) ctx.fillText(w1 + " kg/m", 0, sign1 > 0 ? -h1 - 5 - txtYOff : h1 + 10 + txtYOff);
+            if (w2 !== 0) ctx.fillText(w2 + " kg/m", len*scale, sign2 > 0 ? -h2 - 5 - txtYOff : h2 + 10 + txtYOff);
+          }
+        } else {
+          let midGx = Math.cos(angle)*(len*scale)/2;
+          let midGy = Math.sin(angle)*(len*scale)/2;
+          let sign = w1 < 0 ? 1 : -1;
+          ctx.fillText(w1 + " kg/m", midGx, -midGy + (sign > 0 ? -15 - 5 - txtYOff : 15 + 10 + txtYOff));
+        }
+        ctx.restore();
+      });
+      let nodeLoadStacks = {};
+
+      nloads.forEach(ld => {
+        let n = nodes.find(nd => nd.id === ld.node);
+        if(!n) return;
+        ctx.save(); ctx.translate(projX(n.x), projY(n.y));
+        let cColor = getColorForLC(ld.lcase);
+        ctx.strokeStyle = cColor; ctx.fillStyle = cColor; ctx.lineWidth = 2;
+        let arrowLen = 20;
+        
+        if(Math.abs(ld.fx) > 0) {
+          let sign = ld.fx > 0 ? 1 : -1;
+          let stackKey = "n" + n.id + "_x_" + sign;
+          if (nodeLoadStacks[stackKey] === undefined) nodeLoadStacks[stackKey] = 0;
+          let stackIdx = nodeLoadStacks[stackKey]++;
+          let xOff = stackIdx * 25 * sign;
+          ctx.beginPath(); ctx.moveTo(-sign*arrowLen - xOff, 0); ctx.lineTo(-xOff, 0);
+          ctx.lineTo(-sign*5 - xOff, 4); ctx.moveTo(-xOff,0); ctx.lineTo(-sign*5 - xOff, -4); ctx.stroke();
+          ctx.save(); ctx.scale(1, -1); ctx.fillText(ld.fx + " kg", -sign*arrowLen - 10 - xOff, -5); ctx.restore();
+        }
+        if(Math.abs(ld.fy) > 0) {
+          let sign = ld.fy > 0 ? 1 : -1;
+          let stackKey = "n" + n.id + "_y_" + sign;
+          if (nodeLoadStacks[stackKey] === undefined) nodeLoadStacks[stackKey] = 0;
+          let stackIdx = nodeLoadStacks[stackKey]++;
+          let yOff = stackIdx * 25 * sign;
+          ctx.beginPath(); ctx.moveTo(0, -sign*arrowLen - yOff); ctx.lineTo(0, -yOff);
+          ctx.lineTo(-4, -sign*5 - yOff); ctx.moveTo(0,-yOff); ctx.lineTo(4, -sign*5 - yOff); ctx.stroke();
+          ctx.save(); ctx.scale(1, -1); ctx.fillText(ld.fy + " kg", 15, sign*arrowLen + 5 + Math.abs(yOff)); ctx.restore();
+        }
+        if(Math.abs(ld.mz) > 0) {
+          let sign = ld.mz > 0 ? 1 : -1;
+          let stackKey = "n" + n.id + "_mz_" + sign;
+          if (nodeLoadStacks[stackKey] === undefined) nodeLoadStacks[stackKey] = 0;
+          let stackIdx = nodeLoadStacks[stackKey]++;
+          let rOff = stackIdx * 5; // increment radius slightly
+          
+          ctx.beginPath(); ctx.arc(0, 0, 12 + rOff, 0, Math.PI); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(12 + rOff, 0); ctx.lineTo(12 + rOff - sign*4, sign*5); ctx.stroke();
+          ctx.save(); ctx.scale(1, -1); ctx.fillText(ld.mz + " kg.m", 15 + rOff, -15 - rOff); ctx.restore();
+        }
+        ctx.restore();
+      });
+
+      if(showReactions && currentResult && currentResult.ok) {
+        currentResult.nodes.forEach(n_res => {
+          let n = nodes.find(nd => nd.id === n_res.id);
+          if(!n || n.support === 'Free') return;
+          
+          let rx = n_res.fx, ry = n_res.fy, mz = n_res.mz;
+          let px = projX(n.x), py = projY(n.y);
+          
+          ctx.save(); ctx.translate(px, py);
+          ctx.lineWidth = 2;
+          
+          if (Math.abs(rx) > 1e-3) {
+             let sign = rx > 0 ? 1 : -1;
+             ctx.strokeStyle = '#e74c3c'; ctx.fillStyle = '#e74c3c';
+             ctx.beginPath(); ctx.moveTo(-sign*25, 0); ctx.lineTo(0, 0); ctx.stroke();
+             ctx.beginPath(); ctx.moveTo(-sign*5, 4); ctx.lineTo(0, 0); ctx.lineTo(-sign*5, -4); ctx.fill();
+             ctx.save(); ctx.scale(1, -1); ctx.font = 'bold 11px Arial'; ctx.textAlign = sign > 0 ? 'right' : 'left';
+             ctx.fillText(`Rx: ${rx.toFixed(1)}`, -sign*30, 4); ctx.restore();
+          }
+          if (Math.abs(ry) > 1e-3) {
+             let sign = ry > 0 ? 1 : -1;
+             ctx.strokeStyle = '#27ae60'; ctx.fillStyle = '#27ae60';
+             ctx.beginPath(); ctx.moveTo(0, -sign*25); ctx.lineTo(0, 0); ctx.stroke();
+             ctx.beginPath(); ctx.moveTo(4, -sign*5); ctx.lineTo(0, 0); ctx.lineTo(-4, -sign*5); ctx.fill();
+             ctx.save(); ctx.scale(1, -1); ctx.font = 'bold 11px Arial'; ctx.textAlign = 'left';
+             ctx.fillText(`Ry: ${ry.toFixed(1)}`, 8, sign*15); ctx.restore();
+          }
+          if (Math.abs(mz) > 1e-3) {
+             let sign = mz > 0 ? 1 : -1;
+             ctx.strokeStyle = '#2980b9'; ctx.fillStyle = '#2980b9';
+             ctx.beginPath(); ctx.arc(0, 0, 15, Math.PI/4, 3*Math.PI/4); ctx.stroke();
+             ctx.beginPath();
+             if (sign > 0) { 
+                 ctx.moveTo(15*Math.cos(3*Math.PI/4), 15*Math.sin(3*Math.PI/4));
+                 ctx.lineTo(15*Math.cos(3*Math.PI/4) + 6, 15*Math.sin(3*Math.PI/4) - 2);
+                 ctx.lineTo(15*Math.cos(3*Math.PI/4) + 2, 15*Math.sin(3*Math.PI/4) + 6);
+             } else { 
+                 ctx.moveTo(15*Math.cos(Math.PI/4), 15*Math.sin(Math.PI/4));
+                 ctx.lineTo(15*Math.cos(Math.PI/4) - 6, 15*Math.sin(Math.PI/4) - 2);
+                 ctx.lineTo(15*Math.cos(Math.PI/4) - 2, 15*Math.sin(Math.PI/4) + 6);
+             }
+             ctx.fill();
+             ctx.save(); ctx.scale(1, -1); ctx.font = 'bold 11px Arial'; ctx.textAlign = 'center';
+             ctx.fillText(`Mz: ${mz.toFixed(1)}`, 0, -20); ctx.restore();
+          }
+          ctx.restore();
+        });
+      }
+      ctx.restore();
+      
+      // Draw XY axis at bottom left
+      ctx.save();
+      ctx.resetTransform();
+      ctx.translate(40, canvas.height - 40);
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(30, 0); ctx.strokeStyle = 'red'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(25, -3); ctx.lineTo(30, 0); ctx.lineTo(25, 3); ctx.fillStyle = 'red'; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -30); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-3, -25); ctx.lineTo(0, -30); ctx.lineTo(3, -25); ctx.fill();
+      ctx.fillStyle = 'red'; ctx.font = 'bold 12px Arial'; ctx.textAlign='left'; ctx.fillText("X", 35, 4);
+      ctx.textAlign='center'; ctx.fillText("Y", 0, -35);
+      ctx.restore();
+
+      // Draw Legend at bottom right
+      if (sel_loadcase === 'All' || sel_loadcase === 'Envelope' || showLoads) {
+         let activeCases = new Set();
+         eloads.forEach(ld => { if(sel_loadcase === 'Envelope' || sel_loadcase === 'All' || sel_loadcase === ld.lcase) activeCases.add(ld.lcase); });
+         nloads.forEach(ld => { if(sel_loadcase === 'Envelope' || sel_loadcase === 'All' || sel_loadcase === ld.lcase) activeCases.add(ld.lcase); });
+         
+         if (activeCases.size > 0) {
+           let casesArr = Array.from(activeCases).sort();
+           ctx.save();
+           ctx.resetTransform();
+           let boxWidth = 100;
+           let boxHeight = casesArr.length * 20 + 10;
+           ctx.translate(canvas.width - boxWidth - 20, canvas.height - boxHeight - 20);
+           
+           ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+           ctx.fillRect(0, 0, boxWidth, boxHeight);
+           ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1;
+           ctx.strokeRect(0, 0, boxWidth, boxHeight);
+           
+           casesArr.forEach((lc, i) => {
+              ctx.fillStyle = getColorForLC(lc);
+              ctx.fillRect(10, i * 20 + 10, 15, 10);
+              ctx.fillStyle = '#333';
+              ctx.font = '12px Arial';
+              ctx.textAlign = 'left';
+              ctx.fillText(lc, 35, i * 20 + 19);
+           });
+           ctx.restore();
+         }
+       }
+       
+       if (zoomRect) {
+         ctx.save();
+         ctx.resetTransform();
+         ctx.strokeStyle = '#3498db';
+         ctx.fillStyle = 'rgba(52, 152, 219, 0.2)';
+         ctx.lineWidth = 1;
+         let w = zoomRect.endX - zoomRect.startX;
+         let h = zoomRect.endY - zoomRect.startY;
+         ctx.fillRect(zoomRect.startX, zoomRect.startY, w, h);
+         ctx.strokeRect(zoomRect.startX, zoomRect.startY, w, h);
+         ctx.restore();
+       }
+    }
+
+    function drawDiagrams() {
+        let canvas = document.getElementById('canvas-diagrams');
+        if(!canvas || !currentResult || !currentResult.ok) return;
+        let ctx = canvas.getContext('2d');
+        let rect = canvas.parentElement.getBoundingClientRect();
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+  
+        let type = document.querySelector('input[name="diag-type"]:checked').value;
+        let comboSel = document.getElementById('diag-combo');
+        let comboName = comboSel ? comboSel.value : 'Envelope';
+        
+        let targetRes = currentResult;
+        if(comboName !== 'Envelope') {
+          if (currentResult.combos && currentResult.combos[comboName]) {
+              targetRes = currentResult.combos[comboName];
+          } else if (currentResult.cases && currentResult.cases[comboName]) {
+              targetRes = currentResult.cases[comboName];
+          }
+        }
+        
+        let nodes = getNodes(), res_elems = targetRes.elements, elements = getElements();
+        if(!hasAutoZoomed) {
+          zoomAll();
+          return;
+        }
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        ctx.translate(canvas.width/2, canvas.height/2);
+        ctx.scale(1, -1);
+        
+        function projX(x) { return (x - camPanX) * camScale; }
+        function projY(y) { return (y - camPanY) * camScale; }
+        
+        // Draw grid
+        let gType = document.getElementById('grid-type').value;
+        if (gType !== 'none') {
+          let gdx = parseFloat(document.getElementById('grid-dx').value) || 1.0;
+          let gdy = parseFloat(document.getElementById('grid-dy').value) || 1.0;
+          let viewMinX = camPanX - (canvas.width/2)/camScale;
+          let viewMaxX = camPanX + (canvas.width/2)/camScale;
+          let viewMinY = camPanY - (canvas.height/2)/camScale;
+          let viewMaxY = camPanY + (canvas.height/2)/camScale;
+          
+          let startX = Math.floor(viewMinX / gdx) * gdx;
+          let startY = Math.floor(viewMinY / gdy) * gdy;
+          
+          ctx.strokeStyle = '#e0e0e0';
+          ctx.fillStyle = '#cccccc';
+          ctx.lineWidth = 1;
+          
+          for (let x = startX; x <= viewMaxX; x += gdx) {
+            if (gType === 'lines') {
+              ctx.beginPath(); ctx.moveTo(projX(x), projY(viewMinY)); ctx.lineTo(projX(x), projY(viewMaxY)); ctx.stroke();
+            } else if (gType === 'dots') {
+              for (let y = startY; y <= viewMaxY; y += gdy) {
+                ctx.beginPath(); ctx.arc(projX(x), projY(y), 2, 0, Math.PI*2); ctx.fill();
+              }
+            }
+          }
+          if (gType === 'lines') {
+            for (let y = startY; y <= viewMaxY; y += gdy) {
+               ctx.beginPath(); ctx.moveTo(projX(viewMinX), projY(y)); ctx.lineTo(projX(viewMaxX), projY(y)); ctx.stroke();
+            }
+          }
+        }
+        
+        ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1;
+        let showMembers = document.getElementById('chk-members').checked;
+        let showNodes = document.getElementById('chk-nodes').checked;
+        
+        elements.forEach(el => {
+            let n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
+            if(n1 && n2) { 
+                ctx.beginPath(); ctx.moveTo(projX(n1.x), projY(n1.y)); ctx.lineTo(projX(n2.x), projY(n2.y)); ctx.stroke(); 
+                if (showMembers) {
+                    ctx.save(); ctx.scale(1, -1); ctx.fillStyle = '#7f8c8d'; ctx.font = '10px Arial'; ctx.textAlign = 'center';
+                    ctx.fillText("M"+el.id, projX((n1.x+n2.x)/2), -projY((n1.y+n2.y)/2) - 5); ctx.restore();
+                }
+            }
+        });
+        
+        if (showNodes) {
+            nodes.forEach(n => {
+                ctx.save(); ctx.scale(1, -1); ctx.fillStyle = '#7f8c8d'; ctx.font = 'bold 10px Arial';
+                ctx.fillText("N"+n.id, projX(n.x) + 5, -projY(n.y) + 10); ctx.restore();
+            });
+        }
+
+        let diagScaleMult = parseFloat(document.getElementById('diag-scale').value) || 1.0;
+        
+        let showCombEq = document.getElementById('chk-comb-eq') && document.getElementById('chk-comb-eq').checked;
+        if (showCombEq) {
+            let comboName = document.getElementById('diag-combo').value;
+            let eqText = comboName;
+            let cinfo = getLoadCombos().find(c => c.name === comboName);
+            if (cinfo) {
+                let parts = [];
+                for (let k in cinfo.factors) {
+                    let f = cinfo.factors[k];
+                    if (f !== 0) parts.push((f > 0 && parts.length > 0 ? "+" : "") + f + k);
+                }
+                if (parts.length > 0) eqText = comboName + ": " + parts.join(' ');
+            }
+            ctx.save();
+            ctx.resetTransform();
+            ctx.fillStyle = '#2c3e50'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'right';
+            ctx.fillText(eqText, canvas.width - 20, 30);
+            ctx.restore();
+        }
+
+        // Draw XY axis at bottom left
+        ctx.save();
+        ctx.resetTransform();
+        ctx.translate(40, canvas.height - 40);
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(30, 0); ctx.strokeStyle = 'red'; ctx.lineWidth = 2; ctx.stroke(); // X
+        ctx.beginPath(); ctx.moveTo(25, -3); ctx.lineTo(30, 0); ctx.lineTo(25, 3); ctx.fillStyle = 'red'; ctx.fill();
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -30); ctx.stroke(); // Y
+        ctx.beginPath(); ctx.moveTo(-3, -25); ctx.lineTo(0, -30); ctx.lineTo(3, -25); ctx.fill();
+        ctx.fillStyle = 'red'; ctx.font = 'bold 12px Arial'; ctx.textAlign='left'; ctx.fillText("X", 35, 4);
+        ctx.textAlign='center'; ctx.fillText("Y", 0, -35);
+        ctx.restore();
+
+        if (type === 'def') {
+          let max_dy_val = 0, max_dy_n = null;
+          let max_dx_val = 0, max_dx_n = null;
+          let global_max_disp = 1e-9;
+          
+          elements.forEach(el => {
+              let rn1 = targetRes.nodes.find(n => n.id === el.n1), rn2 = targetRes.nodes.find(n => n.id === el.n2);
+              if(rn1 && rn2) {
+                  if (Math.abs(rn1.dy) > max_dy_val) { max_dy_val = Math.abs(rn1.dy); max_dy_n = rn1; }
+                  if (Math.abs(rn2.dy) > max_dy_val) { max_dy_val = Math.abs(rn2.dy); max_dy_n = rn2; }
+                  if (Math.abs(rn1.dx) > max_dx_val) { max_dx_val = Math.abs(rn1.dx); max_dx_n = rn1; }
+                  if (Math.abs(rn2.dx) > max_dx_val) { max_dx_val = Math.abs(rn2.dx); max_dx_n = rn2; }
+                  global_max_disp = Math.max(global_max_disp, Math.abs(rn1.dx), Math.abs(rn1.dy), Math.abs(rn2.dx), Math.abs(rn2.dy));
+              }
+          });
+          let defScale = (padding * 0.4) / (global_max_disp * scale) * diagScaleMult;
+          
+          ctx.strokeStyle = '#e0e0e0'; ctx.lineWidth = 1;
+          elements.forEach(el => {
+              let n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
+              if(n1 && n2) {
+                  ctx.beginPath(); ctx.moveTo(projX(n1.x), projY(n1.y)); ctx.lineTo(projX(n2.x), projY(n2.y)); ctx.stroke();
+              }
+          });
+
+          ctx.strokeStyle = '#3498db'; ctx.lineWidth = 2;
+          
+          elements.forEach(el => {
+              let n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
+              let rn1 = targetRes.nodes.find(n => n.id === el.n1), rn2 = targetRes.nodes.find(n => n.id === el.n2);
+              if(n1 && n2 && rn1 && rn2) {
+                  let dx = n2.x - n1.x, dy = n2.y - n1.y;
+                  let len = Math.sqrt(dx*dx + dy*dy);
+                  if (len < 1e-4) len = 1;
+                  let c = dx / len, s = dy / len;
+                  
+                  let u1 = c*rn1.dx + s*rn1.dy;
+                  let v1 = -s*rn1.dx + c*rn1.dy;
+                  let th1 = rn1.rz;
+                  
+                  let u2 = c*rn2.dx + s*rn2.dy;
+                  let v2 = -s*rn2.dx + c*rn2.dy;
+                  let th2 = rn2.rz;
+                  
+                  let pts = [];
+                  let numSegs = 10;
+                  for(let i=0; i<=numSegs; i++) {
+                      let xl = i / numSegs;
+                      let x = len * xl;
+                      let ux = u1 + (u2 - u1)*xl;
+                      let n1f = 1 - 3*xl*xl + 2*xl*xl*xl;
+                      let n2f = x * (1 - xl)*(1 - xl);
+                      let n3f = 3*xl*xl - 2*xl*xl*xl;
+                      let n4f = x * (xl*xl - xl);
+                      let vx = n1f*v1 + n2f*th1 + n3f*v2 + n4f*th2;
+                      let gx = c*ux - s*vx;
+                      let gy = s*ux + c*vx;
+                      pts.push({ x: n1.x + x*c + gx*defScale, y: n1.y + x*s + gy*defScale });
+                  }
+                  
+                  ctx.beginPath();
+                  ctx.moveTo(projX(pts[0].x), projY(pts[0].y));
+                  for(let i=1; i<=numSegs; i++) {
+                      ctx.lineTo(projX(pts[i].x), projY(pts[i].y));
+                  }
+                  ctx.stroke();
+              }
+          });
+          
+          ctx.scale(1, -1);
+          
+          if (max_dy_n || max_dx_n) {
+              let max_n_disp = max_dy_val >= max_dx_val ? max_dy_n : max_dx_n;
+              if (max_n_disp && (max_dy_val > 1e-6 || max_dx_val > 1e-6)) {
+                  let disp_n = nodes.find(nd => nd.id === max_n_disp.id);
+                  let px = projX(disp_n.x + max_n_disp.dx * defScale);
+                  let py = -projY(disp_n.y + max_n_disp.dy * defScale);
+                  ctx.beginPath(); ctx.arc(px, py, 6, 0, 2*Math.PI);
+                  ctx.strokeStyle = 'rgba(255, 100, 100, 0.8)'; ctx.lineWidth = 2; ctx.stroke();
+                  ctx.fillStyle = 'red'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
+                  let label = [];
+                  if (max_dx_val > 1e-6) label.push(`Max Δx: ${(max_dx_val*1000).toFixed(2)} mm`);
+                  if (max_dy_val > 1e-6) label.push(`Max Δy: ${(max_dy_val*1000).toFixed(2)} mm`);
+                  ctx.fillText(label.join(', '), px, py + 20);
+              }
+          }
+          ctx.restore();
+          return;
+        }
+
+        let maxVal = 0.001;
+        res_elems.forEach(re => {
+          let el = elements.find(e => e.id === re.id);
+          if(!el) return;
+          let n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
+          let angle = Math.atan2(n2.y - n1.y, n2.x - n1.x);
+          let len = Math.sqrt(Math.pow(n2.x-n1.x, 2) + Math.pow(n2.y-n1.y, 2));
+          
+          let v1 = type==='afd' ? re.n1_forces.axial : type==='sfd' ? re.n1_forces.shear : -re.n1_forces.moment;
+          let v2 = type==='afd' ? -re.n2_forces.axial : type==='sfd' ? -re.n2_forces.shear : re.n2_forces.moment;
+          maxVal = Math.max(maxVal, Math.abs(v1), Math.abs(v2));
+          
+          if (type === 'bmd') {
+              let elLoads = getELoads().filter(ld => ld.elem === el.id);
+              let wy1 = 0, wy2 = 0;
+              let hasSelfWeight = document.getElementById('chk-self-weight').checked;
+              if(hasSelfWeight || elLoads.length > 0) {
+                 let secId = elements.find(e=>e.id===el.id).sec;
+                 let sec = getSections().find(s=>s.id===secId);
+                 if(hasSelfWeight && sec) {
+                     let sw = -(sec.a / 10000) * sec.density * Math.cos(angle);
+                     wy1 += sw; wy2 += sw;
+                 }
+                 elLoads.forEach(ld => {
+                     let w1 = ld.w1 !== undefined ? ld.w1 : (ld.w || 0);
+                     let w2 = ld.w2 !== undefined ? ld.w2 : w1;
+                     if(ld.dir === 'Local Y') { wy1 += w1; wy2 += w2; }
+                     else { wy1 += w1 * Math.cos(angle); wy2 += w2 * Math.cos(angle); }
+                 });
+                 let wa = -wy1, wb = -wy2;
+                 let x_mid = len / 2;
+                 let M_mid_s = ((2*wa + wb)*len/6)*x_mid - (wa/2)*x_mid*x_mid - ((wb - wa)/(6*len))*x_mid*x_mid*x_mid;
+                 let M_mid = (v1 + v2)/2 + M_mid_s;
+                 maxVal = Math.max(maxVal, Math.abs(M_mid));
+                 // Also sample a few points just in case max isn't at mid
+                 for(let i=1; i<5; i++){
+                    let x = i*len/5;
+                    let Ms = ((2*wa + wb)*len/6)*x - (wa/2)*x*x - ((wb - wa)/(6*len))*x*x*x;
+                    maxVal = Math.max(maxVal, Math.abs(v1 + (v2-v1)*(x/len) + Ms));
+                 }
+              }
+          }
+        });
+        let diagScale = (padding * 0.8) / maxVal * diagScaleMult;
+
+        res_elems.forEach(re => {
+          let el = elements.find(e => e.id === re.id);
+          if(!el) return;
+          let n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
+          let angle = Math.atan2(n2.y - n1.y, n2.x - n1.x);
+          let len = Math.sqrt(Math.pow(n2.x-n1.x, 2) + Math.pow(n2.y-n1.y, 2));
+          let v1 = type==='afd' ? re.n1_forces.axial : type==='sfd' ? re.n1_forces.shear : -re.n1_forces.moment;
+          let v2 = type==='afd' ? -re.n2_forces.axial : type==='sfd' ? -re.n2_forces.shear : re.n2_forces.moment;
+
+          let elLoads = getELoads().filter(ld => ld.elem === el.id);
+          let wy1 = 0, wy2 = 0;
+          let hasSelfWeight = document.getElementById('chk-self-weight').checked;
+          if(hasSelfWeight || elLoads.length > 0) {
+             let secId = elements.find(e=>e.id===el.id).sec;
+             let sec = getSections().find(s=>s.id===secId);
+             if(hasSelfWeight && sec) {
+                 let sw = -(sec.a / 10000) * sec.density * Math.cos(angle);
+                 wy1 += sw; wy2 += sw;
+             }
+             elLoads.forEach(ld => {
+                 let w1 = ld.w1 !== undefined ? ld.w1 : (ld.w || 0);
+                 let w2 = ld.w2 !== undefined ? ld.w2 : w1;
+                 if(ld.dir === 'Local Y') { wy1 += w1; wy2 += w2; }
+                 else { wy1 += w1 * Math.cos(angle); wy2 += w2 * Math.cos(angle); }
+             });
+          }
+          let wa = -wy1, wb = -wy2;
+          
+          let drawY1 = -v1 * diagScale;
+          let drawY2 = -v2 * diagScale;
+
+          ctx.save(); ctx.translate(projX(n1.x), projY(n1.y)); ctx.rotate(angle);
+          
+          let pts = [];
+          if (type === 'bmd' && (Math.abs(wa) > 1e-3 || Math.abs(wb) > 1e-3)) {
+              let numPoints = 20; let dx_step = len / numPoints;
+              for(let i=0; i<=numPoints; i++) {
+                  let x = i * dx_step;
+                  let M_linear = v1 + (v2 - v1) * (x / len);
+                  let Ms = ((2*wa + wb)*len/6)*x - (wa/2)*x*x - ((wb - wa)/(6*len))*x*x*x;
+                  let m_x = M_linear + Ms;
+                  pts.push({x: x * scale, y: -m_x * diagScale, val: m_x});
+              }
+              for(let i=0; i<numPoints; i++) {
+                  let p1 = pts[i], p2 = pts[i+1];
+                  let midY = (p1.val + p2.val) / 2;
+                  ctx.beginPath(); ctx.moveTo(p1.x, 0); ctx.lineTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.lineTo(p2.x, 0); ctx.closePath();
+                  ctx.fillStyle = midY > 0 ? 'rgba(46, 204, 113, 0.4)' : 'rgba(231, 76, 60, 0.4)'; ctx.fill();
+              }
+              ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+              for(let i=1; i<=numPoints; i++) ctx.lineTo(pts[i].x, pts[i].y);
+              ctx.stroke();
+              
+              let max_val = pts[0].val, min_val = pts[0].val;
+              let max_p = pts[0], min_p = pts[0];
+              for(let i=1; i<pts.length-1; i++) {
+                  if (pts[i].val > max_val) { max_val = pts[i].val; max_p = pts[i]; }
+                  if (pts[i].val < min_val) { min_val = pts[i].val; min_p = pts[i]; }
+              }
+              let true_extrema = [];
+              if (max_val > pts[0].val && max_val > pts[pts.length-1].val) true_extrema.push(max_p);
+              if (min_val < pts[0].val && min_val < pts[pts.length-1].val) true_extrema.push(min_p);
+              pts.true_extrema = true_extrema;
+          } else {
+              ctx.strokeStyle = '#e67e22';
+              if (v1 * v2 < 0) {
+                  let x0 = len * scale * Math.abs(v1) / (Math.abs(v1) + Math.abs(v2));
+                  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, drawY1); ctx.lineTo(x0, 0); ctx.closePath();
+                  ctx.fillStyle = v1 > 0 ? 'rgba(46, 204, 113, 0.4)' : 'rgba(231, 76, 60, 0.4)'; ctx.fill(); ctx.stroke();
+                  ctx.beginPath(); ctx.moveTo(x0, 0); ctx.lineTo(len * scale, drawY2); ctx.lineTo(len * scale, 0); ctx.closePath();
+                  ctx.fillStyle = v2 > 0 ? 'rgba(46, 204, 113, 0.4)' : 'rgba(231, 76, 60, 0.4)'; ctx.fill(); ctx.stroke();
+              } else {
+                  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, drawY1); ctx.lineTo(len * scale, drawY2); ctx.lineTo(len * scale, 0); ctx.closePath();
+                  let mid = (v1 + v2) / 2;
+                  ctx.fillStyle = mid > 0 ? 'rgba(46, 204, 113, 0.4)' : 'rgba(231, 76, 60, 0.4)'; ctx.fill(); ctx.stroke();
+              }
+              ctx.beginPath(); ctx.moveTo(0, drawY1); ctx.lineTo(len * scale, drawY2); ctx.stroke();
+          }
+          
+          ctx.scale(1, -1);
+          ctx.fillStyle = '#000'; ctx.font = '10px Arial'; ctx.textAlign = 'center';
+          
+          if (type === 'bmd' && (Math.abs(wa) > 1e-3 || Math.abs(wb) > 1e-3)) {
+              pts.true_extrema.forEach(ext => {
+                  ctx.fillText(ext.val.toFixed(1), ext.x, -ext.y - (ext.y>0?5:-12));
+              });
+              let end1 = pts[0], end2 = pts[pts.length-1];
+              if (Math.abs(end1.val) > 1e-2) ctx.fillText(end1.val.toFixed(1), end1.x, -end1.y - (end1.y>0?5:-12));
+              if (Math.abs(end2.val) > 1e-2) ctx.fillText(end2.val.toFixed(1), end2.x, -end2.y - (end2.y>0?5:-12));
+          } else {
+              if (Math.abs(v1) > 1e-2) ctx.fillText(v1.toFixed(1), 0, -drawY1 - (drawY1>0?5:-12));
+              if (Math.abs(v2) > 1e-2) ctx.fillText(v2.toFixed(1), len * scale, -drawY2 - (drawY2>0?5:-12));
+          }
+          
+          ctx.restore();
+        });
+
+        let showReactions = document.getElementById('chk-reactions').checked;
+        if(showReactions && currentResult && currentResult.ok) {
+          let cRes = currentResult;
+          cRes.nodes.forEach(n_res => {
+            let n = nodes.find(nd => nd.id === n_res.id);
+            if(!n || n.support === 'Free') return;
+            
+            let rx = n_res.fx, ry = n_res.fy, mz = n_res.mz;
+            let px = projX(n.x), py = projY(n.y);
+            
+            ctx.save(); ctx.translate(px, py);
+            ctx.lineWidth = 2;
+            
+            if (Math.abs(rx) > 1e-3) {
+               let sign = rx > 0 ? 1 : -1;
+               ctx.strokeStyle = '#e74c3c'; ctx.fillStyle = '#e74c3c';
+               ctx.beginPath(); ctx.moveTo(-sign*25, 0); ctx.lineTo(0, 0); ctx.stroke();
+               ctx.beginPath(); ctx.moveTo(-sign*5, 4); ctx.lineTo(0, 0); ctx.lineTo(-sign*5, -4); ctx.fill();
+               ctx.save(); ctx.scale(1, -1); ctx.font = 'bold 11px Arial'; ctx.textAlign = sign > 0 ? 'right' : 'left';
+               ctx.fillText(`Rx: ${rx.toFixed(1)}`, -sign*30, 4); ctx.restore();
+            }
+            if (Math.abs(ry) > 1e-3) {
+               let sign = ry > 0 ? 1 : -1;
+               ctx.strokeStyle = '#27ae60'; ctx.fillStyle = '#27ae60';
+               ctx.beginPath(); ctx.moveTo(0, -sign*25); ctx.lineTo(0, 0); ctx.stroke();
+               ctx.beginPath(); ctx.moveTo(4, -sign*5); ctx.lineTo(0, 0); ctx.lineTo(-4, -sign*5); ctx.fill();
+               ctx.save(); ctx.scale(1, -1); ctx.font = 'bold 11px Arial'; ctx.textAlign = 'left';
+               ctx.fillText(`Ry: ${ry.toFixed(1)}`, 8, sign*15); ctx.restore();
+            }
+            if (Math.abs(mz) > 1e-3) {
+               let sign = mz > 0 ? 1 : -1;
+               ctx.strokeStyle = '#2980b9'; ctx.fillStyle = '#2980b9';
+               ctx.beginPath(); ctx.arc(0, 0, 15, Math.PI/4, 3*Math.PI/4); ctx.stroke();
+               ctx.beginPath();
+               if (sign > 0) { 
+                   ctx.moveTo(15*Math.cos(3*Math.PI/4), 15*Math.sin(3*Math.PI/4));
+                   ctx.lineTo(15*Math.cos(3*Math.PI/4) + 6, 15*Math.sin(3*Math.PI/4) - 2);
+                   ctx.lineTo(15*Math.cos(3*Math.PI/4) + 2, 15*Math.sin(3*Math.PI/4) + 6);
+               } else { 
+                   ctx.moveTo(15*Math.cos(Math.PI/4), 15*Math.sin(Math.PI/4));
+                   ctx.lineTo(15*Math.cos(Math.PI/4) - 6, 15*Math.sin(Math.PI/4) - 2);
+                   ctx.lineTo(15*Math.cos(Math.PI/4) - 2, 15*Math.sin(Math.PI/4) + 6);
+               }
+               ctx.fill();
+               ctx.save(); ctx.scale(1, -1); ctx.font = 'bold 11px Arial'; ctx.textAlign = 'center';
+               ctx.fillText(`Mz: ${mz.toFixed(1)}`, 0, -20); ctx.restore();
+            }
+            ctx.restore();
+          });
+        }
+        
+        ctx.restore();
+        
+        if (zoomRect) {
+          ctx.save();
+          ctx.resetTransform();
+          ctx.strokeStyle = '#3498db';
+          ctx.fillStyle = 'rgba(52, 152, 219, 0.2)';
+          ctx.lineWidth = 1;
+          let w = zoomRect.endX - zoomRect.startX;
+          let h = zoomRect.endY - zoomRect.startY;
+          ctx.fillRect(zoomRect.startX, zoomRect.startY, w, h);
+          ctx.strokeRect(zoomRect.startX, zoomRect.startY, w, h);
+          ctx.restore();
+        }
+    }
+
+    function getSections() {
+      let secs = [];
+      document.querySelectorAll('#tbl-sections tbody tr').forEach(tr => {
+        let inputs = tr.querySelectorAll('input');
+        secs.push({
+          id: parseInt(tr.cells[0].innerText),
+          e: parseFloat(inputs[0].value),
+          a: parseFloat(inputs[1].value),
+          i: parseFloat(inputs[2].value),
+          density: parseFloat(inputs[3].value)
+        });
+      });
+      return secs;
+    }
+    
+    function getNLoads() {
+      let loads = [];
+      document.querySelectorAll('#tbl-nloads tbody tr').forEach(tr => {
+        let inputs = tr.querySelectorAll('input');
+        let selects = tr.querySelectorAll('select');
+        loads.push({
+          node: parseInt(inputs[0].value),
+          lcase: selects.length > 0 ? selects[0].value : 'DL',
+          fx: parseFloat(inputs[1].value),
+          fy: parseFloat(inputs[2].value),
+          mz: parseFloat(inputs[3].value)
+        });
+      });
+      return loads;
+    }
+    
+    function getELoads() {
+      let loads = [];
+      document.querySelectorAll('#tbl-eloads tbody tr').forEach(tr => {
+        let inputs = tr.querySelectorAll('input');
+        let selects = tr.querySelectorAll('select');
+        loads.push({
+          elem: parseInt(inputs[0].value),
+          lcase: selects.length > 0 ? selects[0].value : 'DL',
+          dir: selects.length > 1 ? selects[1].value : 'Local Y',
+          w1: parseFloat(inputs[1].value),
+          w2: parseFloat(inputs[2].value)
+        });
+      });
+      return loads;
+    }
+
+    function collectData() {
+      return {
+        projectInfo: {
+          name: document.getElementById('inp-frame-name').value,
+          project: document.getElementById('inp-project').value,
+          company: document.getElementById('inp-company').value,
+          engineer: document.getElementById('inp-engineer').value,
+          location: document.getElementById('inp-location').value
+        },
+        settings: {
+          include_self_weight: document.getElementById('chk-self-weight').checked
+        },
+        nodes: getNodes(),
+        elements: getElements(),
+        sections: getSections(),
+        loadcases: getLoadCases(),
+        loadcombos: getLoadCombos(),
+        nloads: getNLoads(),
+        eloads: getELoads()
+      };
+    }
+
+    function saveModel() {
+      sketchupCall('goframeSave', collectData());
+    }
+
+    function loadModel() {
+      sketchupCall('goframeLoad', {});
+    }
+
+    window.goframeReceiveModel = function(model, res) {
+      if(model) populateInputs(model);
+      if(res) {
+        if (res.combos) {
+          let comboSel = document.getElementById('diag-combo');
+          if (comboSel) {
+            let html = `<option value="Envelope">Envelope</option>`;
+            Object.keys(res.combos).forEach(c => html += `<option value="${c}">${c}</option>`);
+            let oldVal = comboSel.value;
+            comboSel.innerHTML = html;
+            if (Object.keys(res.combos).includes(oldVal) || oldVal === 'Envelope') {
+              comboSel.value = oldVal;
+            }
+          }
+        }
+        displayResults(res);
+      }
+    };
+
+    window.goframeSetStatus = function(msg, isSuccess) {
+      let st = document.getElementById('status-msg');
+      st.innerText = msg;
+      if(isSuccess === true) {
+        st.style.background = '#e6f4ea'; st.style.color = '#137333';
+      } else if(isSuccess === false) {
+        st.style.background = '#fce8e6'; st.style.color = '#c5221f';
+      } else {
+        st.style.background = '#eef2f5'; st.style.color = '#5f6368';
+      }
+      setTimeout(() => {
+        st.style.background = 'transparent'; st.style.color = 'var(--muted)';
+        st.innerText = 'Ready';
+      }, 3000);
+    };
+
+    function populateInputs(data) {
+        if(!data) return;
+        
+        if(data.projectInfo) {
+          let n = document.getElementById('inp-frame-name'); if(n) n.value = data.projectInfo.name || '';
+          let p = document.getElementById('inp-project'); if(p) p.value = data.projectInfo.project || '';
+          let c = document.getElementById('inp-company'); if(c) c.value = data.projectInfo.company || '';
+          let e = document.getElementById('inp-engineer'); if(e) e.value = data.projectInfo.engineer || '';
+          let l = document.getElementById('inp-location'); if(l) l.value = data.projectInfo.location || '';
+        }
+  
+        document.querySelector('#tbl-sections tbody').innerHTML = '';
+        if(data.sections) { data.sections.forEach(s => addSectionRow(s.id, s.e, s.a, s.i, s.density)); }
+  
+        document.querySelector('#tbl-nodes tbody').innerHTML = '';
+        if(data.nodes) { data.nodes.forEach(n => addNodeRow(n.x, n.y, n.support)); }
+  
+        document.querySelector('#tbl-elements tbody').innerHTML = '';
+        if(data.elements) { data.elements.forEach(el => addElementRow(el.n1, el.n2, el.sec, el.release)); }
+  
+        document.querySelector('#tbl-loadcases tbody').innerHTML = '';
+        loadCaseIdCounter = 1;
+        if(data.loadcases && data.loadcases.length > 0) { 
+          data.loadcases.forEach(lc => _addLoadCaseRowNoUpdate(lc)); 
+        } else {
+          ['DL', 'LL', 'WL', 'EX'].forEach(lc => _addLoadCaseRowNoUpdate(lc));
+        }
+        updateComboMatrixColumns();
+
+        document.querySelector('#tbl-loadcombos tbody').innerHTML = '';
+        loadComboIdCounter = 1;
+        if(data.loadcombos && data.loadcombos.length > 0) { 
+          data.loadcombos.forEach(lc => addLoadComboRow(lc.name, lc.factors || {})); 
+        } else {
+          addLoadComboRow('Comb 1', {'DL': 1.0});
+        }
+        
+        updateLoadCaseDropdowns();
+
+        document.querySelector('#tbl-nloads tbody').innerHTML = '';
+        if(data.nloads) { data.nloads.forEach(nl => addNodalLoadRow(nl.node, nl.lcase, nl.fx, nl.fy, nl.mz)); }
+  
+        document.querySelector('#tbl-eloads tbody').innerHTML = '';
+        if(data.eloads) { 
+          data.eloads.forEach(el => {
+            let w1 = el.w1 !== undefined ? el.w1 : (el.w !== undefined ? el.w : 0);
+            let w2 = el.w2 !== undefined ? el.w2 : w1;
+            addElemLoadRow(el.elem, el.lcase, el.dir, w1, w2);
+          }); 
+        }
+
+        if(data.settings) {
+          document.getElementById('chk-self-weight').checked = !!data.settings.include_self_weight;
+        }
+
+      let maxNode = 0, maxElem = 0, maxSec = 0;
+      if(data.nodes) data.nodes.forEach(n => { if(n.id > maxNode) maxNode = n.id; });
+      if(data.elements) data.elements.forEach(e => { if(e.id > maxElem) maxElem = e.id; });
+      if(data.sections) data.sections.forEach(s => { if(s.id > maxSec) maxSec = s.id; });
+      nodeIdCounter = maxNode + 1;
+      elemIdCounter = maxElem + 1;
+      secIdCounter = maxSec + 1;
+
+      currentResult = null;
+      hasAutoZoomed = false;
+      switchTab('tab-preview', 'tabbtn-preview');
+      drawPreview();
+    }
+
+    let isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    function sketchupCall(command, payload) {
+      if (window.sketchup) {
+        window.sketchup[command](payload);
+      } else if (isMac) {
+        window.location.href = 'skp:' + command + '@' + encodeURIComponent(JSON.stringify(payload));
+      } else {
+        console.log('Sketchup call:', command, payload);
+      }
+    }
+
+    let currentResult = null;
+
+    function generateTables() {
+      let res = currentResult;
+      if (!res || !res.ok) return;
+      let nodes = getNodes();
+      let elements = getElements();
+      let supports = nodes.filter(n => n.support !== 'Free');
+      
+      let allCases = [];
+      if (res.cases) { for(let k in res.cases) allCases.push({name: k, data: res.cases[k]}); }
+      if (res.combos) { for(let k in res.combos) allCases.push({name: k, data: res.combos[k]}); }
+      
+      if (allCases.length === 0) {
+          allCases.push({name: 'Envelope', data: res});
+      }
+
+      let serviceCases = allCases.filter(c => c.name.includes('ASD'));
+      let ultimateCases = allCases.filter(c => c.name.includes('LRFD'));
+      if (serviceCases.length === 0) serviceCases = allCases;
+      if (ultimateCases.length === 0) ultimateCases = allCases;
+
+      let html = '';
+
+      // 1. Displacements
+      html += '<div style="margin-bottom: 20px;"><h3 style="margin-bottom: 5px; font-size: 14px; border-bottom: 1px solid #ccc; padding-bottom: 3px;">1. Displacements (Envelope)</h3>';
+      html += '<table class="data-table" style="width: 100%; border-collapse: collapse; text-align: center;" border="1"><thead><tr style="background:#f0f0f0;"><th>Case</th><th>Node</th><th>L/C</th><th>X (mm)</th><th>Y (mm)</th><th>Resultant (mm)</th><th>rZ (rad)</th></tr></thead><tbody>';
+      
+      let dispRows = [];
+      nodes.forEach(n => {
+         let max_x = {val: -Infinity, c: ''}, min_x = {val: Infinity, c: ''};
+         let max_y = {val: -Infinity, c: ''}, min_y = {val: Infinity, c: ''};
+         let max_rz = {val: -Infinity, c: ''}, min_rz = {val: Infinity, c: ''};
+         let max_res = {val: -Infinity, c: ''};
+         
+         allCases.forEach(c => {
+            let cn = c.data.nodes.find(nd => nd.id === n.id);
+            if(!cn) return;
+            if(cn.dx > max_x.val) { max_x.val = cn.dx; max_x.c = c.name; }
+            if(cn.dx < min_x.val) { min_x.val = cn.dx; min_x.c = c.name; }
+            if(cn.dy > max_y.val) { max_y.val = cn.dy; max_y.c = c.name; }
+            if(cn.dy < min_y.val) { min_y.val = cn.dy; min_y.c = c.name; }
+            if(cn.rz > max_rz.val) { max_rz.val = cn.rz; max_rz.c = c.name; }
+            if(cn.rz < min_rz.val) { min_rz.val = cn.rz; min_rz.c = c.name; }
+            let res_val = Math.sqrt(cn.dx*cn.dx + cn.dy*cn.dy);
+            if(res_val > max_res.val) { max_res.val = res_val; max_res.c = c.name; }
+         });
+         
+         if(max_x.c) {
+             let rlist = [
+                 {lbl: 'Max X', c: max_x.c, type: 'x'}, {lbl: 'Min X', c: min_x.c, type: 'x'},
+                 {lbl: 'Max Y', c: max_y.c, type: 'y'}, {lbl: 'Min Y', c: min_y.c, type: 'y'},
+                 {lbl: 'Max rZ', c: max_rz.c, type: 'rz'}, {lbl: 'Min rZ', c: min_rz.c, type: 'rz'},
+                 {lbl: 'Max Res', c: max_res.c, type: 'res'}
+             ];
+             rlist.forEach(r => {
+                 let cn = allCases.find(c => c.name === r.c).data.nodes.find(nd => nd.id === n.id);
+                 let res_val = Math.sqrt(cn.dx*cn.dx + cn.dy*cn.dy);
+                 dispRows.push(`<tr><td>${r.lbl}</td><td>${n.id}</td><td>${r.c}</td>
+                 <td ${r.type==='x'?'style="font-weight:bold"':''}>${(cn.dx*1000).toFixed(3)}</td>
+                 <td ${r.type==='y'?'style="font-weight:bold"':''}>${(cn.dy*1000).toFixed(3)}</td>
+                 <td ${r.type==='res'?'style="font-weight:bold"':''}>${(res_val*1000).toFixed(3)}</td>
+                 <td ${r.type==='rz'?'style="font-weight:bold"':''}>${(cn.rz).toFixed(4)}</td></tr>`);
+             });
+         }
+      });
+      html += dispRows.join('') + '</tbody></table></div>';
+
+      function buildReactionEnvelope(casesArray, title) {
+         let out = `<div style="margin-bottom: 20px;"><h3 style="margin-bottom: 5px; font-size: 14px; border-bottom: 1px solid #ccc; padding-bottom: 3px;">${title}</h3>`;
+         out += '<table class="data-table" style="width: 100%; border-collapse: collapse; text-align: center;" border="1"><thead><tr style="background:#f0f0f0;"><th>Case</th><th>Node</th><th>L/C</th><th>Fx (kg)</th><th>Fy (kg)</th><th>Mz (kg.m)</th></tr></thead><tbody>';
+         let rows = [];
+         supports.forEach(s => {
+             let max_fx = {val: -Infinity, c: ''}, min_fx = {val: Infinity, c: ''};
+             let max_fy = {val: -Infinity, c: ''}, min_fy = {val: Infinity, c: ''};
+             let max_mz = {val: -Infinity, c: ''}, min_mz = {val: Infinity, c: ''};
+             casesArray.forEach(c => {
+                 let cn = c.data.nodes.find(nd => nd.id === s.id);
+                 if(!cn) return;
+                 if(cn.fx > max_fx.val) { max_fx.val = cn.fx; max_fx.c = c.name; }
+                 if(cn.fx < min_fx.val) { min_fx.val = cn.fx; min_fx.c = c.name; }
+                 if(cn.fy > max_fy.val) { max_fy.val = cn.fy; max_fy.c = c.name; }
+                 if(cn.fy < min_fy.val) { min_fy.val = cn.fy; min_fy.c = c.name; }
+                 if(cn.mz > max_mz.val) { max_mz.val = cn.mz; max_mz.c = c.name; }
+                 if(cn.mz < min_mz.val) { min_mz.val = cn.mz; min_mz.c = c.name; }
+             });
+             if(max_fx.c) {
+                 let rlist = [
+                     {lbl: 'Max Fx', c: max_fx.c, type: 'fx'}, {lbl: 'Min Fx', c: min_fx.c, type: 'fx'},
+                     {lbl: 'Max Fy', c: max_fy.c, type: 'fy'}, {lbl: 'Min Fy', c: min_fy.c, type: 'fy'},
+                     {lbl: 'Max Mz', c: max_mz.c, type: 'mz'}, {lbl: 'Min Mz', c: min_mz.c, type: 'mz'}
+                 ];
+                 rlist.forEach(r => {
+                     let cn = casesArray.find(c => c.name === r.c).data.nodes.find(nd => nd.id === s.id);
+                     rows.push(`<tr><td>${r.lbl}</td><td>${s.id}</td><td>${r.c}</td>
+                     <td ${r.type==='fx'?'style="font-weight:bold"':''}>${cn.fx.toFixed(2)}</td>
+                     <td ${r.type==='fy'?'style="font-weight:bold"':''}>${cn.fy.toFixed(2)}</td>
+                     <td ${r.type==='mz'?'style="font-weight:bold"':''}>${cn.mz.toFixed(2)}</td></tr>`);
+                 });
+             }
+         });
+         out += rows.join('') + '</tbody></table></div>';
+         return out;
+      }
+      
+      html += buildReactionEnvelope(serviceCases, '2. Service Load for Stability Check (Support Nodes)');
+      html += buildReactionEnvelope(ultimateCases, '3. Ultimate load for Foundation Design (Support Nodes)');
+
+      // 4. Support Reactions
+      html += '<div style="margin-bottom: 20px;"><h3 style="margin-bottom: 5px; font-size: 14px; border-bottom: 1px solid #ccc; padding-bottom: 3px;">4. Support Reactions (All)</h3>';
+      html += '<table class="data-table" style="width: 100%; border-collapse: collapse; text-align: center;" border="1"><thead><tr style="background:#f0f0f0;"><th>Node</th><th>L/C</th><th>Fx (kg)</th><th>Fy (kg)</th><th>Mz (kg.m)</th></tr></thead><tbody>';
+      supports.forEach(s => {
+          allCases.forEach(c => {
+              let cn = c.data.nodes.find(nd => nd.id === s.id);
+              if(cn && (Math.abs(cn.fx)>0.01 || Math.abs(cn.fy)>0.01 || Math.abs(cn.mz)>0.01)) {
+                  html += `<tr><td>${s.id}</td><td>${c.name}</td><td>${cn.fx.toFixed(2)}</td><td>${cn.fy.toFixed(2)}</td><td>${cn.mz.toFixed(2)}</td></tr>`;
+              }
+          });
+      });
+      html += '</tbody></table></div>';
+
+      // 5. Statics Check
+      html += '<div style="margin-bottom: 20px;"><h3 style="margin-bottom: 5px; font-size: 14px; border-bottom: 1px solid #ccc; padding-bottom: 3px;">5. Statics Check Results</h3>';
+      html += '<table class="data-table" style="width: 100%; border-collapse: collapse; text-align: center;" border="1"><thead><tr style="background:#f0f0f0;"><th>L/C</th><th>Type</th><th>Fx (kg)</th><th>Fy (kg)</th><th>Mz (kg.m)</th></tr></thead><tbody>';
+      allCases.forEach(c => {
+          let sumFx = 0, sumFy = 0, sumMz = 0;
+          c.data.nodes.forEach(n => { sumFx += n.fx; sumFy += n.fy; sumMz += n.mz; });
+          html += `<tr><td rowspan="3" style="vertical-align:middle;">${c.name}</td><td>Loads</td><td>${(-sumFx).toFixed(3)}</td><td>${(-sumFy).toFixed(3)}</td><td>${(-sumMz).toFixed(3)}</td></tr>`;
+          html += `<tr><td>Reactions</td><td>${sumFx.toFixed(3)}</td><td>${sumFy.toFixed(3)}</td><td>${sumMz.toFixed(3)}</td></tr>`;
+          html += `<tr><td style="font-weight:bold">Difference</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>`;
+      });
+      html += '</tbody></table></div>';
+
+      // 6. Beam End Forces
+      html += '<div style="margin-bottom: 20px;"><h3 style="margin-bottom: 5px; font-size: 14px; border-bottom: 1px solid #ccc; padding-bottom: 3px;">6. Beam End Forces</h3>';
+      html += '<table class="data-table" style="width: 100%; border-collapse: collapse; text-align: center;" border="1"><thead><tr style="background:#f0f0f0;"><th>Beam</th><th>L/C</th><th>Node</th><th>Fx (kg)</th><th>Fy (kg)</th><th>Mz (kg.m)</th></tr></thead><tbody>';
+      elements.forEach(el => {
+          allCases.forEach(c => {
+              let ce = c.data.elements.find(e => e.id === el.id);
+              if(ce) {
+                  html += `<tr><td rowspan="2" style="vertical-align:middle;">${el.id}</td><td rowspan="2" style="vertical-align:middle;">${c.name}</td><td>${el.n1}</td><td>${ce.n1_forces.axial.toFixed(2)}</td><td>${ce.n1_forces.shear.toFixed(2)}</td><td>${(-ce.n1_forces.moment).toFixed(2)}</td></tr>`;
+                  html += `<tr><td>${el.n2}</td><td>${(-ce.n2_forces.axial).toFixed(2)}</td><td>${(-ce.n2_forces.shear).toFixed(2)}</td><td>${ce.n2_forces.moment.toFixed(2)}</td></tr>`;
+              }
+          });
+      });
+      html += '</tbody></table></div>';
+
+      // 7. Beam Force Detail
+      html += '<div style="margin-bottom: 20px;"><h3 style="margin-bottom: 5px; font-size: 14px; border-bottom: 1px solid #ccc; padding-bottom: 3px;">7. Beam Force Detail</h3>';
+      html += '<table class="data-table" style="width: 100%; border-collapse: collapse; text-align: center;" border="1"><thead><tr style="background:#f0f0f0;"><th>Beam</th><th>L/C</th><th>Dist (m)</th><th>Fx (kg)</th><th>Fy (kg)</th><th>Mz (kg.m)</th></tr></thead><tbody>';
+      
+      elements.forEach(el => {
+          let n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
+          let len = Math.sqrt(Math.pow(n2.x-n1.x, 2) + Math.pow(n2.y-n1.y, 2));
+          let angle = Math.atan2(n2.y-n1.y, n2.x-n1.x);
+          let sec = getSections().find(s => s.id === el.sec);
+          let elLoads = getELoads().filter(ld => ld.elem === el.id);
+          
+          allCases.forEach(c => {
+              let ce = c.data.elements.find(e => e.id === el.id);
+              if(!ce) return;
+              
+              let cinfo = getLoadCombos().find(lc => lc.name === c.name);
+              let caseFactors = {};
+              if(cinfo) {
+                  caseFactors = cinfo.factors;
+              } else {
+                  caseFactors[c.name] = 1.0;
+              }
+              
+              let wy1 = 0, wy2 = 0;
+              let hasSelfWeight = document.getElementById('chk-self-weight').checked;
+              
+              for(let lcName in caseFactors) {
+                  let f = caseFactors[lcName];
+                  if(f === 0) continue;
+                  
+                  if(hasSelfWeight && sec && lcName === 'DL') {
+                      let sw = -(sec.a / 10000) * sec.density * Math.cos(angle);
+                      wy1 += sw * f;
+                      wy2 += sw * f;
+                  }
+                  
+                  elLoads.filter(ld => ld.case === lcName).forEach(ld => {
+                      let w1 = ld.w1 !== undefined ? ld.w1 : (ld.w || 0);
+                      let w2 = ld.w2 !== undefined ? ld.w2 : w1;
+                      if(ld.dir === 'Local Y') { wy1 += w1*f; wy2 += w2*f; }
+                      else if(ld.dir === 'Local X') { /* skip axial */ }
+                      else {
+                         wy1 += w1 * Math.cos(angle)*f; wy2 += w2 * Math.cos(angle)*f;
+                      }
+                  });
+              }
+              
+              let v1_m = -ce.n1_forces.moment, v2_m = ce.n2_forces.moment;
+              let a1 = ce.n1_forces.axial, a2 = -ce.n2_forces.axial;
+              let v1_s = ce.n1_forces.shear, v2_s = -ce.n2_forces.shear;
+              
+              let wa = -wy1, wb = -wy2;
+              
+              html += `<tr><td rowspan="5" style="vertical-align:middle; border-bottom: 1px solid #ccc;">${el.id}</td><td rowspan="5" style="vertical-align:middle; border-bottom: 1px solid #ccc;">${c.name}</td>`;
+              for(let i=0; i<=4; i++) {
+                  let xl = i/4.0;
+                  let x = len * xl;
+                  
+                  let fx = a1 + (a2-a1)*xl;
+                  let fy = v1_s + (v2_s-v1_s)*xl;
+                  let Ms = ((2*wa + wb)*len/6)*x - (wa/2)*x*x - ((wb - wa)/(6*len))*x*x*x;
+                  let mz = v1_m + (v2_m-v1_m)*xl + Ms;
+                  
+                  if(i > 0) html += `<tr>`;
+                  let trStyle = (i === 4) ? 'border-bottom: 1px solid #ccc;' : '';
+                  html += `<td style="${trStyle}">${x.toFixed(3)}</td><td style="${trStyle}">${fx.toFixed(2)}</td><td style="${trStyle}">${fy.toFixed(2)}</td><td style="${trStyle}">${mz.toFixed(2)}</td></tr>`;
+              }
+          });
+      });
+      html += '</tbody></table></div>';
+
+      document.getElementById('tables-container').innerHTML = html;
+    }
+
+    function analyzeFrame() {
+      document.getElementById('result-text-area').innerText = 'Analyzing...';
+      let data = collectData();
+      sketchupCall('analyze_frame', data);
+    }
+
+    function displayResults(res) {
+      currentResult = res;
+      if (!res.ok) {
+        document.getElementById('result-text-area').innerText = "ERROR:\n" + res.error;
+        switchTab('tab-result', 'tabbtn-result');
+        return;
+      }
+
+      let text = "=== GO FRAME ANALYSIS RESULTS ===\n\n";
+      
+      function formatNodesText(nodes, title) {
+        let t = `--- NODAL DISPLACEMENTS & REACTIONS (${title}) ---\n`;
+        t += "Node | dX (m)    | dY (m)    | Rz (rad)   | Fx (kg)   | Fy (kg)   | Mz (kg.m)\n";
+        t += "--------------------------------------------------------------------------------\n";
+        nodes.forEach(n => {
+          t += `${n.id.toString().padEnd(4)} | ` +
+               `${n.dx.toFixed(6).padEnd(9)} | ` +
+               `${n.dy.toFixed(6).padEnd(9)} | ` +
+               `${n.rz.toFixed(6).padEnd(10)} | ` +
+               `${n.fx.toFixed(2).padEnd(9)} | ` +
+               `${n.fy.toFixed(2).padEnd(9)} | ` +
+               `${n.mz.toFixed(2)}\n`;
+        });
+        return t + "\n";
+      }
+
+      function formatElemsText(elements, title) {
+        let t = `--- MEMBER FORCES (${title}) ---\n`;
+        t += "Elem | Node | Axial (kg) | Shear (kg) | Moment (kg.m)\n";
+        t += "--------------------------------------------------------\n";
+        elements.forEach(el => {
+          t += `${el.id.toString().padEnd(4)} | ${el.n1.toString().padEnd(4)} | ` +
+               `${el.n1_forces.axial.toFixed(2).padEnd(10)} | ` +
+               `${el.n1_forces.shear.toFixed(2).padEnd(10)} | ` +
+               `${el.n1_forces.moment.toFixed(2)}\n`;
+          t += `     | ${el.n2.toString().padEnd(4)} | ` +
+               `${el.n2_forces.axial.toFixed(2).padEnd(10)} | ` +
+               `${el.n2_forces.shear.toFixed(2).padEnd(10)} | ` +
+               `${el.n2_forces.moment.toFixed(2)}\n`;
+          t += "--------------------------------------------------------\n";
+        });
+        return t + "\n";
+      }
+
+      if (res.cases) {
+        for (let lc in res.cases) {
+          text += formatNodesText(res.cases[lc].nodes, "Load Case: " + lc);
+          text += formatElemsText(res.cases[lc].elements, "Load Case: " + lc);
+        }
+      }
+      
+      if (res.combos) {
+        for (let comb in res.combos) {
+          text += formatNodesText(res.combos[comb].nodes, "Combo: " + comb);
+          text += formatElemsText(res.combos[comb].elements, "Combo: " + comb);
+        }
+      }
+
+      text += formatNodesText(res.nodes, "ENVELOPE (Max/Min)");
+      text += formatElemsText(res.elements, "ENVELOPE (Max/Min)");
+
+      document.getElementById('result-text-area').innerText = text;
+      
+      generateTables();
+      switchTab('tab-tables', 'tabbtn-tables');
+    }
+
+    function draw3D() {
+      let comboName = document.getElementById('diag-combo') ? document.getElementById('diag-combo').value : 'Envelope';
+      let targetRes = currentResult;
+      if (currentResult && currentResult.ok) {
+          if (comboName !== 'Envelope') {
+              if(currentResult.cases && currentResult.cases[comboName]) {
+                  targetRes = currentResult.cases[comboName];
+              } else if(currentResult.combos && currentResult.combos[comboName]) {
+                  targetRes = currentResult.combos[comboName];
+              }
+          }
+          targetRes.ok = currentResult.ok;
+      }
+      
+      let data = { model: collectData(), result: targetRes };
+      
+      // Pass the view options to sketchup
+      data.options = {
+        showNodes: document.getElementById('chk-nodes').checked,
+        showMembers: document.getElementById('chk-members').checked,
+        showReactions: document.getElementById('chk-reactions').checked,
+        show3DLoads: document.getElementById('chk-3d-loads').checked,
+        show3DDeformed: document.getElementById('chk-3d-deformed').checked,
+        show3DAFD: document.getElementById('chk-3d-afd').checked,
+        show3DSFD: document.getElementById('chk-3d-sfd').checked,
+        show3DBMD: document.getElementById('chk-3d-bmd').checked
+      };
+
+      sketchupCall('export_3d', data);
+    }
+    
+    function openReport() {
+      if(!currentResult || !currentResult.ok) {
+        alert("Please analyze the frame successfully before printing a report.");
+        return;
+      }
+      
+      let listDiv = document.getElementById('report-combos-list');
+      listDiv.innerHTML = '<label style="display:block;"><input type="checkbox" value="Envelope" checked> Envelope</label>';
+      
+      let loadCombos = getLoadCombos();
+      if (currentResult.combos) {
+          for(let c in currentResult.combos) {
+             let cinfo = loadCombos.find(lc => lc.name === c);
+             let eqText = c;
+             if (cinfo) {
+                 let parts = [];
+                 for (let k in cinfo.factors) {
+                     let f = cinfo.factors[k];
+                     if (f !== 0) parts.push((f > 0 && parts.length > 0 ? "+" : "") + f + k);
+                 }
+                 if (parts.length > 0) eqText = c + " (" + parts.join(' ') + ")";
+             }
+             listDiv.innerHTML += `<label style="display:block;"><input type="checkbox" value="${c}" data-label="${eqText}" checked> ${eqText}</label>`;
+          }
+      }
+      
+      document.getElementById('report-modal').style.display = 'flex';
+    }
+
+    function toggleAllReportCombos() {
+      let inputs = document.querySelectorAll('#report-combos-list input[type="checkbox"]');
+      let allChecked = Array.from(inputs).every(inp => inp.checked);
+      inputs.forEach(inp => inp.checked = !allChecked);
+    }
+    
+    function toggleAllReportTables() {
+      let inputs = document.querySelectorAll('#report-tables-list input[type="checkbox"]');
+      let allChecked = Array.from(inputs).every(inp => inp.checked);
+      inputs.forEach(inp => inp.checked = !allChecked);
+    }
+    
+    function toggleFullReport(checked) {
+      document.querySelectorAll('#report-combos-list input[type="checkbox"]').forEach(inp => inp.checked = checked);
+      document.querySelectorAll('#report-tables-list input[type="checkbox"]').forEach(inp => inp.checked = checked);
+    }
+
+    function generateReportWithOpts() {
+      document.getElementById('report-modal').style.display = 'none';
+      
+      let selectedCombos = [];
+      document.querySelectorAll('#report-combos-list input[type="checkbox"]').forEach(inp => {
+          if (inp.checked) {
+              if (inp.value === 'Envelope') {
+                  selectedCombos.push({ name: 'Envelope', label: 'Envelope' });
+              } else {
+                  selectedCombos.push({ name: inp.value, label: inp.dataset.label || inp.value });
+              }
+          }
+      });
+      
+      let selectedTables = [];
+      document.querySelectorAll('#report-tables-list input[type="checkbox"]').forEach(inp => {
+          if (inp.checked) {
+              selectedTables.push(inp.value);
+          }
+      });
+      
+      let data = { model: collectData(), result: currentResult, report_combos: selectedCombos, report_tables: selectedTables };
+      sketchupCall('export_report', data);
+    }
+
+    function onTemplateChange() {
+      let type = document.getElementById('sel-template').value;
+      if (type === 'gable') {
+        document.getElementById('gen-nx').value = 1;
+        document.getElementById('gen-lx').value = 20;
+        document.getElementById('gen-ly').value = 6;
+        document.getElementById('gen-ny').value = 8;
+      } else if (type === 'portal') {
+        document.getElementById('gen-nx').value = 1;
+        document.getElementById('gen-lx').value = 6;
+        document.getElementById('gen-ly').value = 3.5;
+        document.getElementById('gen-ny').value = 1;
+      }
+      generateTemplate();
+    }
+
+    function generateTemplate() {
+      let type = document.getElementById('sel-template').value;
+      let nx = parseInt(document.getElementById('gen-nx').value) || 1;
+      let ny = parseInt(document.getElementById('gen-ny').value) || 1;
+      let lx = parseFloat(document.getElementById('gen-lx').value) || 1.0;
+      let ly = parseFloat(document.getElementById('gen-ly').value) || 1.0;
+
+      document.querySelector('#tbl-nodes tbody').innerHTML = '';
+      document.querySelector('#tbl-elements tbody').innerHTML = '';
+      document.querySelector('#tbl-sections tbody').innerHTML = '';
+      document.querySelector('#tbl-eloads tbody').innerHTML = '';
+      document.querySelector('#tbl-nloads tbody').innerHTML = '';
+      
+      nodeIdCounter = 1;
+      elemIdCounter = 1;
+      secIdCounter = 1;
+      
+      // Load standard Thai 2566 combos (DL, LL, WL)
+      loadThai2566Combos();
+
+      if(type === 'portal' || type === 'multistory') {
+        addSectionRow(secIdCounter++, 2e9, 900, 67500, 2400); // Sec 1: Column 0.3x0.3m (Concrete E=2e9 kg/m2)
+        addSectionRow(secIdCounter++, 2e9, 1500, 312500, 2400); // Sec 2: Beam 0.3x0.5m
+      } else if (type === 'gable') {
+        addSectionRow(secIdCounter++, 2e10, 63.5, 4720, 7850); // Sec 1: Column H200x200 (Steel E=2e10 kg/m2)
+        addSectionRow(secIdCounter++, 2e10, 63.1, 13600, 7850); // Sec 2: Gable H350x175
+      }
+
+      if(type === 'portal') {
+        addNodeRow(0, 0, 'Fixed');
+        addNodeRow(lx, 0, 'Fixed');
+        addNodeRow(0, ly, 'Free');
+        addNodeRow(lx, ly, 'Free');
+        addElementRow(1, 3, 1); // Left column (1)
+        addElementRow(2, 4, 1); // Right column (2)
+        addElementRow(3, 4, 2); // Beam (3)
+        
+        // Add Example Loads
+        addElemLoadRow(3, 'DL', 'Global Y', -500, -500);
+        addElemLoadRow(3, 'LL', 'Global Y', -300, -300);
+        addElemLoadRow(1, 'W(X+)', 'Local Y', -150, -150); // Windward
+        addElemLoadRow(2, 'W(X+)', 'Local Y', 100, 100); // Leeward
+        
+      } else if (type === 'multistory') {
+        // Multi-span multi-story
+        let nodes = [];
+        for(let j=0; j<=ny; j++) {
+          for(let i=0; i<=nx; i++) {
+            addNodeRow(i*lx, j*ly, j===0 ? 'Fixed' : 'Free');
+            nodes.push({x: i, y: j, id: nodeIdCounter-1});
+          }
+        }
+        // Columns
+        for(let j=0; j<ny; j++) {
+          for(let i=0; i<=nx; i++) {
+            let n1 = nodes.find(n => n.x===i && n.y===j).id;
+            let n2 = nodes.find(n => n.x===i && n.y===j+1).id;
+            addElementRow(n1, n2, 1);
+            let elemId = elemIdCounter - 1;
+            // Wind load on outer columns
+            if (i === 0) {
+              addElemLoadRow(elemId, 'W(X+)', 'Local Y', -100, -100); // Left face
+            } else if (i === nx) {
+              addElemLoadRow(elemId, 'W(X+)', 'Local Y', 50, 50); // Right face
+            }
+          }
+        }
+        // Beams
+        for(let j=1; j<=ny; j++) {
+          for(let i=0; i<nx; i++) {
+            let n1 = nodes.find(n => n.x===i && n.y===j).id;
+            let n2 = nodes.find(n => n.x===i+1 && n.y===j).id;
+            addElementRow(n1, n2, 2);
+            let elemId = elemIdCounter - 1;
+            // Gravity loads
+            addElemLoadRow(elemId, 'DL', 'Global Y', -300, -300);
+            addElemLoadRow(elemId, 'LL', 'Global Y', -200, -200);
+          }
+        }
+      } else if (type === 'gable') {
+        addNodeRow(0, 0, 'Pinned');
+        addNodeRow(lx, 0, 'Pinned');
+        addNodeRow(0, ly, 'Free');
+        addNodeRow(lx, ly, 'Free');
+        addNodeRow(lx/2.0, ny, 'Free'); // Ridge node uses ny as height
+        
+        addElementRow(1, 3, 1); // Left Col (1)
+        addElementRow(2, 4, 1); // Right Col (2)
+        addElementRow(3, 5, 2); // Left Gable (3)
+        addElementRow(5, 4, 2); // Right Gable (4)
+        
+        // Add Example Loads
+        // DL & LL on Roof
+        addElemLoadRow(3, 'DL', 'Global Y', -30, -30);
+        addElemLoadRow(4, 'DL', 'Global Y', -30, -30);
+        addElemLoadRow(3, 'LL', 'Global Y', -50, -50);
+        addElemLoadRow(4, 'LL', 'Global Y', -50, -50);
+        
+        // WL X+ (Left to Right)
+        addElemLoadRow(1, 'W(X+)', 'Local Y', -60, -60); // Windward Wall
+        addElemLoadRow(3, 'W(X+)', 'Local Y', 40, 40);   // Windward Roof (Suction)
+        addElemLoadRow(4, 'W(X+)', 'Local Y', 30, 30);   // Leeward Roof (Suction)
+        addElemLoadRow(2, 'W(X+)', 'Local Y', 30, 30);   // Leeward Wall (Suction)
+        
+        // WL X- (Right to Left)
+        addElemLoadRow(2, 'W(X-)', 'Local Y', -60, -60); // Windward Wall
+        addElemLoadRow(4, 'W(X-)', 'Local Y', 40, 40);   // Windward Roof
+        addElemLoadRow(3, 'W(X-)', 'Local Y', 30, 30);   // Leeward Roof
+        addElemLoadRow(1, 'W(X-)', 'Local Y', 30, 30);   // Leeward Wall
+        
+        // WL Y+ (Internal Pressure)
+        addElemLoadRow(1, 'W(Y+)', 'Local Y', 20, 20);
+        addElemLoadRow(2, 'W(Y+)', 'Local Y', 20, 20);
+        addElemLoadRow(3, 'W(Y+)', 'Local Y', 20, 20);
+        addElemLoadRow(4, 'W(Y+)', 'Local Y', 20, 20);
+      }
+      
+      hasAutoZoomed = false; // Force re-centering on new model
+      drawPreview();
+    }
+
+    // Setup
+    window.onload = function() {
+      generateTemplate();
+      
+      // Init from ruby if MODEL_JSON exists
+      let initModelStr = document.getElementById('model-json');
+      if (initModelStr && initModelStr.textContent && initModelStr.textContent !== '{{MODEL_JSON}}') {
+        try {
+          let initModel = JSON.parse(initModelStr.textContent);
+          if (initModel && initModel.nodes) {
+            populateInputs(initModel);
+          }
+        } catch (e) {
+          console.error("Error parsing init model", e);
+        }
+      }
+      
+      let initResStr = document.getElementById('result-json');
+      if (initResStr && initResStr.textContent && initResStr.textContent !== '{{RESULT_JSON}}') {
+        try {
+          let initRes = JSON.parse(initResStr.textContent);
+          if (initRes && initRes.ok !== undefined) {
+             displayResults(initRes);
+          }
+        } catch (e) {
+          console.error("Error parsing init result", e);
+        }
+      }
+    };
+  

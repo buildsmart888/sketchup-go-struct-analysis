@@ -156,8 +156,8 @@
         </fieldset>
 
         <fieldset>
-          <legend onclick="toggleGroup('grp-gen')">▶ Frame Generators</legend>
-          <div id="grp-gen" class="collapsible-body">
+          <legend onclick="toggleGroup('grp-gen')">▼ Frame Generators</legend>
+          <div id="grp-gen" class="collapsible-body open">
             <div style="display:flex; gap:4px; margin-bottom: 8px;">
               <select id="sel-template" onchange="onTemplateChange()" style="flex:1;">
                 <option value="portal">Portal Frame (1 Span)</option>
@@ -998,7 +998,6 @@
           }
           ctx.restore();
         });
-      }
       }
       ctx.restore();
       
@@ -2068,8 +2067,14 @@
         // Add Example Loads
         addElemLoadRow(3, 'DL', 'Global Y', -500, -500);
         addElemLoadRow(3, 'LL', 'Global Y', -300, -300);
+        
+        // WL X+ (Left to Right)
         addElemLoadRow(1, 'W(X+)', 'Local Y', -150, -150); // Windward
         addElemLoadRow(2, 'W(X+)', 'Local Y', 100, 100); // Leeward
+        
+        // WL X- (Right to Left)
+        addElemLoadRow(2, 'W(X-)', 'Local Y', -150, -150); // Windward
+        addElemLoadRow(1, 'W(X-)', 'Local Y', 100, 100); // Leeward
         
       } else if (type === 'multistory') {
         // Multi-span multi-story
@@ -2089,9 +2094,11 @@
             let elemId = elemIdCounter - 1;
             // Wind load on outer columns
             if (i === 0) {
-              addElemLoadRow(elemId, 'W(X+)', 'Local Y', -100, -100); // Left face
+              addElemLoadRow(elemId, 'W(X+)', 'Local Y', -100, -100); // Left face windward
+              addElemLoadRow(elemId, 'W(X-)', 'Local Y', 50, 50); // Left face leeward
             } else if (i === nx) {
-              addElemLoadRow(elemId, 'W(X+)', 'Local Y', 50, 50); // Right face
+              addElemLoadRow(elemId, 'W(X+)', 'Local Y', 50, 50); // Right face leeward
+              addElemLoadRow(elemId, 'W(X-)', 'Local Y', -100, -100); // Right face windward
             }
           }
         }
