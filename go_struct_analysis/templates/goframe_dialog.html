@@ -316,7 +316,7 @@
             <label><input type="checkbox" id="chk-comb-eq" checked onchange="drawDiagrams();"> Combo Eq</label>
           </div>
 
-          <div style="position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(255,255,255,0.9); padding: 5px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; display: flex; gap: 5px; align-items:center;">
+          <div style="position: absolute; top: 10px; right: 10px; z-index: 10; background: rgba(255,255,255,0.9); padding: 5px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; display: flex; gap: 5px; align-items:center;">
             <button class="ghost" style="padding: 2px 6px;" onclick="zoomIn()" title="Zoom In">+</button>
             <button class="ghost" style="padding: 2px 6px;" onclick="zoomOut()" title="Zoom Out">-</button>
             <button class="ghost" style="padding: 2px 6px;" onclick="zoomAll()" title="Zoom All (Fit to Screen)">[ ] All</button>
@@ -897,6 +897,7 @@
       let rect = canvas.parentElement.getBoundingClientRect();
       canvas.width = rect.width;
       canvas.height = rect.height;
+      if (canvas.width === 0 || canvas.height === 0) return;
       
       let nodes = getNodes();
       let elements = getElements();
@@ -1194,6 +1195,7 @@
         let rect = canvas.parentElement.getBoundingClientRect();
         canvas.width = rect.width;
         canvas.height = rect.height;
+        if (canvas.width === 0 || canvas.height === 0) return;
   
         let type = document.querySelector('input[name="diag-type"]:checked').value;
         let comboSel = document.getElementById('diag-combo');
