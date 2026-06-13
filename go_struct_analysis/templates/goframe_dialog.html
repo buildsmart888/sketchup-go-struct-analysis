@@ -1012,37 +1012,6 @@
       ctx.fillStyle = 'red'; ctx.font = 'bold 12px Arial'; ctx.textAlign='left'; ctx.fillText("X", 35, 4);
       ctx.textAlign='center'; ctx.fillText("Y", 0, -35);
       ctx.restore();
-
-      // Draw Legend at bottom right
-      if (sel_loadcase === 'All' || sel_loadcase === 'Envelope' || showLoads) {
-         let activeCases = new Set();
-         eloads.forEach(ld => { if(sel_loadcase === 'Envelope' || sel_loadcase === 'All' || sel_loadcase === ld.lcase) activeCases.add(ld.lcase); });
-         nloads.forEach(ld => { if(sel_loadcase === 'Envelope' || sel_loadcase === 'All' || sel_loadcase === ld.lcase) activeCases.add(ld.lcase); });
-         
-         if (activeCases.size > 0) {
-           let casesArr = Array.from(activeCases).sort();
-           ctx.save();
-           ctx.resetTransform();
-           let boxWidth = 100;
-           let boxHeight = casesArr.length * 20 + 10;
-           ctx.translate(canvas.width - boxWidth - 20, canvas.height - boxHeight - 20);
-           
-           ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-           ctx.fillRect(0, 0, boxWidth, boxHeight);
-           ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1;
-           ctx.strokeRect(0, 0, boxWidth, boxHeight);
-           
-           casesArr.forEach((lc, i) => {
-              ctx.fillStyle = getColorForLC(lc);
-              ctx.fillRect(10, i * 20 + 10, 15, 10);
-              ctx.fillStyle = '#333';
-              ctx.font = '12px Arial';
-              ctx.textAlign = 'left';
-              ctx.fillText(lc, 35, i * 20 + 19);
-           });
-           ctx.restore();
-         }
-      }
     }
 
     function drawDiagrams() {
