@@ -15,6 +15,11 @@ module GOStructAnalysis
         lyr_frame = layers['GOFrame_Members'] || layers.add('GOFrame_Members')
         lyr_labels = layers['GOFrame_Labels'] || layers.add('GOFrame_Labels')
         lyr_loads = layers['GOFrame_Loads'] || layers.add('GOFrame_Loads')
+        lyr_deform = layers['GOFrame_Deformation'] || layers.add('GOFrame_Deformation')
+        lyr_diag_afd = layers['GOFrame_Diag_AFD'] || layers.add('GOFrame_Diag_AFD')
+        lyr_diag_sfd = layers['GOFrame_Diag_SFD'] || layers.add('GOFrame_Diag_SFD')
+        lyr_diag_bmd = layers['GOFrame_Diag_BMD'] || layers.add('GOFrame_Diag_BMD')
+        lyr_diag_labels = layers['GOFrame_Labels_Diag'] || layers.add('GOFrame_Labels_Diag')
 
         mats = skp_model.materials
         mat_frame = mats['GOFrame_Base'] || mats.add('GOFrame_Base')
@@ -30,6 +35,13 @@ module GOStructAnalysis
 
         nodes = model_data['nodes'] || []
         elements = model_data['elements'] || []
+        
+        min_x = nodes.map { |n| n['x'].to_f }.min || 0.0
+        max_x = nodes.map { |n| n['x'].to_f }.max || 1.0
+        min_y = nodes.map { |n| n['y'].to_f }.min || 0.0
+        max_y = nodes.map { |n| n['y'].to_f }.max || 1.0
+        frame_span = [max_x - min_x, max_y - min_y].max
+        frame_span = 1.0 if frame_span < 1e-3
 
         # 1. Draw Members
         elements.each do |el|
@@ -57,11 +69,11 @@ module GOStructAnalysis
             p3_b = pt1.offset(right, -w).offset(up2, -w)
             p4_b = pt1.offset(right, w).offset(up2, -w)
 
-            face = frame_grp.entities.add_face(p1_b, p2_b, p3_b, p4_b)
+            sub_grp = frame_grp.entities.add_group
+            face = sub_grp.entities.add_face(p1_b, p2_b, p3_b, p4_b)
             if face
-              face.pushpull(vec.length)
-              face.material = mat_frame
-              face.back_material = mat_frame
+              face.pushpull(-vec.length)
+              sub_grp.material = mat_frame
             end
           end
           
@@ -125,6 +137,385 @@ module GOStructAnalysis
               arrow_pt = pt.offset(Z_AXIS.reverse, 0.5.m).offset(X_AXIS.reverse, 0.5.m)
               t = ents.add_text(texts.join("\n"), arrow_pt)
               t.layer = lyr_labels
+            end
+          end
+        end
+
+        # 4. Draw Applied Loads
+        if options['show3DLoads']
+          nloads = model_data['nloads'] || []
+          eloads = model_data['eloads'] || []
+          loads_grp = ents.add_group
+          loads_grp.name = "Applied Loads"
+          loads_grp.layer = lyr_loads
+          
+          nloads.each do |nl|
+            nd = nodes.find { |n| n['id'] == nl['node'] }
+            next unless nd
+            pt = Geom::Point3d.new(nd['x'].to_f.m, 0, nd['y'].to_f.m)
+            fx = nl['fx'].to_f
+            fy = nl['fy'].to_f
+            mz = nl['mz'].to_f
+            
+            if fx.abs > 1e-3
+              dir = fx > 0 ? X_AXIS : X_AXIS.reverse
+              p1 = pt.offset(dir.reverse, 1.0.m)
+              loads_grp.entities.add_line(p1, pt)
+              loads_grp.entities.add_line(pt, pt.offset(dir.reverse, 0.2.m).offset(Z_AXIS, 0.1.m))
+              loads_grp.entities.add_line(pt, pt.offset(dir.reverse, 0.2.m).offset(Z_AXIS, -0.1.m))
+              t = loads_grp.entities.add_text("#{fx.round(1)} kg", p1)
+              t.layer = lyr_labels
+            end
+            if fy.abs > 1e-3
+              dir = fy > 0 ? Z_AXIS : Z_AXIS.reverse
+              p1 = pt.offset(dir.reverse, 1.0.m)
+              loads_grp.entities.add_line(p1, pt)
+              loads_grp.entities.add_line(pt, pt.offset(dir.reverse, 0.2.m).offset(X_AXIS, 0.1.m))
+              loads_grp.entities.add_line(pt, pt.offset(dir.reverse, 0.2.m).offset(X_AXIS, -0.1.m))
+              t = loads_grp.entities.add_text("#{fy.round(1)} kg", p1)
+              t.layer = lyr_labels
+            end
+          end
+          
+          eloads.each do |el_ld|
+            el = elements.find { |e| e['id'] == el_ld['elem'] }
+            next unless el
+            n1 = nodes.find { |n| n['id'] == el['n1'] }
+            n2 = nodes.find { |n| n['id'] == el['n2'] }
+            next unless n1 && n2
+            
+            pt1 = Geom::Point3d.new(n1['x'].to_f.m, 0, n1['y'].to_f.m)
+            pt2 = Geom::Point3d.new(n2['x'].to_f.m, 0, n2['y'].to_f.m)
+            vec = pt1.vector_to(pt2)
+            next unless vec.valid?
+            
+            w1 = el_ld['w1'] ? el_ld['w1'].to_f : (el_ld['w'] ? el_ld['w'].to_f : 0.0)
+            w2 = el_ld['w2'] ? el_ld['w2'].to_f : w1
+            
+            dir_str = el_ld['dir']
+            norm_vec = Geom::Vector3d.new(-vec.z, 0, vec.x).normalize
+            
+            max_w = [w1.abs, w2.abs].max
+            next if max_w < 1e-4
+            
+            len = pt1.distance(pt2).to_m
+            num_arrows = [3, len.to_i].max
+            pts = []
+            
+            (0..num_arrows).each do |i|
+              t = i.to_f / num_arrows
+              p_base = pt1.offset(vec, vec.length * t)
+              current_w = w1 + (w2 - w1) * t
+              sign = current_w < 0 ? -1 : 1
+              arrow_len = (current_w.abs / max_w) * 0.8
+              arrow_len = 0.2 if arrow_len < 0.2 && current_w != 0.0
+              
+              load_vec = dir_str == 'Global Y' ? Z_AXIS.reverse : norm_vec.reverse
+              load_vec = load_vec.reverse if sign > 0
+              
+              p_top = p_base.offset(load_vec.reverse, arrow_len.m)
+              pts << p_top
+              loads_grp.entities.add_line(p_top, p_base)
+              
+              if arrow_len > 0.3
+                loads_grp.entities.add_line(p_base, p_base.offset(load_vec.reverse, 0.15.m).offset(vec, 0.1.m))
+                loads_grp.entities.add_line(p_base, p_base.offset(load_vec.reverse, 0.15.m).offset(vec.reverse, 0.1.m))
+              end
+            end
+            
+            if pts.length > 1
+              (0...pts.length-1).each do |i|
+                loads_grp.entities.add_line(pts[i], pts[i+1])
+              end
+            end
+            
+            # Text
+            if (w1 - w2).abs < 1e-3
+              sign_w = w1 < 0 ? -1 : 1
+              t_pt = pt1.offset(vec, vec.length * 0.5).offset(dir_str == 'Global Y' ? Z_AXIS : norm_vec, sign_w > 0 ? 1.0.m : -1.0.m)
+              t = loads_grp.entities.add_text("#{w1.round(1)} kg/m", t_pt)
+              t.layer = lyr_labels
+            else
+              s1 = w1 < 0 ? -1 : 1
+              a1 = (w1.abs / max_w) * 0.8
+              t1_pt = pt1.offset(dir_str == 'Global Y' ? Z_AXIS : norm_vec, s1 > 0 ? a1.m + 0.2.m : -a1.m - 0.2.m)
+              if w1.abs > 1e-3
+                t1 = loads_grp.entities.add_text("#{w1.round(1)}", t1_pt)
+                t1.layer = lyr_labels
+              end
+              
+              s2 = w2 < 0 ? -1 : 1
+              a2 = (w2.abs / max_w) * 0.8
+              t2_pt = pt2.offset(dir_str == 'Global Y' ? Z_AXIS : norm_vec, s2 > 0 ? a2.m + 0.2.m : -a2.m - 0.2.m)
+              if w2.abs > 1e-3
+                t2 = loads_grp.entities.add_text("#{w2.round(1)}", t2_pt)
+                t2.layer = lyr_labels
+              end
+            end
+          end
+        end
+
+        # 5. Draw Deformed Shape
+        if options['show3DDeformed'] && result && result['ok']
+          res_nodes = result['nodes']
+          max_d = res_nodes.map { |rn| Math.sqrt((rn['dx'].to_f)**2 + (rn['dy'].to_f)**2) }.max || 0.0
+          if max_d > 1e-6
+            def_scale = (frame_span * 0.1) / max_d
+            
+            def_grp = ents.add_group
+            def_grp.name = "Deformed Shape"
+            def_mat = mats['GOFrame_Deformed'] || mats.add('GOFrame_Deformed')
+            def_mat.color = 'blue'
+            
+            def_grp.layer = lyr_deform
+            
+            elements.each do |el|
+              n1 = nodes.find { |n| n['id'] == el['n1'] }
+              n2 = nodes.find { |n| n['id'] == el['n2'] }
+              rn1 = res_nodes.find { |n| n['id'] == el['n1'] }
+              rn2 = res_nodes.find { |n| n['id'] == el['n2'] }
+              next unless n1 && n2 && rn1 && rn2
+              
+              dx = n2['x'].to_f - n1['x'].to_f
+              dy = n2['y'].to_f - n1['y'].to_f
+              l = Math.sqrt(dx**2 + dy**2)
+              l = 1.0 if l < 1e-4
+              c = dx / l
+              s = dy / l
+              
+              u1 = c * rn1['dx'].to_f + s * rn1['dy'].to_f
+              v1 = -s * rn1['dx'].to_f + c * rn1['dy'].to_f
+              th1 = rn1['rz'].to_f
+              
+              u2 = c * rn2['dx'].to_f + s * rn2['dy'].to_f
+              v2 = -s * rn2['dx'].to_f + c * rn2['dy'].to_f
+              th2 = rn2['rz'].to_f
+              
+              num_segs = 10
+              pts = []
+              (0..num_segs).each do |i|
+                xl = i.to_f / num_segs
+                x = l * xl
+                
+                ux = u1 + (u2 - u1) * xl
+                
+                n1_f = 1.0 - 3.0*xl**2 + 2.0*xl**3
+                n2_f = x * (1.0 - xl)**2
+                n3_f = 3.0*xl**2 - 2.0*xl**3
+                n4_f = x * (xl**2 - xl)
+                vx = n1_f*v1 + n2_f*th1 + n3_f*v2 + n4_f*th2
+                
+                gx = c * ux - s * vx
+                gy = s * ux + c * vx
+                
+                px = n1['x'].to_f + x * c + gx * def_scale
+                py = n1['y'].to_f + x * s + gy * def_scale
+                pts << Geom::Point3d.new(px.m, 0, py.m)
+              end
+              
+              (0...num_segs).each do |i|
+                edge = def_grp.entities.add_line(pts[i], pts[i+1])
+                edge.material = def_mat
+                edge.layer = lyr_deform
+              end
+            end
+            
+            # Find and label max dx and dy
+            max_dx_node = res_nodes.max_by { |rn| rn['dx'].to_f.abs }
+            max_dy_node = res_nodes.max_by { |rn| rn['dy'].to_f.abs }
+            
+            if max_dx_node && max_dx_node['dx'].to_f.abs > 1e-5
+              n = nodes.find { |nd| nd['id'] == max_dx_node['id'] }
+              if n
+                pt = Geom::Point3d.new((n['x'].to_f + max_dx_node['dx'].to_f * def_scale).m, 0, (n['y'].to_f + max_dx_node['dy'].to_f * def_scale).m)
+                lbl = def_grp.entities.add_text(sprintf("Max dx = %.2f mm", max_dx_node['dx'].to_f * 1000), pt)
+                lbl.layer = lyr_diag_labels
+              end
+            end
+            
+            if max_dy_node && max_dy_node['dy'].to_f.abs > 1e-5
+              n = nodes.find { |nd| nd['id'] == max_dy_node['id'] }
+              if n
+                pt = Geom::Point3d.new((n['x'].to_f + max_dy_node['dx'].to_f * def_scale).m, 0, (n['y'].to_f + max_dy_node['dy'].to_f * def_scale).m)
+                lbl = def_grp.entities.add_text(sprintf("Max dy = %.2f mm", max_dy_node['dy'].to_f * 1000), pt)
+                lbl.layer = lyr_diag_labels
+              end
+            end
+          end
+        end
+
+        # 6. Draw Force Diagrams
+        force_types = []
+        force_types << 'afd' if options['show3DAFD']
+        force_types << 'sfd' if options['show3DSFD']
+        force_types << 'bmd' if options['show3DBMD']
+        
+        if result && result['ok']
+          res_elems = result['elements']
+          
+          force_types.each do |force_type|
+            max_val = 1e-6
+            res_elems.each do |re|
+              v1 = force_type == 'afd' ? re['n1_forces']['axial'].to_f : (force_type == 'sfd' ? re['n1_forces']['shear'].to_f : -re['n1_forces']['moment'].to_f)
+              v2 = force_type == 'afd' ? -re['n2_forces']['axial'].to_f : (force_type == 'sfd' ? -re['n2_forces']['shear'].to_f : re['n2_forces']['moment'].to_f)
+              max_val = [max_val, v1.abs, v2.abs].max
+              
+              if force_type == 'bmd'
+                el = elements.find { |e| e['id'] == re['id'] }
+                if el
+                  n1 = nodes.find { |n| n['id'] == el['n1'] }
+                  n2 = nodes.find { |n| n['id'] == el['n2'] }
+                  len = Math.sqrt((n2['x'].to_f - n1['x'].to_f)**2 + (n2['y'].to_f - n1['y'].to_f)**2)
+                  el_loads = model_data['eloads'] ? model_data['eloads'].select { |ld| ld['elem'] == el['id'] } : []
+                  has_sw = model_data['settings'] && model_data['settings']['include_self_weight']
+                  wy = 0.0
+                  angle = Math.atan2(n2['y'].to_f - n1['y'].to_f, n2['x'].to_f - n1['x'].to_f)
+                  
+                  if has_sw
+                    sec = (model_data['sections'] || []).find { |s| s['id'] == el['sec'] }
+                    if sec
+                      wy -= (sec['a'].to_f / 10000.0) * sec['density'].to_f * Math.cos(angle)
+                    end
+                  end
+                  
+                  el_loads.each do |ld|
+                    wy += ld['dir'] == 'Local Y' ? ld['w'].to_f : ld['w'].to_f * Math.cos(angle)
+                  end
+                  m_mid = (v1 + v2) / 2.0 - (wy * len**2) / 8.0
+                  max_val = [max_val, m_mid.abs].max
+                end
+              end
+            end
+            
+            diag_scale = (frame_span * 0.15) / max_val
+            
+            diag_grp = ents.add_group
+            diag_grp.name = "Force Diagram (#{force_type.upcase})"
+            diag_grp.layer = (force_type == 'afd' ? lyr_diag_afd : (force_type == 'sfd' ? lyr_diag_sfd : lyr_diag_bmd))
+            
+            mat_pos = mats['GOFrame_Diag_Pos'] || mats.add('GOFrame_Diag_Pos')
+            mat_pos.color = Sketchup::Color.new(100, 200, 100, 128)
+            mat_neg = mats['GOFrame_Diag_Neg'] || mats.add('GOFrame_Diag_Neg')
+            mat_neg.color = Sketchup::Color.new(200, 100, 100, 128)
+            
+            elements.each do |el|
+              re = res_elems.find { |r| r['id'] == el['id'] }
+              next unless re
+              n1 = nodes.find { |n| n['id'] == el['n1'] }
+              n2 = nodes.find { |n| n['id'] == el['n2'] }
+              next unless n1 && n2
+              
+              v1 = force_type == 'afd' ? re['n1_forces']['axial'].to_f : (force_type == 'sfd' ? re['n1_forces']['shear'].to_f : -re['n1_forces']['moment'].to_f)
+              v2 = force_type == 'afd' ? -re['n2_forces']['axial'].to_f : (force_type == 'sfd' ? -re['n2_forces']['shear'].to_f : re['n2_forces']['moment'].to_f)
+              
+              pt1 = Geom::Point3d.new(n1['x'].to_f.m, 0, n1['y'].to_f.m)
+              pt2 = Geom::Point3d.new(n2['x'].to_f.m, 0, n2['y'].to_f.m)
+              vec = pt1.vector_to(pt2)
+              next unless vec.valid?
+              len = vec.length.to_m
+              
+              norm_vec = Geom::Vector3d.new(vec.z, 0, -vec.x).normalize
+              
+              if force_type != 'bmd'
+                p1_top = pt1.offset(norm_vec, (v1 * diag_scale).m)
+                p2_top = pt2.offset(norm_vec, (v2 * diag_scale).m)
+                
+                if v1 * v2 < 0
+                  x_zero = len * (v1.abs / (v1.abs + v2.abs))
+                  p_zero = pt1.offset(vec.normalize, x_zero.m)
+                  
+                  begin
+                    f1 = diag_grp.entities.add_face(pt1, p1_top, p_zero) if p1_top.distance(pt1) > 1e-4
+                    f1.material = f1.back_material = (v1 > 0 ? mat_pos : mat_neg) if f1
+                  rescue
+                  end
+                  
+                  begin
+                    f2 = diag_grp.entities.add_face(p_zero, p2_top, pt2) if p2_top.distance(pt2) > 1e-4
+                    f2.material = f2.back_material = (v2 > 0 ? mat_pos : mat_neg) if f2
+                  rescue
+                  end
+                else
+                  pts_face = []
+                  pts_face << pt1
+                  pts_face << p1_top if p1_top.distance(pt1) > 1e-4
+                  pts_face << p2_top if p2_top.distance(pt2) > 1e-4
+                  pts_face << pt2
+                  
+                  begin
+                    if pts_face.length >= 3
+                      f = diag_grp.entities.add_face(pts_face)
+                      f.material = f.back_material = (v1 > 0 ? mat_pos : mat_neg) if f
+                    end
+                  rescue
+                  end
+                end
+                diag_grp.entities.add_line(p1_top, p2_top)
+                
+                # Add Labels
+                if v1.abs > 1e-4
+                  txt1 = diag_grp.entities.add_text(sprintf("%.0f", v1), p1_top.offset(norm_vec, 0.2.m))
+                  txt1.layer = lyr_diag_labels
+                end
+                if v2.abs > 1e-4
+                  txt2 = diag_grp.entities.add_text(sprintf("%.0f", v2), p2_top.offset(norm_vec, 0.2.m))
+                  txt2.layer = lyr_diag_labels
+                end
+              else
+                el_loads = model_data['eloads'] ? model_data['eloads'].select { |ld| ld['elem'] == el['id'] } : []
+                has_sw = model_data['settings'] && model_data['settings']['include_self_weight']
+                wy = 0.0
+                angle = Math.atan2(n2['y'].to_f - n1['y'].to_f, n2['x'].to_f - n1['x'].to_f)
+                
+                if has_sw
+                  sec = (model_data['sections'] || []).find { |s| s['id'] == el['sec'] }
+                  if sec
+                    wy -= (sec['a'].to_f / 10000.0) * sec['density'].to_f * Math.cos(angle)
+                  end
+                end
+                
+                el_loads.each do |ld|
+                  w1_ld = ld['w1'] ? ld['w1'].to_f : (ld['w'] ? ld['w'].to_f : 0.0)
+                  w2_ld = ld['w2'] ? ld['w2'].to_f : w1_ld
+                  wAvg = (w1_ld + w2_ld) / 2.0
+                  wy += ld['dir'] == 'Local Y' ? wAvg : wAvg * Math.cos(angle)
+                end
+                
+                num_segs = 10
+                pts = []
+                vals = []
+                (0..num_segs).each do |i|
+                  x_ratio = i.to_f / num_segs
+                  x_len = len * x_ratio
+                  m_lin = v1 + (v2 - v1) * x_ratio
+                  m_par = (-wy * x_len * (len - x_len)) / 2.0
+                  m_total = m_lin + m_par
+                  
+                  pts << pt1.offset(vec, x_len.m).offset(norm_vec, (m_total * diag_scale).m)
+                  vals << { pt: pts.last, val: m_total }
+                end
+                
+                (0...num_segs).each do |i|
+                  pA = pt1.offset(vec.normalize, (len * (i.to_f/num_segs)).m)
+                  pB = pt1.offset(vec.normalize, (len * ((i+1).to_f/num_segs)).m)
+                  
+                  begin
+                    f = diag_grp.entities.add_face(pA, pts[i], pts[i+1], pB)
+                    m_mid_val = (vals[i][:val] + vals[i+1][:val]) / 2.0
+                    f.material = f.back_material = (m_mid_val > 0 ? mat_pos : mat_neg) if f
+                  rescue
+                    # Ignore face creation error if points are collinear
+                  end
+                  diag_grp.entities.add_line(pts[i], pts[i+1])
+                end
+                
+                # Add Label for maximum peak in segment
+                max_pt_info = vals.max_by { |v| v[:val].abs }
+                if max_pt_info && max_pt_info[:val].abs > 1e-4
+                  txt = diag_grp.entities.add_text(sprintf("%.0f", max_pt_info[:val]), max_pt_info[:pt].offset(norm_vec, 0.2.m))
+                  txt.layer = lyr_diag_labels
+                end
+              end
             end
           end
         end

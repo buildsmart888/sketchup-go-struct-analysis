@@ -1002,14 +1002,5 @@ module GOStructAnalysis
         name = normalize_string(value) || 'gobeam'
         name.gsub(/[^0-9A-Za-z._-]+/, '_')
       end
-
-      def json_script_value(value)
-        JSON.generate(value).gsub('</', '<\\/')
-      end
-
-      def round_value(value, digits = 3)
-        rounded = value.to_f.round(digits)
-        rounded == rounded.to_i ? rounded.to_i.to_s : rounded.to_s
-      end
     end
 end

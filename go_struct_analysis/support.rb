@@ -81,9 +81,18 @@ module GOStructAnalysis
     def clear_dialog_on_close(dialog, ivar_name)
       if dialog.respond_to?(:set_on_closed)
         dialog.set_on_closed { instance_variable_set(ivar_name, nil) }
-      elsif dialog.respond_to?(:set_on_close)
+      else
         dialog.set_on_close { instance_variable_set(ivar_name, nil) }
       end
+    end
+
+    def json_script_value(value)
+      value.nil? ? 'null' : JSON.generate(value).gsub("</", "<\\/")
+    end
+
+    def round_value(value, digits = 3)
+      rounded = value.to_f.round(digits)
+      rounded == rounded.to_i ? rounded.to_i.to_s : rounded.to_s
     end
   end
 end

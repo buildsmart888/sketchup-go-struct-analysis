@@ -3,7 +3,7 @@ module GOStructAnalysis
     MODULE_REGISTRY = [
       { id: 'continuous_beam', name: 'Continuous Beam', status: 'READY', command: 'openGobeam', description: 'GOBeam X Span analysis with load combinations.' },
       { id: 'truss', name: 'Truss Analysis', status: 'READY', command: 'openGotruss', description: 'Pin-jointed truss solver module.' },
-      { id: 'frame', name: 'Frame Analysis', status: 'PLANNED', command: nil, description: '2D frame stiffness solver module.' },
+      { id: 'frame', name: 'Frame Analysis', status: 'READY', command: 'openGoframe', description: '2D frame stiffness solver module.' },
       { id: 'steel_frame', name: 'Steel Frame Design', status: 'PLANNED', command: nil, description: 'Steel member checks for ASD/LRFD workflows.' },
       { id: 'mixed_system', name: 'Mixed System', status: 'PLANNED', command: nil, description: 'Combined beam, truss, and frame system workflow.' }
     ].freeze
@@ -44,6 +44,66 @@ module GOStructAnalysis
       rescue StandardError => e
         raise ArgumentError, "Invert failed: #{e.class} - #{e.message}"
       end
+
+      def self.lup_decompose(a)
+        n = a.length
+        lu = a.map { |row| row.dup }
+        p = (0...n).to_a
+        
+        (0...n).each do |i|
+          max_a = 0.0
+          imx = i
+          (i...n).each do |k|
+            abs_a = lu[k][i].abs
+            if abs_a > max_a
+              max_a = abs_a
+              imx = k
+            end
+          end
+          
+          raise "Matrix is singular (unstable structure)" if max_a < 1e-12
+          
+          if imx != i
+            lu[i], lu[imx] = lu[imx], lu[i]
+            p[i], p[imx] = p[imx], p[i]
+          end
+          
+          ((i+1)...n).each do |j|
+            lu[j][i] /= lu[i][i].to_f
+            ((i+1)...n).each do |k|
+              lu[j][k] -= lu[j][i] * lu[i][k]
+            end
+          end
+        end
+        
+        { lu: lu, p: p }
+      end
+
+      def self.lup_solve(decomp, b)
+        lu = decomp[:lu]
+        p = decomp[:p]
+        n = lu.length
+        
+        y = Array.new(n, 0.0)
+        (0...n).each do |i|
+          sum = 0.0
+          (0...i).each do |j|
+            sum += lu[i][j] * y[j]
+          end
+          y[i] = b[p[i]] - sum
+        end
+        
+        ans = Array.new(n, 0.0)
+        (n-1).downto(0) do |i|
+          sum = 0.0
+          ((i+1)...n).each do |j|
+            sum += lu[i][j] * ans[j]
+          end
+          ans[i] = (y[i] - sum) / lu[i][i].to_f
+        end
+        
+        ans
+      end
     end
 
     def show_main_dialog
@@ -74,6 +134,7 @@ module GOStructAnalysis
       end
       @main_dialog.add_action_callback('openGobeam') { |_context, _payload| show_gobeam_dialog }
       @main_dialog.add_action_callback('openGotruss') { |_context, _payload| show_gotruss_dialog }
+      @main_dialog.add_action_callback('openGoframe') { |_context, _payload| show_goframe_dialog }
       clear_dialog_on_close(@main_dialog, :@main_dialog)
       @main_dialog
     end

@@ -44,7 +44,7 @@ module GOStructAnalysis
     menu.add_item('Open') { show_main_dialog }
     menu.add_item('Continuous Beam') { show_gobeam_dialog }
     menu.add_item('Truss Analysis') { show_gotruss_dialog }
-    menu.add_item('2D Frame Analysis') { Goframe.show_dialog }
+    menu.add_item('2D Frame Analysis') { show_goframe_dialog }
 
     toolbar = UI::Toolbar.new('GO Struct Analysis')
     
@@ -66,7 +66,7 @@ module GOStructAnalysis
     
     toolbar.add_item(cmd_truss)
 
-    cmd_frame = UI::Command.new('2D Frame Analysis') { Goframe.show_dialog }
+    cmd_frame = UI::Command.new('2D Frame Analysis') { show_goframe_dialog }
     cmd_frame.small_icon = File.join(File.dirname(__FILE__), 'icons', 'goframe_icon.png')
     cmd_frame.large_icon = File.join(File.dirname(__FILE__), 'icons', 'goframe_icon.png')
     cmd_frame.tooltip = '2D Rigid Frame Analysis'
