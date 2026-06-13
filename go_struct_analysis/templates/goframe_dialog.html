@@ -316,6 +316,23 @@
             <label><input type="checkbox" id="chk-comb-eq" checked onchange="drawDiagrams();"> Combo Eq</label>
           </div>
 
+          <div style="position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(255,255,255,0.9); padding: 5px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; display: flex; gap: 5px; align-items:center;">
+            <button class="ghost" style="padding: 2px 6px;" onclick="zoomIn()" title="Zoom In">+</button>
+            <button class="ghost" style="padding: 2px 6px;" onclick="zoomOut()" title="Zoom Out">-</button>
+            <button class="ghost" style="padding: 2px 6px;" onclick="zoomAll()" title="Zoom All (Fit to Screen)">[ ] All</button>
+            <button class="ghost" style="padding: 2px 6px;" id="btn-zoom-win" onclick="toggleZoomWindow()" title="Zoom Window (Drag to Select)">◰ Win</button>
+            <span style="border-left: 1px solid #ccc; height: 16px; margin: 0 5px;"></span>
+            <label>Grid: 
+              <select id="grid-type" onchange="drawPreview(); drawDiagrams();" style="font-size:11px; padding:0;">
+                <option value="none">None</option>
+                <option value="dots" selected>Dots</option>
+                <option value="lines">Lines</option>
+              </select>
+            </label>
+            <label>X(m):<input type="number" id="grid-dx" value="1.0" step="0.5" style="width:40px; font-size:11px; padding:0;" onchange="drawPreview(); drawDiagrams();"></label>
+            <label>Y(m):<input type="number" id="grid-dy" value="1.0" step="0.5" style="width:40px; font-size:11px; padding:0;" onchange="drawPreview(); drawDiagrams();"></label>
+          </div>
+
           <div id="tab-preview" class="tab-content active" style="position: relative; width: 100%; height: 100%;">
             <canvas id="canvas-preview"></canvas>
           </div>
@@ -368,6 +385,154 @@
   </div>
 
   <script>
+    let previewCam = { x: 0, y: 0, scale: 1 };
+    let diagramCam = { x: 0, y: 0, scale: 1 };
+    let isPanning = false, isZoomWindowing = false, isZoomWindowMode = false;
+    let startX = 0, startY = 0, currentX = 0, currentY = 0;
+    let hasAutoZoomedPreview = false, hasAutoZoomedDiagram = false;
+
+    function getActiveCanvasId() {
+      if(document.getElementById('tab-preview').classList.contains('active')) return 'canvas-preview';
+      if(document.getElementById('tab-diagrams').classList.contains('active')) return 'canvas-diagrams';
+      return null;
+    }
+    function getActiveCam() {
+      return getActiveCanvasId() === 'canvas-diagrams' ? diagramCam : previewCam;
+    }
+    function zoomIn() { let c = getActiveCam(); c.scale *= 1.2; triggerDraw(); }
+    function zoomOut() { let c = getActiveCam(); c.scale /= 1.2; triggerDraw(); }
+    function zoomAll() {
+      if(getActiveCanvasId() === 'canvas-diagrams') hasAutoZoomedDiagram = false;
+      else hasAutoZoomedPreview = false;
+      triggerDraw();
+    }
+    function toggleZoomWindow() {
+      isZoomWindowMode = !isZoomWindowMode;
+      document.getElementById('btn-zoom-win').style.background = isZoomWindowMode ? '#ddd' : '';
+    }
+    function triggerDraw() {
+      if(getActiveCanvasId() === 'canvas-diagrams') drawDiagrams();
+      else drawPreview();
+    }
+
+    function setupCanvasEvents(canvasId) {
+      let canvas = document.getElementById(canvasId);
+      if(!canvas) return;
+      canvas.addEventListener('wheel', e => {
+        e.preventDefault();
+        let cam = canvasId === 'canvas-diagrams' ? diagramCam : previewCam;
+        let zoom = e.deltaY < 0 ? 1.1 : 0.9;
+        let rect = canvas.getBoundingClientRect();
+        let mx = e.clientX - rect.left - rect.width/2;
+        let my = -(e.clientY - rect.top - rect.height/2);
+        cam.x = mx - (mx - cam.x) * zoom;
+        cam.y = my - (my - cam.y) * zoom;
+        cam.scale *= zoom;
+        if(canvasId === 'canvas-diagrams') drawDiagrams(); else drawPreview();
+      });
+      canvas.addEventListener('mousedown', e => {
+        if(e.button === 1 || e.button === 2) { 
+          e.preventDefault(); isPanning = true; startX = e.clientX; startY = e.clientY;
+        } else if(e.button === 0 && isZoomWindowMode) {
+          isZoomWindowing = true;
+          let rect = canvas.getBoundingClientRect();
+          startX = e.clientX - rect.left; startY = e.clientY - rect.top;
+          currentX = startX; currentY = startY;
+        } else if(e.button === 0 && !isZoomWindowMode) {
+          // Fallback to pan for left click if not in zoom mode, for user convenience
+          e.preventDefault(); isPanning = true; startX = e.clientX; startY = e.clientY;
+        }
+      });
+      canvas.addEventListener('mousemove', e => {
+        let cam = canvasId === 'canvas-diagrams' ? diagramCam : previewCam;
+        if(isPanning) {
+          let dx = e.clientX - startX; let dy = e.clientY - startY;
+          cam.x += dx; cam.y -= dy; 
+          startX = e.clientX; startY = e.clientY;
+          if(canvasId === 'canvas-diagrams') drawDiagrams(); else drawPreview();
+        } else if(isZoomWindowing) {
+          let rect = canvas.getBoundingClientRect();
+          currentX = e.clientX - rect.left; currentY = e.clientY - rect.top;
+          if(canvasId === 'canvas-diagrams') drawDiagrams(); else drawPreview();
+        }
+      });
+      canvas.addEventListener('mouseup', e => {
+        if(isPanning) isPanning = false;
+        if(isZoomWindowing) {
+          isZoomWindowing = false;
+          let cam = canvasId === 'canvas-diagrams' ? diagramCam : previewCam;
+          let rect = canvas.getBoundingClientRect();
+          let w = Math.abs(currentX - startX), h = Math.abs(currentY - startY);
+          if(w > 10 && h > 10) {
+            let cx = (startX + currentX) / 2 - rect.width/2;
+            let cy = -( (startY + currentY) / 2 - rect.height/2 );
+            let worldCX = (cx - cam.x) / cam.scale;
+            let worldCY = (cy - cam.y) / cam.scale;
+            let zoom = Math.min(rect.width / w, rect.height / h);
+            cam.scale *= zoom;
+            cam.x = -worldCX * cam.scale;
+            cam.y = -worldCY * cam.scale;
+          }
+          isZoomWindowMode = false;
+          document.getElementById('btn-zoom-win').style.background = '';
+          if(canvasId === 'canvas-diagrams') drawDiagrams(); else drawPreview();
+        }
+      });
+      canvas.addEventListener('mouseleave', e => {
+        isPanning = false; isZoomWindowing = false;
+        if(canvasId === 'canvas-diagrams') drawDiagrams(); else drawPreview();
+      });
+      canvas.addEventListener('contextmenu', e => e.preventDefault());
+    }
+
+    function drawGrid(ctx, canvas, cam) {
+      let type = document.getElementById('grid-type').value;
+      if(type === 'none') return;
+      let dx = parseFloat(document.getElementById('grid-dx').value) || 1.0;
+      let dy = parseFloat(document.getElementById('grid-dy').value) || 1.0;
+      if(dx <= 0) dx = 1.0; if(dy <= 0) dy = 1.0;
+
+      ctx.save();
+      ctx.translate(canvas.width/2, canvas.height/2);
+      ctx.scale(1, -1);
+      
+      let pX = (x) => cam.x + x * cam.scale;
+      let pY = (y) => cam.y + y * cam.scale;
+      
+      // Calculate screen boundaries in world space
+      let minWorldX = (-canvas.width/2 - cam.x) / cam.scale;
+      let maxWorldX = (canvas.width/2 - cam.x) / cam.scale;
+      let minWorldY = (-canvas.height/2 - cam.y) / cam.scale;
+      let maxWorldY = (canvas.height/2 - cam.y) / cam.scale;
+      
+      let startX = Math.floor(minWorldX / dx) * dx;
+      let startY = Math.floor(minWorldY / dy) * dy;
+      
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+      ctx.lineWidth = 1;
+      
+      if(cam.scale * dx < 10 || cam.scale * dy < 10) { ctx.restore(); return; } // Too dense
+      
+      if(type === 'dots') {
+        for(let x = startX; x <= maxWorldX; x += dx) {
+          for(let y = startY; y <= maxWorldY; y += dy) {
+            ctx.beginPath();
+            ctx.arc(pX(x), pY(y), 1.5, 0, Math.PI*2);
+            ctx.fill();
+          }
+        }
+      } else if(type === 'lines') {
+        for(let x = startX; x <= maxWorldX; x += dx) {
+          ctx.beginPath(); ctx.moveTo(pX(x), pY(minWorldY)); ctx.lineTo(pX(x), pY(maxWorldY)); ctx.stroke();
+        }
+        for(let y = startY; y <= maxWorldY; y += dy) {
+          ctx.beginPath(); ctx.moveTo(pX(minWorldX), pY(y)); ctx.lineTo(pX(maxWorldX), pY(y)); ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
     function openSectionCalc() { document.getElementById('modal-calc').style.display = 'flex'; updateCalcFields(); }
     function closeSectionCalc() { document.getElementById('modal-calc').style.display = 'none'; }
     function updateCalcFields() {
@@ -749,18 +914,26 @@
       let minX = Math.min(...nodes.map(n=>n.x)), maxX = Math.max(...nodes.map(n=>n.x));
       let minY = Math.min(...nodes.map(n=>n.y)), maxY = Math.max(...nodes.map(n=>n.y));
       let dx = maxX - minX || 1, dy = maxY - minY || 1;
-      
-      let padding = 60;
-      let scale = Math.min((canvas.width - padding*2) / dx, (canvas.height - padding*2) / dy);
       let cx = (minX + maxX)/2, cy = (minY + maxY)/2;
+      
+      if(!hasAutoZoomedPreview) {
+        let padding = 60;
+        previewCam.scale = Math.min((canvas.width - padding*2) / dx, (canvas.height - padding*2) / dy);
+        previewCam.x = -cx * previewCam.scale;
+        previewCam.y = -cy * previewCam.scale;
+        hasAutoZoomedPreview = true;
+      }
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      drawGrid(ctx, canvas, previewCam);
+
       ctx.save();
       ctx.translate(canvas.width/2, canvas.height/2);
       ctx.scale(1, -1);
       
-      function projX(x) { return (x - cx) * scale; }
-      function projY(y) { return (y - cy) * scale; }
+      function projX(x) { return previewCam.x + x * previewCam.scale; }
+      function projY(y) { return previewCam.y + y * previewCam.scale; }
 
       ctx.lineWidth = 3;
       ctx.strokeStyle = '#2c3e50';
@@ -1039,17 +1212,26 @@
         let minX = Math.min(...nodes.map(n=>n.x)), maxX = Math.max(...nodes.map(n=>n.x));
         let minY = Math.min(...nodes.map(n=>n.y)), maxY = Math.max(...nodes.map(n=>n.y));
         let dx = maxX - minX || 1, dy = maxY - minY || 1;
-        let padding = 60;
-        let scale = Math.min((canvas.width - padding*2) / dx, (canvas.height - padding*2) / dy);
         let cx = (minX + maxX)/2, cy = (minY + maxY)/2;
+        
+        if(!hasAutoZoomedDiagram) {
+          let padding = 60;
+          diagramCam.scale = Math.min((canvas.width - padding*2) / dx, (canvas.height - padding*2) / dy);
+          diagramCam.x = -cx * diagramCam.scale;
+          diagramCam.y = -cy * diagramCam.scale;
+          hasAutoZoomedDiagram = true;
+        }
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        drawGrid(ctx, canvas, diagramCam);
+
         ctx.save();
         ctx.translate(canvas.width/2, canvas.height/2);
         ctx.scale(1, -1);
         
-        function projX(x) { return (x - cx) * scale; }
-        function projY(y) { return (y - cy) * scale; }
+        function projX(x) { return diagramCam.x + x * diagramCam.scale; }
+        function projY(y) { return diagramCam.y + y * diagramCam.scale; }
         
         ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1;
         let showMembers = document.getElementById('chk-members').checked;
@@ -2124,6 +2306,9 @@
 
     // Setup
     window.onload = function() {
+      setupCanvasEvents('canvas-preview');
+      setupCanvasEvents('canvas-diagrams');
+      
       generateTemplate();
       
       // Init from ruby if MODEL_JSON exists
