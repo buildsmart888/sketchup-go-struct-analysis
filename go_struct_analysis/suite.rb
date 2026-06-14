@@ -5,7 +5,8 @@ module GOStructAnalysis
       { id: 'truss', name: 'Truss Analysis', status: 'READY', command: 'openGotruss', description: 'Pin-jointed truss solver module.' },
       { id: 'frame', name: 'Frame Analysis', status: 'READY', command: 'openGoframe', description: '2D frame stiffness solver module.' },
       { id: 'steel_frame', name: 'Steel Frame Design', status: 'PLANNED', command: nil, description: 'Steel member checks for ASD/LRFD workflows.' },
-      { id: 'mixed_system', name: 'Mixed System', status: 'PLANNED', command: nil, description: 'Combined beam, truss, and frame system workflow.' }
+      { id: 'mixed_system', name: 'Mixed System', status: 'PLANNED', command: nil, description: 'Combined beam, truss, and frame system workflow.' },
+      { id: 'manual', name: 'Manual / คู่มือ', status: 'READY', command: 'openManual', description: 'User guide and documentation for GO Struct Analysis.' }
     ].freeze
 
     module MatrixOperations
@@ -116,6 +117,32 @@ module GOStructAnalysis
       UI.messagebox("GO Struct Analysis failed:\n#{format_error(e)}")
     end
 
+    def show_manual_dialog
+      puts '[GO Struct Analysis] Opening manual dialog...'
+      dialog = ensure_manual_dialog
+      dialog.set_html(render_template('manual.html'))
+      present_dialog(dialog, width: 1024, height: 768, left: 100, top: 100)
+    rescue StandardError => e
+      puts "[GO Struct Analysis] Manual dialog failed: #{format_error(e)}"
+      UI.messagebox("Failed to open Manual:\n#{format_error(e)}")
+    end
+
+    def ensure_manual_dialog
+      return @manual_dialog if defined?(@manual_dialog) && @manual_dialog
+      if defined?(UI::HtmlDialog)
+        @manual_dialog = UI::HtmlDialog.new(
+          dialog_title: 'GO Struct Analysis - Manual',
+          preferences_key: 'go_struct_analysis.manual',
+          scrollable: true, resizable: true, width: 1024, height: 768,
+          style: UI::HtmlDialog::STYLE_DIALOG
+        )
+      else
+        @manual_dialog = UI::WebDialog.new('GO Struct Analysis - Manual', true, 'go_struct_analysis.manual', 1024, 768, 100, 100, true)
+      end
+      clear_dialog_on_close(@manual_dialog, :@manual_dialog)
+      @manual_dialog
+    end
+
     def ensure_main_dialog
       return @main_dialog if defined?(@main_dialog) && @main_dialog
 
@@ -135,6 +162,7 @@ module GOStructAnalysis
       @main_dialog.add_action_callback('openGobeam') { |_context, _payload| show_gobeam_dialog }
       @main_dialog.add_action_callback('openGotruss') { |_context, _payload| show_gotruss_dialog }
       @main_dialog.add_action_callback('openGoframe') { |_context, _payload| show_goframe_dialog }
+      @main_dialog.add_action_callback('openManual') { |_context, _payload| show_manual_dialog }
       clear_dialog_on_close(@main_dialog, :@main_dialog)
       @main_dialog
     end

@@ -75,6 +75,15 @@ module GOStructAnalysis
     
     toolbar.add_item(cmd_frame)
 
+    cmd_manual = UI::Command.new('User Manual') { show_manual_dialog }
+    cmd_manual.small_icon = File.join(File.dirname(__FILE__), 'icons', 'manual_icon.png')
+    cmd_manual.large_icon = File.join(File.dirname(__FILE__), 'icons', 'manual_icon.png')
+    cmd_manual.tooltip = 'Open User Manual'
+    cmd_manual.status_bar_text = 'Open GO Struct Analysis User Manual'
+    cmd_manual.menu_text = 'User Manual'
+    
+    toolbar.add_item(cmd_manual)
+
     toolbar.show
 
     @menu_installed = true

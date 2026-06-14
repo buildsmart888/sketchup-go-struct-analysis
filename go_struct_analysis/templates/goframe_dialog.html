@@ -144,8 +144,10 @@
   <div class="app">
     <div class="topbar">
       <div class="brand">
-        <div class="go-mark">GO</div>
-        <div class="brand-title"><small>Struct Analysis</small><span>2D Rigid Frame</span></div>
+        <div class="brand-title">
+          <span>GOFrame V.1.0.3</span>
+          <small>GO Struct Analysis / ผู้พัฒนา Phornjed Phongmanee</small>
+        </div>
       </div>
     </div>
     
@@ -405,6 +407,20 @@
               <select id="active-draw-section" title="Active Section for Drawing" style="font-size: 10px; padding: 2px; width: 80px;"></select>
               <hr style="margin: 2px 0; border: 0; border-top: 1px solid #ccc;">
               <button class="tool-btn danger" id="tool-delete" title="Delete Selected (Del)" onclick="deleteSelectedItems()">❌ Delete</button>
+            </div>
+            
+            <!-- Selection Properties Panel -->
+            <div id="selection-panel" style="display: none; position: absolute; bottom: 20px; right: 20px; z-index: 15; background: rgba(255,255,255,0.95); padding: 12px 16px; border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); min-width: 220px; font-family: 'Inter', sans-serif; backdrop-filter: blur(5px);">
+              <div style="font-weight: 700; font-size: 13px; margin-bottom: 10px; color: var(--go); border-bottom: 1px solid #eee; padding-bottom: 6px;" id="sel-panel-title">0 Elements Selected</div>
+              <div style="display: flex; flex-direction: column; gap: 10px; font-size: 12px;">
+                <div>
+                  <label style="display:block; margin-bottom:4px; color:#555; font-weight:600;">Assign Section:</label>
+                  <select id="sel-panel-sec" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 4px;" onchange="applyBulkSection(this.value)"></select>
+                </div>
+                <div style="display: flex; gap: 6px; margin-top: 4px;">
+                  <button class="soft" style="flex:1; padding: 6px; font-size:11px;" onclick="openBulkLoadModal()">+ Apply Load</button>
+                </div>
+              </div>
             </div>
             <canvas id="canvas-preview"></canvas>
           </div>
@@ -1640,6 +1656,8 @@
         ctx.fill(); ctx.stroke();
         ctx.restore();
       }
+      
+      if (typeof updateSelectionPanel === 'function') updateSelectionPanel();
     }
 
     function drawDiagrams() {
@@ -2967,8 +2985,8 @@
         addSectionRow(secIdCounter++, 'Column 0.3x0.3m', 2e9, 900, 67500, 2400); // Sec 1: Column 0.3x0.3m (Concrete E=2e9 kg/m2)
         addSectionRow(secIdCounter++, 'Beam 0.3x0.5m', 2e9, 1500, 312500, 2400); // Sec 2: Beam 0.3x0.5m
       } else if (type === 'gable') {
-        addSectionRow(secIdCounter++, 'Column H200x200', 2e10, 63.5, 4720, 7850); // Sec 1: Column H200x200 (Steel E=2e10 kg/m2)
-        addSectionRow(secIdCounter++, 'Gable H350x175', 2e10, 63.1, 13600, 7850); // Sec 2: Gable H350x175
+        addSectionRow(secIdCounter++, 'Column H200x200', 2e10, 63.53, 4720, 7850, '{"type":"I-Section","h":0.2,"b":0.2,"tw":0.008,"tf":0.012}'); // Sec 1: Column H200x200
+        addSectionRow(secIdCounter++, 'Gable H300x150', 2e10, 46.78, 7210, 7850, '{"type":"I-Section","h":0.3,"b":0.15,"tw":0.0065,"tf":0.009}'); // Sec 2: Gable H300x150
       }
 
       if(type === 'portal') {
@@ -3105,6 +3123,66 @@
         }
       }
     };
+
+    // --- Bulk Edit & Selection Panel Logic ---
+    function updateSelectionPanel() {
+      let panel = document.getElementById('selection-panel');
+      if (!panel) return;
+      let count = selectedItems.elements.length;
+      if (count > 0) {
+        panel.style.display = 'block';
+        document.getElementById('sel-panel-title').innerText = count + ' Element(s) Selected';
+        
+        let secSelect = document.getElementById('sel-panel-sec');
+        let currentSecOpts = Array.from(document.querySelectorAll('#tbl-sections tbody tr')).map(tr => {
+          let id = tr.cells[0].innerText;
+          let name = tr.querySelector('.sec-name').value;
+          return `<option value="${id}">${id}: ${name}</option>`;
+        });
+        secSelect.innerHTML = `<option value="" disabled selected>-- Change Section --</option>` + currentSecOpts.join('');
+      } else {
+        panel.style.display = 'none';
+      }
+    }
+
+    function applyBulkSection(secId) {
+      if (!secId) return;
+      let elementsTable = document.querySelector('#tbl-elements tbody');
+      let changed = false;
+      Array.from(elementsTable.children).forEach(tr => {
+        let id = parseInt(tr.cells[0].innerText);
+        if (selectedItems.elements.includes(id)) {
+          let secInput = tr.querySelector('.elem-sec');
+          if (secInput) {
+            secInput.value = secId;
+            changed = true;
+          }
+        }
+      });
+      if (changed) {
+        document.getElementById('sel-panel-sec').value = ""; 
+        drawPreview();
+      }
+    }
+
+    function openBulkLoadModal() {
+      updateLoadCaseDropdowns();
+      document.getElementById('modal-bulk-load').style.display = 'flex';
+    }
+
+    function applyBulkLoad() {
+      let lcase = document.getElementById('bulk-load-case').value;
+      let dir = document.getElementById('bulk-load-dir').value;
+      let w1 = parseFloat(document.getElementById('bulk-load-w1').value) || 0;
+      let w2 = parseFloat(document.getElementById('bulk-load-w2').value) || 0;
+      
+      selectedItems.elements.forEach(elemId => {
+        addElemLoadRow(elemId, lcase, dir, w1, w2);
+      });
+      
+      document.getElementById('modal-bulk-load').style.display = 'none';
+      drawPreview();
+    }
   </script>
 </body>
 </html>
