@@ -43,6 +43,8 @@ module GOStructAnalysis
         frame_span = [max_x - min_x, max_y - min_y].max
         frame_span = 1.0 if frame_span < 1e-3
 
+        sections = model_data['sections'] || []
+
         # 1. Draw Members
         elements.each do |el|
           n1 = nodes.find { |n| n['id'] == el['n1'] }
@@ -63,18 +65,129 @@ module GOStructAnalysis
             right = vec.cross(up).normalize
             up2 = right.cross(vec).normalize
 
-            w = 0.05.m
-            p1_b = pt1.offset(right, w).offset(up2, w)
-            p2_b = pt1.offset(right, -w).offset(up2, w)
-            p3_b = pt1.offset(right, -w).offset(up2, -w)
-            p4_b = pt1.offset(right, w).offset(up2, -w)
+            w_val = 0.05
+            h_val = 0.05
+            shape_type = 'Rectangular'
+            sec = sections.find { |s| s['id'] == el['sec'] }
+            if sec
+              if sec['shape'] && sec['shape'].is_a?(Hash)
+                shape_type = sec['shape']['type'] || 'Rectangular'
+              end
+              
+              if sec['a'].to_f > 0 && sec['i'].to_f > 0 && shape_type == 'Rectangular'
+                a_m2 = sec['a'].to_f / 10000.0
+                i_m4 = sec['i'].to_f / 100000000.0
+                calc_h = Math.sqrt(12.0 * i_m4 / a_m2)
+                calc_w = a_m2 / calc_h
+                
+                if calc_h > 0.001 && calc_h < 5.0 && calc_w > 0.001 && calc_w < 5.0
+                  h_val = calc_h / 2.0
+                  w_val = calc_w / 2.0
+                end
+              end
+            end
 
             sub_grp = frame_grp.entities.add_group
-            face = sub_grp.entities.add_face(p1_b, p2_b, p3_b, p4_b)
-            if face
-              face.pushpull(-vec.length)
-              sub_grp.material = mat_frame
+            
+            if shape_type == 'I-Section'
+              hh = sec['shape']['h'].to_f.m
+              bb = sec['shape']['b'].to_f.m
+              tw = sec['shape']['tw'].to_f.m
+              tf = sec['shape']['tf'].to_f.m
+              
+              p1 = pt1.offset(right, tw/2).offset(up2, hh/2 - tf)
+              p2 = pt1.offset(right, bb/2).offset(up2, hh/2 - tf)
+              p3 = pt1.offset(right, bb/2).offset(up2, hh/2)
+              p4 = pt1.offset(right, -bb/2).offset(up2, hh/2)
+              p5 = pt1.offset(right, -bb/2).offset(up2, hh/2 - tf)
+              p6 = pt1.offset(right, -tw/2).offset(up2, hh/2 - tf)
+              
+              p7 = pt1.offset(right, -tw/2).offset(up2, -hh/2 + tf)
+              p8 = pt1.offset(right, -bb/2).offset(up2, -hh/2 + tf)
+              p9 = pt1.offset(right, -bb/2).offset(up2, -hh/2)
+              p10 = pt1.offset(right, bb/2).offset(up2, -hh/2)
+              p11 = pt1.offset(right, bb/2).offset(up2, -hh/2 + tf)
+              p12 = pt1.offset(right, tw/2).offset(up2, -hh/2 + tf)
+
+              face = sub_grp.entities.add_face(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12)
+              if face && face.valid?
+                dist = face.normal % vec > 0 ? vec.length : -vec.length
+                face.pushpull(dist)
+              end
+            elsif shape_type == 'Pipe'
+              dd = sec['shape']['d'].to_f.m
+              tt = sec['shape']['t'].to_f.m
+              
+              pts_outer = []
+              pts_inner = []
+              pts_outer_end = []
+              pts_inner_end = []
+              
+              24.times do |i|
+                angle = i * Math::PI * 2 / 24.0
+                dx = Math.cos(angle)
+                dy = Math.sin(angle)
+                
+                ro = dd / 2.0
+                ri = dd / 2.0 - tt
+                
+                # Offset by scaled vectors
+                # v_out = right * (dx * ro) + up2 * (dy * ro) # SketchUp 6+ supports Vector * Float
+                vec_out_x = Geom::Vector3d.new(right.x * dx * ro, right.y * dx * ro, right.z * dx * ro)
+                vec_out_y = Geom::Vector3d.new(up2.x * dy * ro, up2.y * dy * ro, up2.z * dy * ro)
+                vec_in_x = Geom::Vector3d.new(right.x * dx * ri, right.y * dx * ri, right.z * dx * ri)
+                vec_in_y = Geom::Vector3d.new(up2.x * dy * ri, up2.y * dy * ri, up2.z * dy * ri)
+                
+                vec_out = vec_out_x + vec_out_y
+                vec_in = vec_in_x + vec_in_y
+                
+                pts_outer << pt1 + vec_out
+                pts_inner << pt1 + vec_in
+                pts_outer_end << pt2 + vec_out
+                pts_inner_end << pt2 + vec_in
+              end
+              
+              faces = []
+              24.times do |i|
+                j = (i + 1) % 24
+                # Start cap
+                sub_grp.entities.add_face(pts_outer[i], pts_outer[j], pts_inner[j], pts_inner[i]) rescue nil
+                # End cap
+                sub_grp.entities.add_face(pts_outer_end[i], pts_inner_end[i], pts_inner_end[j], pts_outer_end[j]) rescue nil
+                # Outer tube
+                f_out = sub_grp.entities.add_face(pts_outer[i], pts_outer[j], pts_outer_end[j], pts_outer_end[i]) rescue nil
+                # Inner tube
+                f_in = sub_grp.entities.add_face(pts_inner[i], pts_inner_end[i], pts_inner_end[j], pts_inner[j]) rescue nil
+                
+                faces << f_out if f_out
+                faces << f_in if f_in
+              end
+              
+              # Smooth the longitudinal edges
+              faces.each do |f|
+                f.edges.each do |e|
+                  if e.line[1].parallel?(vec)
+                    e.soft = true
+                    e.smooth = true
+                  end
+                end
+              end
+            else
+              w = w_val.m
+              h = h_val.m
+              p1_b = pt1.offset(right, w).offset(up2, h)
+              p2_b = pt1.offset(right, -w).offset(up2, h)
+              p3_b = pt1.offset(right, -w).offset(up2, -h)
+              p4_b = pt1.offset(right, w).offset(up2, -h)
+  
+              face = sub_grp.entities.add_face(p1_b, p2_b, p3_b, p4_b)
+              if face && face.valid?
+                dist = face.normal % vec > 0 ? vec.length : -vec.length
+                face.pushpull(dist)
+              end
             end
+            
+            sub_grp.material = mat_frame
           end
           
           # Member label
@@ -145,38 +258,94 @@ module GOStructAnalysis
         if options['show3DLoads']
           nloads = model_data['nloads'] || []
           eloads = model_data['eloads'] || []
-          loads_grp = ents.add_group
-          loads_grp.name = "Applied Loads"
-          loads_grp.layer = lyr_loads
           
+          lc_colors_map = { 
+            'DL' => Sketchup::Color.new(230, 126, 34),
+            'LL' => Sketchup::Color.new(52, 152, 219),
+            'WL' => Sketchup::Color.new(155, 89, 182),
+            'EX' => Sketchup::Color.new(26, 188, 156),
+            'EY' => Sketchup::Color.new(241, 196, 15),
+            'W(X-)' => Sketchup::Color.new(155, 89, 182),
+            'W(X+)' => Sketchup::Color.new(155, 89, 182)
+          }
+          default_colors = [
+            Sketchup::Color.new(230, 126, 34),
+            Sketchup::Color.new(52, 152, 219),
+            Sketchup::Color.new(155, 89, 182),
+            Sketchup::Color.new(26, 188, 156),
+            Sketchup::Color.new(241, 196, 15),
+            Sketchup::Color.new(231, 76, 60),
+            Sketchup::Color.new(52, 73, 94)
+          ]
+          get_color = -> (lc) {
+            return lc_colors_map[lc] if lc_colors_map[lc]
+            hash = 0
+            lc.each_byte { |b| hash = b + ((hash << 5) - hash) }
+            default_colors[hash.abs % default_colors.length]
+          }
+
+          loads_main_grp = ents.add_group
+          loads_main_grp.name = "Applied Loads"
+          loads_main_grp.layer = lyr_loads
+          
+          lc_groups = {}
+          get_lc_group = -> (lc) {
+            unless lc_groups[lc]
+              grp = loads_main_grp.entities.add_group
+              grp.name = "Load Case: #{lc}"
+              lc_layer_name = "GOFrame_Loads_#{lc}"
+              lc_layer = layers[lc_layer_name] || layers.add(lc_layer_name)
+              grp.layer = lc_layer
+              
+              lc_mat_name = "GOFrame_Mat_#{lc}"
+              lc_mat = mats[lc_mat_name] || mats.add(lc_mat_name)
+              lc_mat.color = get_color.call(lc)
+              grp.material = lc_mat
+              
+              lc_groups[lc] = grp
+            end
+            lc_groups[lc]
+          }
+          
+          nload_counts = {}
           nloads.each do |nl|
             nd = nodes.find { |n| n['id'] == nl['node'] }
             next unless nd
-            pt = Geom::Point3d.new(nd['x'].to_f.m, 0, nd['y'].to_f.m)
+            
+            nd_id = nl['node']
+            nload_counts[nd_id] ||= 0
+            depth_offset = nload_counts[nd_id] * 0.4.m
+            nload_counts[nd_id] += 1
+            
+            pt = Geom::Point3d.new(nd['x'].to_f.m, depth_offset, nd['y'].to_f.m)
             fx = nl['fx'].to_f
             fy = nl['fy'].to_f
             mz = nl['mz'].to_f
+            lcase = nl['lcase'] || 'DL'
+            
+            grp = get_lc_group.call(lcase)
             
             if fx.abs > 1e-3
               dir = fx > 0 ? X_AXIS : X_AXIS.reverse
               p1 = pt.offset(dir.reverse, 1.0.m)
-              loads_grp.entities.add_line(p1, pt)
-              loads_grp.entities.add_line(pt, pt.offset(dir.reverse, 0.2.m).offset(Z_AXIS, 0.1.m))
-              loads_grp.entities.add_line(pt, pt.offset(dir.reverse, 0.2.m).offset(Z_AXIS, -0.1.m))
-              t = loads_grp.entities.add_text("#{fx.round(1)} kg", p1)
+              grp.entities.add_line(p1, pt)
+              grp.entities.add_line(pt, pt.offset(dir.reverse, 0.2.m).offset(Z_AXIS, 0.1.m))
+              grp.entities.add_line(pt, pt.offset(dir.reverse, 0.2.m).offset(Z_AXIS, -0.1.m))
+              t = grp.entities.add_text("#{lcase}=#{fx.round(1)} kg", p1)
               t.layer = lyr_labels
             end
             if fy.abs > 1e-3
               dir = fy > 0 ? Z_AXIS : Z_AXIS.reverse
               p1 = pt.offset(dir.reverse, 1.0.m)
-              loads_grp.entities.add_line(p1, pt)
-              loads_grp.entities.add_line(pt, pt.offset(dir.reverse, 0.2.m).offset(X_AXIS, 0.1.m))
-              loads_grp.entities.add_line(pt, pt.offset(dir.reverse, 0.2.m).offset(X_AXIS, -0.1.m))
-              t = loads_grp.entities.add_text("#{fy.round(1)} kg", p1)
+              grp.entities.add_line(p1, pt)
+              grp.entities.add_line(pt, pt.offset(dir.reverse, 0.2.m).offset(X_AXIS, 0.1.m))
+              grp.entities.add_line(pt, pt.offset(dir.reverse, 0.2.m).offset(X_AXIS, -0.1.m))
+              t = grp.entities.add_text("#{lcase}=#{fy.round(1)} kg", p1)
               t.layer = lyr_labels
             end
           end
           
+          eload_counts = {}
           eloads.each do |el_ld|
             el = elements.find { |e| e['id'] == el_ld['elem'] }
             next unless el
@@ -184,13 +353,21 @@ module GOStructAnalysis
             n2 = nodes.find { |n| n['id'] == el['n2'] }
             next unless n1 && n2
             
-            pt1 = Geom::Point3d.new(n1['x'].to_f.m, 0, n1['y'].to_f.m)
-            pt2 = Geom::Point3d.new(n2['x'].to_f.m, 0, n2['y'].to_f.m)
+            elem_id = el_ld['elem']
+            eload_counts[elem_id] ||= 0
+            depth_offset = eload_counts[elem_id] * 0.4.m
+            eload_counts[elem_id] += 1
+            
+            pt1 = Geom::Point3d.new(n1['x'].to_f.m, depth_offset, n1['y'].to_f.m)
+            pt2 = Geom::Point3d.new(n2['x'].to_f.m, depth_offset, n2['y'].to_f.m)
             vec = pt1.vector_to(pt2)
             next unless vec.valid?
             
             w1 = el_ld['w1'] ? el_ld['w1'].to_f : (el_ld['w'] ? el_ld['w'].to_f : 0.0)
             w2 = el_ld['w2'] ? el_ld['w2'].to_f : w1
+            
+            lcase = el_ld['lcase'] || 'DL'
+            grp = get_lc_group.call(lcase)
             
             dir_str = el_ld['dir']
             norm_vec = Geom::Vector3d.new(-vec.z, 0, vec.x).normalize
@@ -215,17 +392,17 @@ module GOStructAnalysis
               
               p_top = p_base.offset(load_vec.reverse, arrow_len.m)
               pts << p_top
-              loads_grp.entities.add_line(p_top, p_base)
+              grp.entities.add_line(p_top, p_base)
               
               if arrow_len > 0.3
-                loads_grp.entities.add_line(p_base, p_base.offset(load_vec.reverse, 0.15.m).offset(vec, 0.1.m))
-                loads_grp.entities.add_line(p_base, p_base.offset(load_vec.reverse, 0.15.m).offset(vec.reverse, 0.1.m))
+                grp.entities.add_line(p_base, p_base.offset(load_vec.reverse, 0.15.m).offset(vec, 0.1.m))
+                grp.entities.add_line(p_base, p_base.offset(load_vec.reverse, 0.15.m).offset(vec.reverse, 0.1.m))
               end
             end
             
             if pts.length > 1
               (0...pts.length-1).each do |i|
-                loads_grp.entities.add_line(pts[i], pts[i+1])
+                grp.entities.add_line(pts[i], pts[i+1])
               end
             end
             
@@ -233,14 +410,14 @@ module GOStructAnalysis
             if (w1 - w2).abs < 1e-3
               sign_w = w1 < 0 ? -1 : 1
               t_pt = pt1.offset(vec, vec.length * 0.5).offset(dir_str == 'Global Y' ? Z_AXIS : norm_vec, sign_w > 0 ? 1.0.m : -1.0.m)
-              t = loads_grp.entities.add_text("#{w1.round(1)} kg/m", t_pt)
+              t = grp.entities.add_text("#{lcase}=#{w1.round(1)} kg/m", t_pt)
               t.layer = lyr_labels
             else
               s1 = w1 < 0 ? -1 : 1
               a1 = (w1.abs / max_w) * 0.8
               t1_pt = pt1.offset(dir_str == 'Global Y' ? Z_AXIS : norm_vec, s1 > 0 ? a1.m + 0.2.m : -a1.m - 0.2.m)
               if w1.abs > 1e-3
-                t1 = loads_grp.entities.add_text("#{w1.round(1)}", t1_pt)
+                t1 = grp.entities.add_text("#{lcase}=#{w1.round(1)}", t1_pt)
                 t1.layer = lyr_labels
               end
               
@@ -248,7 +425,7 @@ module GOStructAnalysis
               a2 = (w2.abs / max_w) * 0.8
               t2_pt = pt2.offset(dir_str == 'Global Y' ? Z_AXIS : norm_vec, s2 > 0 ? a2.m + 0.2.m : -a2.m - 0.2.m)
               if w2.abs > 1e-3
-                t2 = loads_grp.entities.add_text("#{w2.round(1)}", t2_pt)
+                t2 = grp.entities.add_text("#{lcase}=#{w2.round(1)}", t2_pt)
                 t2.layer = lyr_labels
               end
             end
@@ -386,9 +563,8 @@ module GOStructAnalysis
                 end
               end
             end
-            
-            diag_scale = (frame_span * 0.15) / max_val
-            
+            scale_factor = force_type == 'afd' ? 0.05 : 0.15
+            diag_scale = (frame_span * scale_factor) / max_val
             diag_grp = ents.add_group
             diag_grp.name = "Force Diagram (#{force_type.upcase})"
             diag_grp.layer = (force_type == 'afd' ? lyr_diag_afd : (force_type == 'sfd' ? lyr_diag_sfd : lyr_diag_bmd))

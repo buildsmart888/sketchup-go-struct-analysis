@@ -99,6 +99,13 @@
         background: #fff; border-radius: 10px; padding: 20px;
         box-shadow: 0 10px 30px rgba(25, 42, 47, 0.2); width: 320px;
       }
+      .tool-btn {
+        background: transparent; border: 1px solid transparent; padding: 5px; cursor: pointer; text-align: left; font-size: 12px; border-radius: 4px; transition: all 0.2s;
+      }
+      .tool-btn:hover { background: #ecf0f1; border-color: #bdc3c7; }
+      .tool-btn.active { background: #3498db; color: #fff; border-color: #2980b9; }
+      .tool-btn.danger { color: #e74c3c; }
+      .tool-btn.danger:hover { background: #e74c3c; color: #fff; border-color: #c0392b; }
     </style>
 </head>
 <body>
@@ -163,20 +170,69 @@
                 <option value="portal">Portal Frame (1 Span)</option>
                 <option value="multistory" selected>Multi-story Frame</option>
                 <option value="gable">Gable Roof Frame</option>
+                <option value="truss">Truss Roof Frame</option>
               </select>
             </div>
-            <div style="margin-bottom: 5px;">
-              <label style="display:inline-block; width: 40px;">Nx:</label>
-              <input type="number" id="gen-nx" value="2" min="1" style="width: 50px;" oninput="generateTemplate()">
-              <label style="display:inline-block; width: 40px;">Lx (m):</label>
-              <input type="number" id="gen-lx" value="4" step="0.5" style="width: 60px;" oninput="generateTemplate()">
+            
+            <div id="gen-fields-frame">
+              <div style="margin-bottom: 5px;">
+                <label style="display:inline-block; width: 40px;">Nx:</label>
+                <input type="number" id="gen-nx" value="2" min="1" style="width: 50px;" oninput="generateTemplate()">
+                <label style="display:inline-block; width: 40px;">Lx (m):</label>
+                <input type="number" id="gen-lx" value="4" step="0.5" style="width: 60px;" oninput="generateTemplate()">
+              </div>
+              <div style="margin-bottom: 5px;">
+                <label style="display:inline-block; width: 40px;">Ny:</label>
+                <input type="number" id="gen-ny" value="2" min="1" style="width: 50px;" oninput="generateTemplate()">
+                <label style="display:inline-block; width: 40px;">Ly (m):</label>
+                <input type="number" id="gen-ly" value="3" step="0.5" style="width: 60px;" oninput="generateTemplate()">
+              </div>
             </div>
-            <div style="margin-bottom: 5px;">
-              <label style="display:inline-block; width: 40px;">Ny:</label>
-              <input type="number" id="gen-ny" value="2" min="1" style="width: 50px;" oninput="generateTemplate()">
-              <label style="display:inline-block; width: 40px;">Ly (m):</label>
-              <input type="number" id="gen-ly" value="3" step="0.5" style="width: 60px;" oninput="generateTemplate()">
+
+            <div id="gen-fields-truss" style="display:none; font-size:11px;">
+              <div style="margin-bottom: 4px;">
+                <select id="gen-truss-type" style="width: 100%;" onchange="generateTemplate()">
+                  <option value="pratt_sym">Pratt Truss (Standard)</option>
+                  <option value="howe_sym">Howe Truss (Standard)</option>
+                  <option value="warren_sym">Warren Truss</option>
+                  <option value="pratt_flat">Pratt Flat Truss</option>
+                  <option value="howe_flat">Howe Flat Truss</option>
+                  <option value="warren_flat">Warren Flat Truss</option>
+                  <option value="fink">Fink Truss</option>
+                  <option value="scissor_sym">Scissor Truss</option>
+                  <option value="bow_string">Bow String Truss</option>
+                  <option value="barrel">Barrel Truss</option>
+                </select>
+              </div>
+              <table style="width: 100%; font-size: 11px; margin-bottom: 4px;" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="width:50px;">Panels:</td>
+                  <td><input type="number" id="gen-truss-n" value="10" min="2" step="2" style="width:35px;" oninput="generateTemplate()"></td>
+                  <td style="width:40px;">L (m):</td>
+                  <td style="text-align:right;"><input type="number" id="gen-truss-l" value="1.0" step="0.1" style="width:40px;" oninput="generateTemplate()"></td>
+                </tr>
+                <tr>
+                  <td>Mid H:</td>
+                  <td><input type="number" id="gen-truss-hm" value="1.5" step="0.1" style="width:35px;" oninput="generateTemplate()"></td>
+                  <td>End H:</td>
+                  <td style="text-align:right;"><input type="number" id="gen-truss-he" value="0.5" step="0.1" style="width:40px;" oninput="generateTemplate()"></td>
+                </tr>
+                <tr>
+                  <td>Col H:</td>
+                  <td><input type="number" id="gen-truss-hc" value="4.0" step="0.5" style="width:35px;" oninput="generateTemplate()"></td>
+                  <td>Bot H:</td>
+                  <td style="text-align:right;"><input type="number" id="gen-truss-hb" value="0.5" step="0.1" style="width:40px;" oninput="generateTemplate()"></td>
+                </tr>
+              </table>
+              <div style="margin-bottom: 4px;">
+                <label>Truss Connections: </label>
+                <select id="gen-truss-conn" style="width: 100%;" onchange="generateTemplate()">
+                  <option value="Rigid-Rigid">Rigid (Welded)</option>
+                  <option value="Pin-Pin">Pinned (Bolted/Hybrid)</option>
+                </select>
+              </div>
             </div>
+
             <div style="text-align: right; margin-top: 10px;">
               <button onclick="generateTemplate()">Generate</button>
             </div>
@@ -187,11 +243,12 @@
           <legend onclick="toggleGroup('grp-sec')">▼ Sections Calculator</legend>
           <div id="grp-sec" class="collapsible-body open">
             <div style="display:flex; gap:4px; margin-bottom:4px;">
-              <button class="soft" onclick="addSectionRow(1, 20000000, 100, 1000)" style="flex:1; font-size:10px;">+ Add Custom Section</button>
+              <button class="soft" onclick="addSectionRow(1, '', 20000000, 100, 1000)" style="flex:1; font-size:10px;">+ Add Custom Section</button>
               <button class="ghost" onclick="openSectionCalc()" style="flex:1; font-size:10px;">Calculator (A, I)</button>
+              <button class="soft" onclick="openSectionDB()" style="flex:1; font-size:10px; background:var(--go); color:white; border:none;">Import Section DB</button>
             </div>
             <table id="tbl-sections">
-              <thead><tr><th>ID</th><th>E (kg/m²)</th><th>A (cm²)</th><th>I (cm⁴)</th><th>Density (kg/m³)</th><th></th></tr></thead>
+              <thead><tr><th>ID</th><th>Name</th><th>E (kg/m²)</th><th>A (cm²)</th><th>I (cm⁴)</th><th>Density (kg/m³)</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -312,6 +369,7 @@
           <div style="position: absolute; top: 10px; right: 10px; z-index: 10; background: rgba(255,255,255,0.9); padding: 5px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; display: flex; gap: 10px;">
             <label><input type="checkbox" id="chk-nodes" checked onchange="drawPreview(); drawDiagrams();"> Node Labels</label>
             <label><input type="checkbox" id="chk-members" checked onchange="drawPreview(); drawDiagrams();"> Member Labels</label>
+            <label><input type="checkbox" id="chk-sections" onchange="drawPreview(); drawDiagrams();"> Section Labels</label>
             <label><input type="checkbox" id="chk-reactions" checked onchange="drawPreview(); drawDiagrams();"> Reactions</label>
             <label><input type="checkbox" id="chk-comb-eq" checked onchange="drawDiagrams();"> Combo Eq</label>
           </div>
@@ -334,6 +392,20 @@
           </div>
 
           <div id="tab-preview" class="tab-content active" style="position: relative; width: 100%; height: 100%;">
+            <div id="preview-loadcases" style="position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(255,255,255,0.9); padding: 5px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; display: flex; gap: 10px; flex-wrap: wrap; max-width: 50%;">
+              <!-- Load cases generated here -->
+            </div>
+            
+            <div id="canvas-tools" style="position: absolute; top: 50px; left: 10px; z-index: 10; background: rgba(255,255,255,0.9); padding: 5px; border: 1px solid #ccc; border-radius: 4px; display: flex; flex-direction: column; gap: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+              <button class="tool-btn active" id="tool-pan" title="Pan (Hand)" onclick="setInteractionMode('pan')">✋ Pan</button>
+              <button class="tool-btn" id="tool-select" title="Select / Box Select" onclick="setInteractionMode('select')">🖱️ Select</button>
+              <button class="tool-btn" id="tool-draw-node" title="Draw Node" onclick="setInteractionMode('draw_node')">➕ Node</button>
+              <button class="tool-btn" id="tool-draw-elem" title="Draw Member" onclick="setInteractionMode('draw_elem')">📏 Member</button>
+              <hr style="margin: 2px 0; border: 0; border-top: 1px solid #ccc;">
+              <select id="active-draw-section" title="Active Section for Drawing" style="font-size: 10px; padding: 2px; width: 80px;"></select>
+              <hr style="margin: 2px 0; border: 0; border-top: 1px solid #ccc;">
+              <button class="tool-btn danger" id="tool-delete" title="Delete Selected (Del)" onclick="deleteSelectedItems()">❌ Delete</button>
+            </div>
             <canvas id="canvas-preview"></canvas>
           </div>
           <div id="tab-result" class="tab-content"><div id="result-text-area" style="font-family:monospace; white-space:pre-wrap;">Results will appear here...</div></div>
@@ -346,8 +418,9 @@
               <label><input type="radio" name="diag-type" value="sfd" onchange="drawDiagrams()"> Shear Force (SFD)</label>
               <label><input type="radio" name="diag-type" value="bmd" onchange="drawDiagrams()"> Bending Moment (BMD)</label>
               <label><input type="radio" name="diag-type" value="def" onchange="drawDiagrams()"> Deformation</label>
-              <div style="flex-grow:1;"></div>
+              <div style="width: 20px;"></div>
               <label style="font-size:11px;">Scale: <input type="range" id="diag-scale" min="0.1" max="5.0" step="0.1" value="1.0" oninput="drawDiagrams()" style="vertical-align:middle;"></label>
+              <div style="flex-grow:1;"></div>
             </div>
             <canvas id="canvas-diagrams" style="width:100%; height:calc(100% - 30px); border:1px solid #ddd;"></canvas>
           </div>
@@ -384,18 +457,180 @@
     </div>
   </div>
 
+  <div id="modal-secdb" class="modal-overlay">
+    <div class="modal-box" style="width: 500px; max-width: 90vw;">
+      <div style="font-weight:800; margin-bottom:10px; color:var(--graphite);">Section Database</div>
+      <div class="row">
+        <label>Category</label>
+        <select id="secdb-category" onchange="renderSecDBTable()">
+          <option value="H-Beam">H-Beam (I-Section)</option>
+          <option value="Pipe">Pipe (Circular Hollow)</option>
+        </select>
+      </div>
+      <div style="max-height: 300px; overflow-y: auto; margin-top: 10px; border: 1px solid var(--line);">
+        <table id="tbl-secdb" style="width: 100%; font-size: 11px;">
+          <thead>
+            <tr><th>Select</th><th>Name</th><th>Area (cm²)</th><th>Ixx (cm⁴)</th><th>Weight (kg/m)</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:14px;">
+        <button class="ghost" onclick="closeSectionDB()">Cancel</button>
+        <button class="primary" onclick="applySectionDB()">Import Selected</button>
+      </div>
+    </div>
+  </div>
+
   <script>
+    const SECTION_DATABASE = {
+      "H-Beam": [
+        { name: "H-150x150x7x10", a: 40.14, i: 1640, e: 2e10, density: 7850, shape: { type: "I-Section", h: 0.15, b: 0.15, tw: 0.007, tf: 0.010 } },
+        { name: "H-200x200x8x12", a: 63.53, i: 4720, e: 2e10, density: 7850, shape: { type: "I-Section", h: 0.20, b: 0.20, tw: 0.008, tf: 0.012 } },
+        { name: "H-250x250x9x14", a: 92.18, i: 10800, e: 2e10, density: 7850, shape: { type: "I-Section", h: 0.25, b: 0.25, tw: 0.009, tf: 0.014 } },
+        { name: "H-300x150x6.5x9", a: 46.78, i: 7210, e: 2e10, density: 7850, shape: { type: "I-Section", h: 0.30, b: 0.15, tw: 0.0065, tf: 0.009 } },
+        { name: "H-300x300x10x15", a: 119.8, i: 20400, e: 2e10, density: 7850, shape: { type: "I-Section", h: 0.30, b: 0.30, tw: 0.010, tf: 0.015 } },
+        { name: "H-400x200x8x13", a: 84.12, i: 23700, e: 2e10, density: 7850, shape: { type: "I-Section", h: 0.40, b: 0.20, tw: 0.008, tf: 0.013 } }
+      ],
+      "Pipe": [
+        { name: "Pipe-65x3.2", a: 7.35, i: 48.9, e: 2e10, density: 7850, shape: { type: "Pipe", d: 0.0763, t: 0.0032 } },
+        { name: "Pipe-100x3.2", a: 11.17, i: 171.1, e: 2e10, density: 7850, shape: { type: "Pipe", d: 0.1143, t: 0.0032 } },
+        { name: "Pipe-100x4.5", a: 15.54, i: 233, e: 2e10, density: 7850, shape: { type: "Pipe", d: 0.1143, t: 0.0045 } },
+        { name: "Pipe-150x4.5", a: 22.72, i: 736, e: 2e10, density: 7850, shape: { type: "Pipe", d: 0.1652, t: 0.0045 } },
+        { name: "Pipe-200x6.0", a: 39.64, i: 2195, e: 2e10, density: 7850, shape: { type: "Pipe", d: 0.2163, t: 0.0060 } }
+      ]
+    };
+
+    function openSectionDB() {
+      document.getElementById('modal-secdb').style.display = 'flex';
+      renderSecDBTable();
+    }
+    function closeSectionDB() {
+      document.getElementById('modal-secdb').style.display = 'none';
+    }
+    function renderSecDBTable() {
+      let cat = document.getElementById('secdb-category').value;
+      let tbody = document.querySelector('#tbl-secdb tbody');
+      tbody.innerHTML = '';
+      if (!SECTION_DATABASE[cat]) return;
+      SECTION_DATABASE[cat].forEach((item, idx) => {
+        let weight = (item.a / 10000 * item.density).toFixed(1);
+        let tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td style="text-align:center;"><input type="checkbox" data-idx="${idx}"></td>
+          <td>${item.name}</td>
+          <td>${item.a}</td>
+          <td>${item.i}</td>
+          <td>${weight}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+    function applySectionDB() {
+      let cat = document.getElementById('secdb-category').value;
+      let checkboxes = document.querySelectorAll('#tbl-secdb tbody input[type="checkbox"]:checked');
+      checkboxes.forEach(chk => {
+        let idx = chk.getAttribute('data-idx');
+        let item = SECTION_DATABASE[cat][idx];
+        addSectionRow(secIdCounter++, item.name, item.e, item.a, item.i, item.density, JSON.stringify(item.shape));
+      });
+      closeSectionDB();
+    }
     let previewCam = { x: 0, y: 0, scale: 1 };
     let diagramCam = { x: 0, y: 0, scale: 1 };
     let isPanning = false, isZoomWindowing = false, isZoomWindowMode = false;
     let startX = 0, startY = 0, currentX = 0, currentY = 0;
     let hasAutoZoomedPreview = false, hasAutoZoomedDiagram = false;
 
+    // Interactive Canvas State
+    let interactionMode = 'pan'; // pan, select, draw_node, draw_elem
+    let selectedItems = { nodes: [], elements: [] };
+    let drawStartNode = null;
+    let tempMouseX = 0, tempMouseY = 0;
+
+    function setInteractionMode(mode) {
+      interactionMode = mode;
+      document.querySelectorAll('#canvas-tools .tool-btn').forEach(btn => btn.classList.remove('active'));
+      let btnId = 'tool-' + mode.replace('_', '-');
+      let btn = document.getElementById(btnId);
+      if (btn) btn.classList.add('active');
+      drawStartNode = null;
+      drawPreview();
+    }
+
+    function deleteSelectedItems() {
+      selectedItems.elements.forEach(id => removeElement(id));
+      selectedItems.nodes.forEach(id => removeNode(id));
+      selectedItems = { nodes: [], elements: [] };
+      drawPreview();
+    }
     function getActiveCanvasId() {
       if(document.getElementById('tab-preview').classList.contains('active')) return 'canvas-preview';
       if(document.getElementById('tab-diagrams').classList.contains('active')) return 'canvas-diagrams';
       return null;
     }
+
+    function getScreenToWorld(canvas, e) {
+      let cam = canvas.id === 'canvas-diagrams' ? diagramCam : previewCam;
+      let rect = canvas.getBoundingClientRect();
+      let cx = e.clientX - rect.left - rect.width/2;
+      let cy = -(e.clientY - rect.top - rect.height/2);
+      let wx = (cx - cam.x) / cam.scale;
+      let wy = (cy - cam.y) / cam.scale;
+      return { x: wx, y: wy };
+    }
+    
+    function findNodeAt(wx, wy, threshold = 0.5) {
+      let nodes = getNodes();
+      let bestNode = null;
+      let minDist = threshold;
+      nodes.forEach(n => {
+        let d = Math.hypot(n.x - wx, n.y - wy);
+        if (d < minDist) { minDist = d; bestNode = n; }
+      });
+      return bestNode;
+    }
+
+    function distPointToSegment(px, py, x1, y1, x2, y2) {
+      let l2 = (x2-x1)*(x2-x1) + (y2-y1)*(y2-y1);
+      if (l2 == 0) return Math.hypot(px-x1, py-y1);
+      let t = Math.max(0, Math.min(1, ((px-x1)*(x2-x1) + (py-y1)*(y2-y1)) / l2));
+      let projX = x1 + t * (x2-x1);
+      let projY = y1 + t * (y2-y1);
+      return Math.hypot(px-projX, py-projY);
+    }
+
+    function findElementAt(wx, wy, threshold = 0.5) {
+      let nodes = getNodes();
+      let elements = getElements();
+      let bestElem = null;
+      let minDist = threshold;
+      elements.forEach(el => {
+        let n1 = nodes.find(n => n.id === el.n1);
+        let n2 = nodes.find(n => n.id === el.n2);
+        if(n1 && n2) {
+          let d = distPointToSegment(wx, wy, n1.x, n1.y, n2.x, n2.y);
+          if (d < minDist) { minDist = d; bestElem = el; }
+        }
+      });
+      return bestElem;
+    }
+
+    window.addEventListener('keydown', e => {
+      if (e.key === 'Delete') {
+        if (selectedItems.nodes.length > 0 || selectedItems.elements.length > 0) {
+          deleteSelectedItems();
+        }
+      } else if (e.key === 'Escape') {
+        if (interactionMode !== 'pan') {
+          setInteractionMode('pan');
+        } else {
+          selectedItems = { nodes: [], elements: [] };
+          drawPreview();
+        }
+      }
+    });
+
     function getActiveCam() {
       return getActiveCanvasId() === 'canvas-diagrams' ? diagramCam : previewCam;
     }
@@ -433,14 +668,64 @@
       canvas.addEventListener('mousedown', e => {
         if(e.button === 1 || e.button === 2) { 
           e.preventDefault(); isPanning = true; startX = e.clientX; startY = e.clientY;
-        } else if(e.button === 0 && isZoomWindowMode) {
-          isZoomWindowing = true;
-          let rect = canvas.getBoundingClientRect();
-          startX = e.clientX - rect.left; startY = e.clientY - rect.top;
-          currentX = startX; currentY = startY;
-        } else if(e.button === 0 && !isZoomWindowMode) {
-          // Fallback to pan for left click if not in zoom mode, for user convenience
-          e.preventDefault(); isPanning = true; startX = e.clientX; startY = e.clientY;
+          return;
+        }
+        
+        let rect = canvas.getBoundingClientRect();
+        if(e.button === 0) {
+          if (isZoomWindowMode) {
+            isZoomWindowing = true;
+            startX = e.clientX - rect.left; startY = e.clientY - rect.top;
+            currentX = startX; currentY = startY;
+            return;
+          }
+          
+          if (interactionMode === 'pan') {
+            e.preventDefault(); isPanning = true; startX = e.clientX; startY = e.clientY;
+          } else if (canvasId === 'canvas-preview') {
+            let worldPos = getScreenToWorld(canvas, e);
+            let dx = parseFloat(document.getElementById('grid-dx').value) || 1.0;
+            let dy = parseFloat(document.getElementById('grid-dy').value) || 1.0;
+            let snapX = Math.round(worldPos.x / dx) * dx;
+            let snapY = Math.round(worldPos.y / dy) * dy;
+            
+            if (interactionMode === 'select') {
+              let node = findNodeAt(worldPos.x, worldPos.y, 0.5);
+              let elem = null;
+              if (!node) elem = findElementAt(worldPos.x, worldPos.y, 0.5);
+              
+              if (!e.shiftKey) selectedItems = { nodes: [], elements: [] };
+              if (node) {
+                if (!selectedItems.nodes.includes(node.id)) selectedItems.nodes.push(node.id);
+              } else if (elem) {
+                if (!selectedItems.elements.includes(elem.id)) selectedItems.elements.push(elem.id);
+              } else {
+                isZoomWindowing = true;
+                startX = e.clientX - rect.left; startY = e.clientY - rect.top;
+                currentX = startX; currentY = startY;
+              }
+              drawPreview();
+            } else if (interactionMode === 'draw_node') {
+              addNodeRow(snapX, snapY, 'Free');
+            } else if (interactionMode === 'draw_elem') {
+              let node = findNodeAt(worldPos.x, worldPos.y, 0.5);
+              if (!node) {
+                addNodeRow(snapX, snapY, 'Free');
+                node = {id: nodeIdCounter - 1, x: snapX, y: snapY};
+              }
+              if (!drawStartNode) {
+                drawStartNode = node;
+                tempMouseX = node.x; tempMouseY = node.y;
+              } else {
+                let secId = parseInt(document.getElementById('active-draw-section').value) || 1;
+                if (node.id !== drawStartNode.id) {
+                  addElementRow(drawStartNode.id, node.id, secId, 'Rigid-Rigid');
+                }
+                drawStartNode = null;
+              }
+              drawPreview();
+            }
+          }
         }
       });
       canvas.addEventListener('mousemove', e => {
@@ -454,6 +739,18 @@
           let rect = canvas.getBoundingClientRect();
           currentX = e.clientX - rect.left; currentY = e.clientY - rect.top;
           if(canvasId === 'canvas-diagrams') drawDiagrams(); else drawPreview();
+        } else if(interactionMode === 'draw_elem' && drawStartNode && canvasId === 'canvas-preview') {
+          let worldPos = getScreenToWorld(canvas, e);
+          let dx = parseFloat(document.getElementById('grid-dx').value) || 1.0;
+          let dy = parseFloat(document.getElementById('grid-dy').value) || 1.0;
+          let node = findNodeAt(worldPos.x, worldPos.y, 0.5);
+          if (node) {
+            tempMouseX = node.x; tempMouseY = node.y;
+          } else {
+            tempMouseX = Math.round(worldPos.x / dx) * dx; 
+            tempMouseY = Math.round(worldPos.y / dy) * dy;
+          }
+          drawPreview();
         }
       });
       canvas.addEventListener('mouseup', e => {
@@ -463,19 +760,55 @@
           let cam = canvasId === 'canvas-diagrams' ? diagramCam : previewCam;
           let rect = canvas.getBoundingClientRect();
           let w = Math.abs(currentX - startX), h = Math.abs(currentY - startY);
-          if(w > 10 && h > 10) {
-            let cx = (startX + currentX) / 2 - rect.width/2;
-            let cy = -( (startY + currentY) / 2 - rect.height/2 );
-            let worldCX = (cx - cam.x) / cam.scale;
-            let worldCY = (cy - cam.y) / cam.scale;
-            let zoom = Math.min(rect.width / w, rect.height / h);
-            cam.scale *= zoom;
-            cam.x = -worldCX * cam.scale;
-            cam.y = -worldCY * cam.scale;
+          
+          if (isZoomWindowMode) {
+              if(w > 10 && h > 10) {
+                let cx = (startX + currentX) / 2 - rect.width/2;
+                let cy = -( (startY + currentY) / 2 - rect.height/2 );
+                let worldCX = (cx - cam.x) / cam.scale;
+                let worldCY = (cy - cam.y) / cam.scale;
+                let zoom = Math.min(rect.width / w, rect.height / h);
+                cam.scale *= zoom;
+                cam.x = -worldCX * cam.scale;
+                cam.y = -worldCY * cam.scale;
+              }
+              isZoomWindowMode = false;
+              document.getElementById('btn-zoom-win').style.background = '';
+              if(canvasId === 'canvas-diagrams') drawDiagrams(); else drawPreview();
+          } else if (interactionMode === 'select' && canvasId === 'canvas-preview') {
+             if(w > 10 && h > 10) {
+               let minX = Math.min(startX, currentX) - rect.width/2;
+               let maxX = Math.max(startX, currentX) - rect.width/2;
+               let minY = -(Math.max(startY, currentY) - rect.height/2);
+               let maxY = -(Math.min(startY, currentY) - rect.height/2);
+               
+               let wMinX = (minX - cam.x) / cam.scale;
+               let wMaxX = (maxX - cam.x) / cam.scale;
+               let wMinY = (minY - cam.y) / cam.scale;
+               let wMaxY = (maxY - cam.y) / cam.scale;
+               
+               if (!e.shiftKey) selectedItems = { nodes: [], elements: [] };
+               
+               getNodes().forEach(n => {
+                 if (n.x >= wMinX && n.x <= wMaxX && n.y >= wMinY && n.y <= wMaxY) {
+                   if (!selectedItems.nodes.includes(n.id)) selectedItems.nodes.push(n.id);
+                 }
+               });
+               
+               getElements().forEach(el => {
+                 let n1 = getNodes().find(n => n.id === el.n1);
+                 let n2 = getNodes().find(n => n.id === el.n2);
+                 if (n1 && n2) {
+                   let midX = (n1.x + n2.x) / 2;
+                   let midY = (n1.y + n2.y) / 2;
+                   if (midX >= wMinX && midX <= wMaxX && midY >= wMinY && midY <= wMaxY) {
+                     if (!selectedItems.elements.includes(el.id)) selectedItems.elements.push(el.id);
+                   }
+                 }
+               });
+               drawPreview();
+             }
           }
-          isZoomWindowMode = false;
-          document.getElementById('btn-zoom-win').style.background = '';
-          if(canvasId === 'canvas-diagrams') drawDiagrams(); else drawPreview();
         }
       });
       canvas.addEventListener('mouseleave', e => {
@@ -585,7 +918,7 @@
       let shape = document.getElementById('calc-shape').value;
       let e = shape === 'rect' ? 2000000000 : 20000000000;
       let den = shape === 'rect' ? 2400 : 7850;
-      addSectionRow(secIdCounter, e, a, i, den);
+      addSectionRow(secIdCounter, '', e, a, i, den);
       closeSectionCalc();
     }
     function toggleGroup(id) {
@@ -612,27 +945,78 @@
     let nodeIdCounter = 1;
     let elemIdCounter = 1;
 
-    function addSectionRow(id, e, a, i, density) {
+    function updateActiveSectionDropdown() {
+      let select = document.getElementById('active-draw-section');
+      if (!select) return;
+      let currentVal = select.value;
+      select.innerHTML = '';
+      let sections = getSections();
+      sections.forEach(sec => {
+        let opt = document.createElement('option');
+        opt.value = sec.id;
+        opt.textContent = sec.id + ': ' + sec.name;
+        select.appendChild(opt);
+      });
+      if (currentVal && sections.find(s => s.id == currentVal)) {
+        select.value = currentVal;
+      }
+    }
+
+    function addSectionRow(id, name, e, a, i, density, shapeStr) {
       if (density === undefined) density = 2400;
       let tbody = document.querySelector('#tbl-sections tbody');
       let tr = document.createElement('tr');
+      if (shapeStr) tr.setAttribute('data-shape', shapeStr);
+      let defaultName = name || `Sec ${id || secIdCounter}`;
       tr.innerHTML = `
         <td>${id || secIdCounter++}</td>
-        <td><input type="number" value="${e}"></td>
-        <td><input type="number" value="${a}"></td>
-        <td><input type="number" value="${i}"></td>
-        <td><input type="number" value="${density}"></td>
-        <td><button class="danger" onclick="this.closest('tr').remove(); drawPreview()">X</button></td>
+        <td><input type="text" value="${defaultName}" style="width: 100px;" onchange="updateActiveSectionDropdown(); drawPreview()"></td>
+        <td><input type="number" value="${e}" style="width: 80px;"></td>
+        <td><input type="number" value="${a}" style="width: 60px;"></td>
+        <td><input type="number" value="${i}" style="width: 70px;"></td>
+        <td><input type="number" value="${density}" style="width: 60px;"></td>
+        <td><button class="danger" onclick="this.closest('tr').remove(); updateActiveSectionDropdown(); drawPreview()">X</button></td>
       `;
       tbody.appendChild(tr);
+      updateActiveSectionDropdown();
       drawPreview();
+    }
+
+    function removeNode(id) {
+      let rows = document.querySelectorAll('#tbl-nodes tbody tr');
+      for (let r of rows) {
+        if (parseInt(r.children[0].textContent) === id) {
+          r.remove();
+          break;
+        }
+      }
+      // Also remove elements connected to this node
+      let elRows = document.querySelectorAll('#tbl-elements tbody tr');
+      for (let r of elRows) {
+        let n1 = parseInt(r.children[1].querySelector('input').value);
+        let n2 = parseInt(r.children[2].querySelector('input').value);
+        if (n1 === id || n2 === id) {
+          r.remove();
+        }
+      }
+    }
+
+    function removeElement(id) {
+      let rows = document.querySelectorAll('#tbl-elements tbody tr');
+      for (let r of rows) {
+        if (parseInt(r.children[0].textContent) === id) {
+          r.remove();
+          break;
+        }
+      }
     }
 
     function addNodeRow(x, y, support) {
       let tbody = document.querySelector('#tbl-nodes tbody');
       let tr = document.createElement('tr');
+      let newId = nodeIdCounter++;
       tr.innerHTML = `
-        <td>${nodeIdCounter++}</td>
+        <td>${newId}</td>
         <td><input type="number" value="${x}" onchange="drawPreview()"></td>
         <td><input type="number" value="${y}" onchange="drawPreview()"></td>
         <td>
@@ -654,8 +1038,9 @@
       if (release === undefined) release = 'Rigid-Rigid';
       let tbody = document.querySelector('#tbl-elements tbody');
       let tr = document.createElement('tr');
+      let newId = elemIdCounter++;
       tr.innerHTML = `
-        <td>${elemIdCounter++}</td>
+        <td>${newId}</td>
         <td><input type="number" value="${n1}" onchange="drawPreview()"></td>
         <td><input type="number" value="${n2}" onchange="drawPreview()"></td>
         <td><input type="number" value="${sec}" onchange="drawPreview()"></td>
@@ -738,6 +1123,12 @@
           select.value = currentVal;
         }
       });
+      let previewCasesContainer = document.getElementById('preview-loadcases');
+      if (previewCasesContainer) {
+        let checkedCases = {};
+        previewCasesContainer.querySelectorAll('input').forEach(chk => { checkedCases[chk.value] = chk.checked; });
+        previewCasesContainer.innerHTML = cases.map(c => `<label><input type="checkbox" class="chk-preview-case" value="${c}" ${checkedCases[c] !== false ? 'checked' : ''} onchange="drawPreview()"> ${c}</label>`).join('');
+      }
       updateComboMatrixColumns();
       drawPreview();
     }
@@ -905,7 +1296,18 @@
       let eloads = getELoads();
       let showNodes = document.getElementById('chk-nodes').checked;
       let showMembers = document.getElementById('chk-members').checked;
+      let showSections = document.getElementById('chk-sections') && document.getElementById('chk-sections').checked;
       let showReactions = document.getElementById('chk-reactions').checked;
+      
+      let previewCasesContainer = document.getElementById('preview-loadcases');
+      let checkedPreviewCases = {};
+      if (previewCasesContainer) {
+          previewCasesContainer.querySelectorAll('.chk-preview-case').forEach(chk => {
+              checkedPreviewCases[chk.value] = chk.checked;
+          });
+          eloads = eloads.filter(ld => checkedPreviewCases[ld.lcase] !== false);
+          nloads = nloads.filter(ld => checkedPreviewCases[ld.lcase] !== false);
+      }
       
       if(nodes.length === 0) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -937,17 +1339,45 @@
       function projY(y) { return previewCam.y + y * previewCam.scale; }
 
       ctx.lineWidth = 3;
-      ctx.strokeStyle = '#2c3e50';
       elements.forEach(el => {
+        ctx.strokeStyle = selectedItems && selectedItems.elements.includes(el.id) ? '#f1c40f' : '#2c3e50';
         let n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
         if(n1 && n2) {
           ctx.beginPath();
           ctx.moveTo(projX(n1.x), projY(n1.y));
           ctx.lineTo(projX(n2.x), projY(n2.y));
           ctx.stroke();
-          if (showMembers) {
-            ctx.save(); ctx.scale(1, -1); ctx.fillStyle = '#2980b9'; ctx.font = '12px Arial'; ctx.textAlign = 'center';
-            ctx.fillText("M"+el.id, projX((n1.x+n2.x)/2), -projY((n1.y+n2.y)/2) - 10); ctx.restore();
+          if (showMembers || showSections) {
+            ctx.save();
+            ctx.scale(1, -1);
+            let midX = projX((n1.x+n2.x)/2);
+            let midY = -projY((n1.y+n2.y)/2);
+            let dx = projX(n2.x) - projX(n1.x);
+            let dy = -projY(n2.y) - (-projY(n1.y));
+            let angle = Math.atan2(dy, dx);
+            if (angle > Math.PI/2 || angle <= -Math.PI/2) angle += Math.PI;
+            ctx.translate(midX, midY);
+            ctx.rotate(angle);
+            
+            let txtM = "M"+el.id;
+            let secName = getSections().find(s => s.id === el.sec)?.name || ("Sec " + el.sec);
+            ctx.font = '12px Arial'; let w1 = showMembers ? ctx.measureText(txtM).width : 0;
+            ctx.font = '10px Arial'; let w2 = showSections ? ctx.measureText(secName).width : 0;
+            let w = Math.max(w1, w2) + 8;
+            let h = (showMembers ? 14 : 0) + (showSections ? 12 : 0) + 4;
+            
+            ctx.fillStyle = 'rgba(255,255,255,0.7)';
+            ctx.fillRect(-w/2, -h - 6, w, h);
+
+            if (showMembers) {
+              ctx.fillStyle = '#2980b9'; ctx.font = '12px Arial'; ctx.textAlign = 'center';
+              ctx.fillText(txtM, 0, -18);
+            }
+            if (showSections) {
+              ctx.fillStyle = '#16a085'; ctx.font = '10px Arial'; ctx.textAlign = 'center';
+              ctx.fillText(secName, 0, showMembers ? -6 : -18);
+            }
+            ctx.restore();
           }
         }
       });
@@ -971,7 +1401,8 @@
           ctx.fill();
         }
         ctx.beginPath(); ctx.arc(projX(n.x), projY(n.y), 4, 0, Math.PI*2);
-        ctx.fillStyle = '#fff'; ctx.fill(); ctx.stroke();
+        ctx.fillStyle = selectedItems && selectedItems.nodes.includes(n.id) ? '#f1c40f' : '#fff'; 
+        ctx.fill(); ctx.stroke();
         if (showNodes) {
           ctx.save(); ctx.scale(1, -1); ctx.fillStyle = '#000'; ctx.font = 'bold 12px Arial';
           ctx.fillText("N"+n.id, projX(n.x) + 10, -projY(n.y) + 15); ctx.restore();
@@ -1064,20 +1495,20 @@
         if(ld.dir === 'Local Y') {
           if (w1 === w2) {
             let sign = w1 < 0 ? 1 : -1;
-            ctx.fillText(w1 + " kg/m", (len*previewCam.scale)/2, sign > 0 ? -15 - 5 - txtYOff : 15 + 10 + txtYOff);
+            ctx.fillText(`${ld.lcase}=${w1} kg/m`, (len*previewCam.scale)/2, sign > 0 ? -15 - 5 - txtYOff : 15 + 10 + txtYOff);
           } else {
             let sign1 = w1 < 0 ? 1 : -1;
             let sign2 = w2 < 0 ? 1 : -1;
             let h1 = Math.abs(w1/maxW)*15;
             let h2 = Math.abs(w2/maxW)*15;
-            if (w1 !== 0) ctx.fillText(w1 + " kg/m", 0, sign1 > 0 ? -h1 - 5 - txtYOff : h1 + 10 + txtYOff);
-            if (w2 !== 0) ctx.fillText(w2 + " kg/m", len*previewCam.scale, sign2 > 0 ? -h2 - 5 - txtYOff : h2 + 10 + txtYOff);
+            if (w1 !== 0) ctx.fillText(`${ld.lcase}=${w1} kg/m`, 0, sign1 > 0 ? -h1 - 5 - txtYOff : h1 + 10 + txtYOff);
+            if (w2 !== 0) ctx.fillText(`${ld.lcase}=${w2} kg/m`, len*previewCam.scale, sign2 > 0 ? -h2 - 5 - txtYOff : h2 + 10 + txtYOff);
           }
         } else {
           let midGx = Math.cos(angle)*(len*previewCam.scale)/2;
           let midGy = Math.sin(angle)*(len*previewCam.scale)/2;
           let sign = w1 < 0 ? 1 : -1;
-          ctx.fillText(w1 + " kg/m", midGx, -midGy + (sign > 0 ? -15 - 5 - txtYOff : 15 + 10 + txtYOff));
+          ctx.fillText(`${ld.lcase}=${w1} kg/m`, midGx, -midGy + (sign > 0 ? -15 - 5 - txtYOff : 15 + 10 + txtYOff));
         }
         ctx.restore();
       });
@@ -1099,7 +1530,7 @@
           let xOff = stackIdx * 25 * sign;
           ctx.beginPath(); ctx.moveTo(-sign*arrowLen - xOff, 0); ctx.lineTo(-xOff, 0);
           ctx.lineTo(-sign*5 - xOff, 4); ctx.moveTo(-xOff,0); ctx.lineTo(-sign*5 - xOff, -4); ctx.stroke();
-          ctx.save(); ctx.scale(1, -1); ctx.fillText(ld.fx + " kg", -sign*arrowLen - 10 - xOff, -5); ctx.restore();
+          ctx.save(); ctx.scale(1, -1); ctx.fillText(`${ld.lcase}=${ld.fx} kg`, -sign*arrowLen - 10 - xOff, -5); ctx.restore();
         }
         if(Math.abs(ld.fy) > 0) {
           let sign = ld.fy > 0 ? 1 : -1;
@@ -1109,7 +1540,7 @@
           let yOff = stackIdx * 25 * sign;
           ctx.beginPath(); ctx.moveTo(0, -sign*arrowLen - yOff); ctx.lineTo(0, -yOff);
           ctx.lineTo(-4, -sign*5 - yOff); ctx.moveTo(0,-yOff); ctx.lineTo(4, -sign*5 - yOff); ctx.stroke();
-          ctx.save(); ctx.scale(1, -1); ctx.fillText(ld.fy + " kg", 15, sign*arrowLen + 5 + Math.abs(yOff)); ctx.restore();
+          ctx.save(); ctx.scale(1, -1); ctx.fillText(`${ld.lcase}=${ld.fy} kg`, 15, sign*arrowLen + 5 + Math.abs(yOff)); ctx.restore();
         }
         if(Math.abs(ld.mz) > 0) {
           let sign = ld.mz > 0 ? 1 : -1;
@@ -1120,7 +1551,7 @@
           
           ctx.beginPath(); ctx.arc(0, 0, 12 + rOff, 0, Math.PI); ctx.stroke();
           ctx.beginPath(); ctx.moveTo(12 + rOff, 0); ctx.lineTo(12 + rOff - sign*4, sign*5); ctx.stroke();
-          ctx.save(); ctx.scale(1, -1); ctx.fillText(ld.mz + " kg.m", 15 + rOff, -15 - rOff); ctx.restore();
+          ctx.save(); ctx.scale(1, -1); ctx.fillText(`${ld.lcase}=${ld.mz} kg.m`, 15 + rOff, -15 - rOff); ctx.restore();
         }
         ctx.restore();
       });
@@ -1173,6 +1604,20 @@
           ctx.restore();
         });
       }
+
+      if (interactionMode === 'draw_elem' && drawStartNode) {
+        ctx.beginPath();
+        ctx.moveTo(projX(drawStartNode.x), projY(drawStartNode.y));
+        ctx.lineTo(projX(tempMouseX), projY(tempMouseY));
+        ctx.strokeStyle = '#3498db';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(projX(tempMouseX), projY(tempMouseY), 5, 0, Math.PI*2);
+        ctx.fillStyle = '#3498db'; ctx.fill();
+      }
+
       ctx.restore();
       
       // Draw XY axis at bottom left
@@ -1186,6 +1631,15 @@
       ctx.fillStyle = 'red'; ctx.font = 'bold 12px Arial'; ctx.textAlign='left'; ctx.fillText("X", 35, 4);
       ctx.textAlign='center'; ctx.fillText("Y", 0, -35);
       ctx.restore();
+      
+      if (isZoomWindowing && getActiveCanvasId() === 'canvas-preview') {
+        ctx.save();
+        ctx.resetTransform();
+        ctx.strokeStyle = '#3498db'; ctx.fillStyle = 'rgba(52, 152, 219, 0.2)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.rect(startX, startY, currentX - startX, currentY - startY);
+        ctx.fill(); ctx.stroke();
+        ctx.restore();
+      }
     }
 
     function drawDiagrams() {
@@ -1238,14 +1692,43 @@
         ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1;
         let showMembers = document.getElementById('chk-members').checked;
         let showNodes = document.getElementById('chk-nodes').checked;
+        let showSections = document.getElementById('chk-sections') && document.getElementById('chk-sections').checked;
         
         elements.forEach(el => {
             let n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
             if(n1 && n2) { 
                 ctx.beginPath(); ctx.moveTo(projX(n1.x), projY(n1.y)); ctx.lineTo(projX(n2.x), projY(n2.y)); ctx.stroke(); 
-                if (showMembers) {
-                    ctx.save(); ctx.scale(1, -1); ctx.fillStyle = '#7f8c8d'; ctx.font = '10px Arial'; ctx.textAlign = 'center';
-                    ctx.fillText("M"+el.id, projX((n1.x+n2.x)/2), -projY((n1.y+n2.y)/2) - 5); ctx.restore();
+                if (showMembers || showSections) {
+                    ctx.save();
+                    ctx.scale(1, -1);
+                    let midX = projX((n1.x+n2.x)/2);
+                    let midY = -projY((n1.y+n2.y)/2);
+                    let dx = projX(n2.x) - projX(n1.x);
+                    let dy = -projY(n2.y) - (-projY(n1.y));
+                    let angle = Math.atan2(dy, dx);
+                    if (angle > Math.PI/2 || angle <= -Math.PI/2) angle += Math.PI;
+                    ctx.translate(midX, midY);
+                    ctx.rotate(angle);
+                    
+                    let txtM = "M"+el.id;
+                    let secName = getSections().find(s => s.id === el.sec)?.name || ("Sec " + el.sec);
+                    ctx.font = '10px Arial'; let w1 = showMembers ? ctx.measureText(txtM).width : 0;
+                    ctx.font = '9px Arial'; let w2 = showSections ? ctx.measureText(secName).width : 0;
+                    let w = Math.max(w1, w2) + 6;
+                    let h = (showMembers ? 12 : 0) + (showSections ? 10 : 0) + 4;
+                    
+                    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+                    ctx.fillRect(-w/2, -h - 3, w, h);
+
+                    if (showMembers) {
+                        ctx.fillStyle = '#7f8c8d'; ctx.font = '10px Arial'; ctx.textAlign = 'center';
+                        ctx.fillText(txtM, 0, -13);
+                    }
+                    if (showSections) {
+                        ctx.fillStyle = '#16a085'; ctx.font = '9px Arial'; ctx.textAlign = 'center';
+                        ctx.fillText(secName, 0, showMembers ? -4 : -13);
+                    }
+                    ctx.restore();
                 }
             }
         });
@@ -1275,7 +1758,7 @@
             ctx.save();
             ctx.resetTransform();
             ctx.fillStyle = '#2c3e50'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'right';
-            ctx.fillText(eqText, canvas.width - 20, 30);
+            ctx.fillText(eqText, canvas.width - 20, canvas.height - 20);
             ctx.restore();
         }
 
@@ -1575,19 +2058,34 @@
         }
         
         ctx.restore();
+        
+        if (isZoomWindowing && getActiveCanvasId() === 'canvas-diagrams') {
+          ctx.save();
+          ctx.resetTransform();
+          ctx.strokeStyle = '#3498db'; ctx.fillStyle = 'rgba(52, 152, 219, 0.2)'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.rect(startX, startY, currentX - startX, currentY - startY);
+          ctx.fill(); ctx.stroke();
+          ctx.restore();
+        }
     }
 
     function getSections() {
       let secs = [];
       document.querySelectorAll('#tbl-sections tbody tr').forEach(tr => {
         let inputs = tr.querySelectorAll('input');
-        secs.push({
+        let secObj = {
           id: parseInt(tr.cells[0].innerText),
-          e: parseFloat(inputs[0].value),
-          a: parseFloat(inputs[1].value),
-          i: parseFloat(inputs[2].value),
-          density: parseFloat(inputs[3].value)
-        });
+          name: inputs[0].value,
+          e: parseFloat(inputs[1].value),
+          a: parseFloat(inputs[2].value),
+          i: parseFloat(inputs[3].value),
+          density: parseFloat(inputs[4].value)
+        };
+        let shapeAttr = tr.getAttribute('data-shape');
+        if (shapeAttr) {
+          try { secObj.shape = JSON.parse(shapeAttr); } catch(e){}
+        }
+        secs.push(secObj);
       });
       return secs;
     }
@@ -1701,7 +2199,9 @@
         }
   
         document.querySelector('#tbl-sections tbody').innerHTML = '';
-        if(data.sections) { data.sections.forEach(s => addSectionRow(s.id, s.e, s.a, s.i, s.density)); }
+        if(data.sections) { 
+          data.sections.forEach(s => addSectionRow(s.id, s.name, s.e, s.a, s.i, s.density, s.shape ? JSON.stringify(s.shape) : null)); 
+        }
   
         document.querySelector('#tbl-nodes tbody').innerHTML = '';
         if(data.nodes) { data.nodes.forEach(n => addNodeRow(n.x, n.y, n.support)); }
@@ -2180,32 +2680,295 @@
       generateTemplate();
     }
 
+    // ==========================================
+    // TRUSS GEOMETRY GENERATOR (Ported from gotruss)
+    // ==========================================
+    function generateTrussGeometry(params) {
+        let n = parseInt(params.N) || 10;
+        let l = parseFloat(params.L) || 0.5;
+        let type = params.truss_type || 'pratt_sym';
+        
+        let he = parseFloat(params.He); if(isNaN(he)) he = 0.5;
+        let hm = parseFloat(params.Hm) || 1.5;
+        let hb = parseFloat(params.Hb) || 0.5;
+        let hs = parseFloat(params.Hs); if(isNaN(hs)) hs = 2.0;
+        
+        if (type.includes('triangular') || type === 'bridge_howe' || type === 'bridge_pratt') he = 0.0;
+        
+        let left_pointy = (he <= 0.001);
+        let right_pointy = (he <= 0.001);
+
+        let nodes = [];
+        let elements = [];
+
+        let W = n * l;
+        
+        // 1. Bottom Nodes
+        for (let i = 0; i <= n; i++) {
+            let x = i * l;
+            let y_btm = 0.0;
+            if (type === 'scissor_sym') y_btm = (i <= n/2) ? (hb/(n/2))*i : hb-(hb/(n/2))*(i-n/2);
+            else if (type === 'scissor_curved' || type === 'barrel') y_btm = 4.0*hb*(x*(W-x))/(W*W);
+            else if (type.startsWith('sloping_flat')) y_btm = (hs/W)*x;
+            else if (type === 'lenticular') y_btm = -4.0*hb*(x*(W-x))/(W*W);
+            nodes.push({ id: i, x: x, y: y_btm, is_btm: true });
+        }
+
+        // 2. Top Nodes
+        for (let i = 0; i <= n; i++) {
+            let x = i * l;
+            let h = he;
+            if (type === 'scissor_curved' || type === 'bow_string' || type === 'barrel' || type === 'lenticular') {
+                h = he + 4.0*(hm-he)*(x*(W-x))/(W*W);
+            } else if (type.startsWith('sloping_flat')) {
+                h = he + (hs/W)*x;
+            } else if (type === 'mono_pitch') {
+                h = hm * (1.0 - x/W);
+                if (i === n) right_pointy = (hm * (1.0 - x/W) <= 0.001);
+            } else if (type === 'shed') {
+                h = (x <= W/3) ? he + (hm-he)*(x/(W/3)) : hm * (1.0 - (x-W/3)/(2*W/3));
+                if (i === n) right_pointy = (h <= 0.001);
+            } else if (type.includes('parallel') || type.includes('flat') || type.includes('pratt_asym')) {
+                h = he;
+            } else if (type.startsWith('bridge_')) {
+                h = (i === 0 || i === n) ? he : hm;
+            } else {
+                h = he + (hm - he) * (1.0 - Math.abs(i - n/2) / (n/2));
+            }
+            let is_orphaned = (left_pointy && i === 0) || (right_pointy && i === n);
+            nodes.push({ id: n + 1 + i, x: x, y: h, is_orphaned: is_orphaned, is_top: true });
+        }
+
+        // 3. Diagonals Pattern Logic
+        let diag_pattern = 'pratt';
+        let has_verticals = true;
+
+        if (type === 'vierendeel') {
+            diag_pattern = 'none';
+        } else if (type === 'parallel_chord' || type === 'bridge_warren' || type === 'triangular_warren') {
+            diag_pattern = 'warren';
+            has_verticals = false;
+        } else if (type === 'pratt_asym' || type === 'sloping_flat_warren' || type === 'shed_warren' || type.includes('warren')) {
+            diag_pattern = 'warren';
+        } else if (type === 'sloping_flat_asym' || type === 'mono_pitch') {
+            diag_pattern = 'one_way_right';
+        } else if (type === 'mono_pitch_left') {
+            diag_pattern = 'one_way_left';
+        } else if (type === 'bridge_howe') {
+            diag_pattern = 'pratt';
+        } else if (type === 'bridge_pratt') {
+            diag_pattern = 'howe';
+        } else if (type.includes('howe') || type === 'flat_howe' || type === 'shed') {
+            diag_pattern = 'howe';
+        } else if (type === 'fink' || type === 'fan') {
+            diag_pattern = 'fink_fan';
+        }
+
+        // 4. Create Elements
+        // Chords
+        for (let i = 0; i < n; i++) {
+            elements.push({ n1: i, n2: i + 1, type: 'Bottom Chord' });
+            let n_left = (left_pointy && i === 0) ? 0 : (n + 1 + i);
+            let n_right = (right_pointy && i === n - 1) ? n : (n + 1 + i + 1);
+            if (n_left !== n_right) {
+                elements.push({ n1: n_left, n2: n_right, type: 'Top Chord' });
+            }
+        }
+
+        // Verticals and Diagonals
+        if (diag_pattern === 'fink_fan') {
+            // Fink / Fan
+            for (let i = 1; i < n; i++) {
+                if (type === 'fink') {
+                    if (i === n/2) elements.push({ n1: i, n2: n + 1 + i, type: 'Vertical' });
+                    else {
+                        if (i < n/2) {
+                            elements.push({ n1: i, n2: n + 1 + i, type: 'Vertical' });
+                            elements.push({ n1: i, n2: n + 1 + i + 1, type: 'Diagonal' });
+                            if(i > 1 && i < n/2 - 1) elements.push({ n1: i, n2: n + 1 + i - 1, type: 'Diagonal' });
+                        } else {
+                            elements.push({ n1: i, n2: n + 1 + i, type: 'Vertical' });
+                            elements.push({ n1: i, n2: n + 1 + i - 1, type: 'Diagonal' });
+                            if(i > n/2 + 1 && i < n - 1) elements.push({ n1: i, n2: n + 1 + i + 1, type: 'Diagonal' });
+                        }
+                    }
+                } else if (type === 'fan') {
+                    elements.push({ n1: i, n2: n + 1 + i, type: 'Vertical' });
+                    if (i < n/2) {
+                        elements.push({ n1: i, n2: n + 1 + n/2, type: 'Diagonal' });
+                    } else if (i > n/2) {
+                        elements.push({ n1: i, n2: n + 1 + n/2, type: 'Diagonal' });
+                    }
+                }
+            }
+        } else {
+            if (has_verticals) {
+                // Interior verticals
+                for (let i = 1; i < n; i++) {
+                    elements.push({ n1: i, n2: n + 1 + i, type: 'Vertical' });
+                }
+            }
+            // End verticals (always draw if not pointy)
+            if (!left_pointy) elements.push({ n1: 0, n2: n + 1, type: 'Vertical' });
+            if (!right_pointy) elements.push({ n1: n, n2: 2 * n + 1, type: 'Vertical' });
+
+            for (let i = 0; i < n; i++) {
+                let n_btm_left = i;
+                let n_btm_right = i + 1;
+                let n_top_left = (left_pointy && i === 0) ? 0 : (n + 1 + i);
+                let n_top_right = (right_pointy && i === n - 1) ? n : (n + 1 + i + 1);
+
+                if (diag_pattern === 'pratt') {
+                    if (i < n / 2) {
+                        if (n_top_left !== n_btm_right) elements.push({ n1: n_top_left, n2: n_btm_right, type: 'Diagonal' });
+                    } else if (i >= n / 2) {
+                        if (n_btm_left !== n_top_right) elements.push({ n1: n_btm_left, n2: n_top_right, type: 'Diagonal' });
+                    }
+                } else if (diag_pattern === 'howe') {
+                    if (i < n / 2) {
+                        if (n_btm_left !== n_top_right) elements.push({ n1: n_btm_left, n2: n_top_right, type: 'Diagonal' });
+                    } else if (i >= n / 2) {
+                        if (n_top_left !== n_btm_right) elements.push({ n1: n_top_left, n2: n_btm_right, type: 'Diagonal' });
+                    }
+                } else if (diag_pattern === 'warren') {
+                    if (i % 2 === 0) {
+                        if (n_btm_left !== n_top_right) elements.push({ n1: n_btm_left, n2: n_top_right, type: 'Diagonal' });
+                    } else {
+                        if (n_top_left !== n_btm_right) elements.push({ n1: n_top_left, n2: n_btm_right, type: 'Diagonal' });
+                    }
+                } else if (diag_pattern === 'one_way_right') {
+                    if (n_top_left !== n_btm_right) elements.push({ n1: n_top_left, n2: n_btm_right, type: 'Diagonal' });
+                } else if (diag_pattern === 'one_way_left') {
+                    if (n_btm_left !== n_top_right) elements.push({ n1: n_btm_left, n2: n_top_right, type: 'Diagonal' });
+                }
+            }
+        }
+        
+        return { nodes: nodes.filter(nd => !nd.is_orphaned), elements: elements };
+    }
+
+    // ==========================================
+    // GENERATOR LOGIC
+    // ==========================================
     function generateTemplate() {
       let type = document.getElementById('sel-template').value;
-      let nx = parseInt(document.getElementById('gen-nx').value) || 1;
-      let ny = parseInt(document.getElementById('gen-ny').value) || 1;
-      let lx = parseFloat(document.getElementById('gen-lx').value) || 1.0;
-      let ly = parseFloat(document.getElementById('gen-ly').value) || 1.0;
+      
+      let fFrame = document.getElementById('gen-fields-frame');
+      let fTruss = document.getElementById('gen-fields-truss');
+      if (type === 'truss') {
+        fFrame.style.display = 'none';
+        fTruss.style.display = 'block';
+      } else {
+        fFrame.style.display = 'block';
+        fTruss.style.display = 'none';
+      }
 
       document.querySelector('#tbl-nodes tbody').innerHTML = '';
       document.querySelector('#tbl-elements tbody').innerHTML = '';
       document.querySelector('#tbl-sections tbody').innerHTML = '';
       document.querySelector('#tbl-eloads tbody').innerHTML = '';
       document.querySelector('#tbl-nloads tbody').innerHTML = '';
-      
       nodeIdCounter = 1;
       elemIdCounter = 1;
       secIdCounter = 1;
-      
+
+      // Ensure some default sections
+      if (type === 'truss') {
+        addSectionRow(secIdCounter++, 'Column H200x200', 2e10, 63.53, 4720, 7850, '{"type":"I-Section","h":0.2,"b":0.2,"tw":0.008,"tf":0.012}');
+        addSectionRow(secIdCounter++, 'Top Chord Pipe 4"', 2e10, 11.17, 171.1, 7850, '{"type":"Pipe","d":0.1143,"t":0.0032}');
+        addSectionRow(secIdCounter++, 'Bot Chord Pipe 4"', 2e10, 11.17, 171.1, 7850, '{"type":"Pipe","d":0.1143,"t":0.0032}');
+        addSectionRow(secIdCounter++, 'Web Pipe 2.5"', 2e10, 7.35, 48.9, 7850, '{"type":"Pipe","d":0.0763,"t":0.0032}');
+      }
+
+      if (type === 'truss') {
+        let t_type = document.getElementById('gen-truss-type').value;
+        let t_n = parseInt(document.getElementById('gen-truss-n').value);
+        let t_l = parseFloat(document.getElementById('gen-truss-l').value);
+        let t_he = parseFloat(document.getElementById('gen-truss-he').value);
+        let t_hm = parseFloat(document.getElementById('gen-truss-hm').value);
+        let t_hc = parseFloat(document.getElementById('gen-truss-hc').value);
+        let t_hb = parseFloat(document.getElementById('gen-truss-hb').value);
+        let t_conn = document.getElementById('gen-truss-conn').value; // 'Rigid-Rigid' or 'Pin-Pin'
+
+        let t_geom = generateTrussGeometry({
+          truss_type: t_type, N: t_n, L: t_l, He: t_he, Hm: t_hm, Hb: t_hb
+        });
+
+        // Add nodes
+        let nMap = {};
+        t_geom.nodes.forEach(n => {
+          let y_new = n.y + t_hc; // Elevate truss by column height
+          addNodeRow(n.x, y_new, 'Free');
+          nMap[n.id] = nodeIdCounter - 1; // Map local truss node ID to global Node ID
+        });
+
+        // Add bottom column nodes
+        let W = t_n * t_l;
+        addNodeRow(0, 0, 'Fixed');
+        let colBaseLeft = nodeIdCounter - 1;
+        addNodeRow(W, 0, 'Fixed');
+        let colBaseRight = nodeIdCounter - 1;
+
+        // Find truss end nodes (local id 0 and N)
+        let trussEndLeft = nMap[0];
+        let trussEndRight = nMap[t_n];
+
+        // Add Elements
+        // Columns (Always Rigid)
+        addElementRow(colBaseLeft, trussEndLeft, 1, 'Rigid-Rigid');
+        addElementRow(colBaseRight, trussEndRight, 1, 'Rigid-Rigid');
+
+        // Truss Elements
+        let topChordElems = [];
+        t_geom.elements.forEach(el => {
+          let gn1 = nMap[el.n1];
+          let gn2 = nMap[el.n2];
+          if (gn1 && gn2) {
+            let sec_id = 4; // Web
+            if (el.type === 'Top Chord') sec_id = 2;
+            else if (el.type === 'Bottom Chord') sec_id = 3;
+            
+            addElementRow(gn1, gn2, sec_id, t_conn);
+            if (el.type === 'Top Chord') topChordElems.push(elemIdCounter - 1);
+          }
+        });
+
+        // Add example loads
+        // Load standard Thai 2566 combos
+        loadThai2566Combos();
+        
+        topChordElems.forEach(elemId => {
+          addElemLoadRow(elemId, 'DL', 'Global Y', -50, -50);
+          addElemLoadRow(elemId, 'LL', 'Global Y', -50, -50);
+          addElemLoadRow(elemId, 'W(Y-)', 'Local Y', -60, -60); // wind pressure
+          addElemLoadRow(elemId, 'W(Y+)', 'Local Y', 40, 40);  // wind uplift
+        });
+        
+        // Wind on columns
+        let colL = 1; // Left column (always element 1)
+        let colR = 2; // Right column (always element 2)
+        addElemLoadRow(colL, 'W(X+)', 'Local Y', -100, -100);
+        addElemLoadRow(colR, 'W(X+)', 'Local Y', 50, 50);
+        addElemLoadRow(colR, 'W(X-)', 'Local Y', -100, -100);
+        addElemLoadRow(colL, 'W(X-)', 'Local Y', 50, 50);
+
+        drawPreview();
+        return;
+      }
+      let nx = parseInt(document.getElementById('gen-nx').value) || 1;
+      let ny = parseInt(document.getElementById('gen-ny').value) || 1;
+      let lx = parseFloat(document.getElementById('gen-lx').value) || 1.0;
+      let ly = parseFloat(document.getElementById('gen-ly').value) || 1.0;
+
       // Load standard Thai 2566 combos (DL, LL, WL)
       loadThai2566Combos();
 
       if(type === 'portal' || type === 'multistory') {
-        addSectionRow(secIdCounter++, 2e9, 900, 67500, 2400); // Sec 1: Column 0.3x0.3m (Concrete E=2e9 kg/m2)
-        addSectionRow(secIdCounter++, 2e9, 1500, 312500, 2400); // Sec 2: Beam 0.3x0.5m
+        addSectionRow(secIdCounter++, 'Column 0.3x0.3m', 2e9, 900, 67500, 2400); // Sec 1: Column 0.3x0.3m (Concrete E=2e9 kg/m2)
+        addSectionRow(secIdCounter++, 'Beam 0.3x0.5m', 2e9, 1500, 312500, 2400); // Sec 2: Beam 0.3x0.5m
       } else if (type === 'gable') {
-        addSectionRow(secIdCounter++, 2e10, 63.5, 4720, 7850); // Sec 1: Column H200x200 (Steel E=2e10 kg/m2)
-        addSectionRow(secIdCounter++, 2e10, 63.1, 13600, 7850); // Sec 2: Gable H350x175
+        addSectionRow(secIdCounter++, 'Column H200x200', 2e10, 63.5, 4720, 7850); // Sec 1: Column H200x200 (Steel E=2e10 kg/m2)
+        addSectionRow(secIdCounter++, 'Gable H350x175', 2e10, 63.1, 13600, 7850); // Sec 2: Gable H350x175
       }
 
       if(type === 'portal') {
@@ -2219,7 +2982,7 @@
         
         // Add Example Loads
         addElemLoadRow(3, 'DL', 'Global Y', -500, -500);
-        addElemLoadRow(3, 'LL', 'Global Y', -300, -300);
+        addElemLoadRow(3, 'LL', 'Global Y', -50, -50);
         
         // WL X+ (Left to Right)
         addElemLoadRow(1, 'W(X+)', 'Local Y', -150, -150); // Windward
@@ -2264,7 +3027,11 @@
             let elemId = elemIdCounter - 1;
             // Gravity loads
             addElemLoadRow(elemId, 'DL', 'Global Y', -300, -300);
-            addElemLoadRow(elemId, 'LL', 'Global Y', -200, -200);
+            if (j === ny) {
+              addElemLoadRow(elemId, 'LL', 'Global Y', -50, -50); // Roof Live Load
+            } else {
+              addElemLoadRow(elemId, 'LL', 'Global Y', -200, -200); // Floor Live Load
+            }
           }
         }
       } else if (type === 'gable') {

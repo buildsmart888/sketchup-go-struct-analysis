@@ -624,15 +624,15 @@ module GOStructAnalysis
       nloads = model['nloads'] || []
       eloads = model['eloads'] || []
       
-      sections_html = sections_data.map { |s| "Sec #{s['id']}: E=#{s['e']}, A=#{s['a']}, I=#{s['i']}, &rho;=#{s['density']}" }.join("<br>")
-      nloads_html = nloads.map { |l| "N#{l['node']}: Fx=#{l['fx']} kg, Fy=#{l['fy']} kg, Mz=#{l['mz']} kg&middot;m" }.join("<br>")
+      sections_html = sections_data.map { |s| "Sec #{s['id']}: <b>#{s['name'] || '-'}</b> (E=#{s['e']}, A=#{s['a']}, I=#{s['i']}, &rho;=#{s['density']})" }.join("<br>")
+      nloads_html = nloads.map { |l| "N#{l['node']}: #{l['lcase']}=(Fx=#{l['fx']} kg, Fy=#{l['fy']} kg, Mz=#{l['mz']} kg&middot;m)" }.join("<br>")
       eloads_html = eloads.map { |l| 
         w1 = l['w1'] || l['w'] || 0
         w2 = l['w2'] || w1
         if (w1 - w2).abs < 1e-3
-          "E#{l['elem']}: w=#{w1} kg/m (#{l['dir']})"
+          "E#{l['elem']}: #{l['lcase']}=#{w1} kg/m (#{l['dir']})"
         else
-          "E#{l['elem']}: w1=#{w1}, w2=#{w2} kg/m (#{l['dir']})"
+          "E#{l['elem']}: #{l['lcase']}=(w1=#{w1}, w2=#{w2} kg/m) (#{l['dir']})"
         end
       }.join("<br>")
       
