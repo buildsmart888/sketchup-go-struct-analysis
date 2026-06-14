@@ -316,7 +316,7 @@
             <label><input type="checkbox" id="chk-comb-eq" checked onchange="drawDiagrams();"> Combo Eq</label>
           </div>
 
-          <div style="position: absolute; top: 10px; right: 10px; z-index: 10; background: rgba(255,255,255,0.9); padding: 5px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; display: flex; gap: 5px; align-items:center;">
+          <div style="position: absolute; top: 45px; right: 10px; z-index: 10; background: rgba(255,255,255,0.9); padding: 5px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; display: flex; gap: 5px; align-items:center;">
             <button class="ghost" style="padding: 2px 6px;" onclick="zoomIn()" title="Zoom In">+</button>
             <button class="ghost" style="padding: 2px 6px;" onclick="zoomOut()" title="Zoom Out">-</button>
             <button class="ghost" style="padding: 2px 6px;" onclick="zoomAll()" title="Zoom All (Fit to Screen)">[ ] All</button>
@@ -1011,7 +1011,7 @@
         
         for(let i=0; i<=numArrows; i++) {
           let t = i/numArrows;
-          let pos = t * (len*scale);
+          let pos = t * (len*previewCam.scale);
           let currentW = w1 + (w2 - w1) * t;
           let sign = currentW < 0 ? 1 : -1;
           
@@ -1064,18 +1064,18 @@
         if(ld.dir === 'Local Y') {
           if (w1 === w2) {
             let sign = w1 < 0 ? 1 : -1;
-            ctx.fillText(w1 + " kg/m", (len*scale)/2, sign > 0 ? -15 - 5 - txtYOff : 15 + 10 + txtYOff);
+            ctx.fillText(w1 + " kg/m", (len*previewCam.scale)/2, sign > 0 ? -15 - 5 - txtYOff : 15 + 10 + txtYOff);
           } else {
             let sign1 = w1 < 0 ? 1 : -1;
             let sign2 = w2 < 0 ? 1 : -1;
             let h1 = Math.abs(w1/maxW)*15;
             let h2 = Math.abs(w2/maxW)*15;
             if (w1 !== 0) ctx.fillText(w1 + " kg/m", 0, sign1 > 0 ? -h1 - 5 - txtYOff : h1 + 10 + txtYOff);
-            if (w2 !== 0) ctx.fillText(w2 + " kg/m", len*scale, sign2 > 0 ? -h2 - 5 - txtYOff : h2 + 10 + txtYOff);
+            if (w2 !== 0) ctx.fillText(w2 + " kg/m", len*previewCam.scale, sign2 > 0 ? -h2 - 5 - txtYOff : h2 + 10 + txtYOff);
           }
         } else {
-          let midGx = Math.cos(angle)*(len*scale)/2;
-          let midGy = Math.sin(angle)*(len*scale)/2;
+          let midGx = Math.cos(angle)*(len*previewCam.scale)/2;
+          let midGy = Math.sin(angle)*(len*previewCam.scale)/2;
           let sign = w1 < 0 ? 1 : -1;
           ctx.fillText(w1 + " kg/m", midGx, -midGy + (sign > 0 ? -15 - 5 - txtYOff : 15 + 10 + txtYOff));
         }
@@ -1126,7 +1126,13 @@
       });
 
       if(showReactions && currentResult && currentResult.ok) {
-        currentResult.nodes.forEach(n_res => {
+        let resNodes = currentResult.nodes;
+        if (sel_loadcase !== 'All' && sel_loadcase !== 'Envelope' && currentResult.cases && currentResult.cases[sel_loadcase]) {
+            resNodes = currentResult.cases[sel_loadcase].nodes;
+        } else if (sel_loadcase !== 'All' && sel_loadcase !== 'Envelope' && currentResult.combos && currentResult.combos[sel_loadcase]) {
+            resNodes = currentResult.combos[sel_loadcase].nodes;
+        }
+        resNodes.forEach(n_res => {
           let n = nodes.find(nd => nd.id === n_res.id);
           if(!n || n.support === 'Free') return;
           
@@ -1306,7 +1312,7 @@
                   global_max_disp = Math.max(global_max_disp, Math.abs(rn1.dx), Math.abs(rn1.dy), Math.abs(rn2.dx), Math.abs(rn2.dy));
               }
           });
-          let defScale = (padding * 0.4) / (global_max_disp * scale) * diagScaleMult;
+          let defScale = (60 * 0.4) / (global_max_disp * diagramCam.scale) * diagScaleMult;
           
           ctx.strokeStyle = '#e0e0e0'; ctx.lineWidth = 1;
           elements.forEach(el => {
@@ -1424,7 +1430,7 @@
               }
           }
         });
-        let diagScale = (padding * 0.8) / maxVal * diagScaleMult;
+        let diagScale = (60 * 0.8) / maxVal * diagScaleMult;
 
         res_elems.forEach(re => {
           let el = elements.find(e => e.id === re.id);
@@ -1467,7 +1473,7 @@
                   let M_linear = v1 + (v2 - v1) * (x / len);
                   let Ms = ((2*wa + wb)*len/6)*x - (wa/2)*x*x - ((wb - wa)/(6*len))*x*x*x;
                   let m_x = M_linear + Ms;
-                  pts.push({x: x * scale, y: -m_x * diagScale, val: m_x});
+                  pts.push({x: x * diagramCam.scale, y: -m_x * diagScale, val: m_x});
               }
               for(let i=0; i<numPoints; i++) {
                   let p1 = pts[i], p2 = pts[i+1];
@@ -1492,17 +1498,17 @@
           } else {
               ctx.strokeStyle = '#e67e22';
               if (v1 * v2 < 0) {
-                  let x0 = len * scale * Math.abs(v1) / (Math.abs(v1) + Math.abs(v2));
+                  let x0 = len * diagramCam.scale * Math.abs(v1) / (Math.abs(v1) + Math.abs(v2));
                   ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, drawY1); ctx.lineTo(x0, 0); ctx.closePath();
                   ctx.fillStyle = v1 > 0 ? 'rgba(46, 204, 113, 0.4)' : 'rgba(231, 76, 60, 0.4)'; ctx.fill(); ctx.stroke();
-                  ctx.beginPath(); ctx.moveTo(x0, 0); ctx.lineTo(len * scale, drawY2); ctx.lineTo(len * scale, 0); ctx.closePath();
+                  ctx.beginPath(); ctx.moveTo(x0, 0); ctx.lineTo(len * diagramCam.scale, drawY2); ctx.lineTo(len * diagramCam.scale, 0); ctx.closePath();
                   ctx.fillStyle = v2 > 0 ? 'rgba(46, 204, 113, 0.4)' : 'rgba(231, 76, 60, 0.4)'; ctx.fill(); ctx.stroke();
               } else {
-                  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, drawY1); ctx.lineTo(len * scale, drawY2); ctx.lineTo(len * scale, 0); ctx.closePath();
+                  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, drawY1); ctx.lineTo(len * diagramCam.scale, drawY2); ctx.lineTo(len * diagramCam.scale, 0); ctx.closePath();
                   let mid = (v1 + v2) / 2;
                   ctx.fillStyle = mid > 0 ? 'rgba(46, 204, 113, 0.4)' : 'rgba(231, 76, 60, 0.4)'; ctx.fill(); ctx.stroke();
               }
-              ctx.beginPath(); ctx.moveTo(0, drawY1); ctx.lineTo(len * scale, drawY2); ctx.stroke();
+              ctx.beginPath(); ctx.moveTo(0, drawY1); ctx.lineTo(len * diagramCam.scale, drawY2); ctx.stroke();
           }
           
           ctx.scale(1, -1);
@@ -1517,7 +1523,7 @@
               if (Math.abs(end2.val) > 1e-2) ctx.fillText(end2.val.toFixed(1), end2.x, -end2.y - (end2.y>0?5:-12));
           } else {
               if (Math.abs(v1) > 1e-2) ctx.fillText(v1.toFixed(1), 0, -drawY1 - (drawY1>0?5:-12));
-              if (Math.abs(v2) > 1e-2) ctx.fillText(v2.toFixed(1), len * scale, -drawY2 - (drawY2>0?5:-12));
+              if (Math.abs(v2) > 1e-2) ctx.fillText(v2.toFixed(1), len * diagramCam.scale, -drawY2 - (drawY2>0?5:-12));
           }
           
           ctx.restore();
@@ -1525,8 +1531,13 @@
 
         let showReactions = document.getElementById('chk-reactions').checked;
         if(showReactions && currentResult && currentResult.ok) {
-          let cRes = currentResult;
-          cRes.nodes.forEach(n_res => {
+          let cResNodes = currentResult.nodes;
+          if (sel_loadcase !== 'All' && sel_loadcase !== 'Envelope' && currentResult.cases && currentResult.cases[sel_loadcase]) {
+              cResNodes = currentResult.cases[sel_loadcase].nodes;
+          } else if (sel_loadcase !== 'All' && sel_loadcase !== 'Envelope' && currentResult.combos && currentResult.combos[sel_loadcase]) {
+              cResNodes = currentResult.combos[sel_loadcase].nodes;
+          }
+          cResNodes.forEach(n_res => {
             let n = nodes.find(nd => nd.id === n_res.id);
             if(!n || n.support === 'Free') return;
             
