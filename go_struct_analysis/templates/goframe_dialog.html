@@ -1126,13 +1126,7 @@
       });
 
       if(showReactions && currentResult && currentResult.ok) {
-        let resNodes = currentResult.nodes;
-        if (sel_loadcase !== 'All' && sel_loadcase !== 'Envelope' && currentResult.cases && currentResult.cases[sel_loadcase]) {
-            resNodes = currentResult.cases[sel_loadcase].nodes;
-        } else if (sel_loadcase !== 'All' && sel_loadcase !== 'Envelope' && currentResult.combos && currentResult.combos[sel_loadcase]) {
-            resNodes = currentResult.combos[sel_loadcase].nodes;
-        }
-        resNodes.forEach(n_res => {
+        currentResult.nodes.forEach(n_res => {
           let n = nodes.find(nd => nd.id === n_res.id);
           if(!n || n.support === 'Free') return;
           
@@ -1531,12 +1525,7 @@
 
         let showReactions = document.getElementById('chk-reactions').checked;
         if(showReactions && currentResult && currentResult.ok) {
-          let cResNodes = currentResult.nodes;
-          if (sel_loadcase !== 'All' && sel_loadcase !== 'Envelope' && currentResult.cases && currentResult.cases[sel_loadcase]) {
-              cResNodes = currentResult.cases[sel_loadcase].nodes;
-          } else if (sel_loadcase !== 'All' && sel_loadcase !== 'Envelope' && currentResult.combos && currentResult.combos[sel_loadcase]) {
-              cResNodes = currentResult.combos[sel_loadcase].nodes;
-          }
+          let cResNodes = targetRes.nodes;
           cResNodes.forEach(n_res => {
             let n = nodes.find(nd => nd.id === n_res.id);
             if(!n || n.support === 'Free') return;
