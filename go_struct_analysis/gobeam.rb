@@ -9,7 +9,7 @@ module GOStructAnalysis
 
       def show_gobeam_dialog(args = {})
         puts '[GO Struct Analysis] Opening GOBeam dialog...'
-        model = normalize_gobeam_model(args['model'] || args[:model] || default_gobeam_model)
+        model = normalize_gobeam_model(args[:model_data] || args['model_data'] || args[:model] || args['model'] || default_gobeam_model)
         result = analyze_gobeam_model(model)
         dialog = ensure_gobeam_dialog
         dialog.set_html(gobeam_dialog_html(model, result))
@@ -57,6 +57,11 @@ module GOStructAnalysis
         dialog.add_action_callback('gobeamSave') { |_context, payload| gobeam_save_callback(payload) }
         dialog.add_action_callback('gobeamLoad') { |_context, _payload| gobeam_load_callback }
         dialog.add_action_callback('gobeamReport') { |_context, payload| gobeam_report_callback(payload) }
+        dialog.add_action_callback('save_custom_section') do |_context, payload|
+          data = GOStructAnalysis::Support.parse_dialog_payload(payload)
+          GOStructAnalysis::SectionDatabase.save_user_section(data)
+          dialog.execute_script("window.SECTION_DATABASE = #{GOStructAnalysis::SectionDatabase.get_full_database_json}; if (window.renderSecDBTable) renderSecDBTable();")
+        end
         dialog.add_action_callback('gobeamDraw3D') { |_context, payload| gobeam_draw3d_callback(payload) }
         dialog.add_action_callback('gobeamDrawHUD') { |_context, payload| gobeam_drawhud_callback(payload) }
       end
@@ -125,12 +130,13 @@ module GOStructAnalysis
         end
         @gobeam_report_dialog
       end
-      
+
       def gobeam_dialog_html(model, result)
         render_template(
           'gobeam_dialog.html',
           'MODEL_JSON' => json_script_value(model),
-          'RESULT_JSON' => json_script_value(result)
+          'RESULT_JSON' => json_script_value(result),
+          'SECTION_DATABASE_JSON' => GOStructAnalysis::SectionDatabase.get_full_database_json
         )
       end
 
@@ -326,12 +332,12 @@ module GOStructAnalysis
           x1_value = numeric_or_default(source['x1M'] || source['x1'] || source['start'], 0.0)
           x2_value = numeric_or_default(source['x2M'] || source['x2'] || source['end'], length)
           next if w_value <= 0.0
-          
+
           x1 = [[x1_value, 0.0].max, length].min
           x2 = [[x2_value, 0.0].max, length].min
           x1, x2 = x2, x1 if x1 > x2
           next if (x2 - x1) <= 0.0001
-          
+
           list << {
             'wKgM' => w_value,
             'x1M' => x1,
@@ -516,15 +522,15 @@ module GOStructAnalysis
         l = span['lengthM'].to_f
         left = 0.0
         right = 0.0
-        
+
         span['uniformLoads'].each do |load|
           w = load['wKgM'].to_f
           a = load['x1M'].to_f
           b = load['x2M'].to_f
-          
+
           term = (l * l * (b**2 - a**2) / 2.0) - (2.0 * l * (b**3 - a**3) / 3.0) + ((b**4 - a**4) / 4.0)
           left -= (w / (l * l)) * term
-          
+
           term2 = (l * (b**3 - a**3) / 3.0) - ((b**4 - a**4) / 4.0)
           right += (w / (l * l)) * term2
         end
@@ -604,7 +610,7 @@ module GOStructAnalysis
         diagram_m_left = m_left
         diagram_m_right = -m_right
         total_load = span['uniformLoads'].reduce(0.0) { |sum, load| sum + load['wKgM'].to_f * (load['x2M'].to_f - load['x1M'].to_f) } + loads.reduce(0.0) { |sum, load| sum + load['pKg'].to_f }
-        load_right_arm_moment = span['uniformLoads'].reduce(0.0) { |sum, load| 
+        load_right_arm_moment = span['uniformLoads'].reduce(0.0) { |sum, load|
           len = load['x2M'].to_f - load['x1M'].to_f
           arm = l - (load['x1M'].to_f + len / 2.0)
           sum + (load['wKgM'].to_f * len) * arm

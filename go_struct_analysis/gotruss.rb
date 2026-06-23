@@ -1,12 +1,13 @@
 module GOStructAnalysis
   module Gotruss
     GOTRUSS_VERSION = 1
-    
+
     def show_gotruss_dialog(args = {})
       puts '[GO Struct Analysis] Opening Gotruss dialog...'
-      model = default_gotruss_model
+      has_model_data = args.key?(:model_data) || args.key?('model_data')
+      model = has_model_data ? (args[:model_data] || args['model_data']) : default_gotruss_model
       # Geometry is now generated in Javascript, so we can't analyze the default model here
-      result = { 'ok' => false }
+      result = has_model_data ? analyze_gotruss_model(model) : { 'ok' => false }
       dialog = ensure_gotruss_dialog
       dialog.set_html(gotruss_dialog_html(model, result))
       present_dialog(dialog, width: 1360, height: 860, left: 60, top: 60)
@@ -51,6 +52,11 @@ module GOStructAnalysis
       dialog.add_action_callback('gotrussSave') { |_context, payload| gotruss_save_callback(payload) }
       dialog.add_action_callback('gotrussLoad') { |_context, _payload| gotruss_load_callback }
       dialog.add_action_callback('gotrussDraw3D') { |_context, payload| gotruss_draw3d_callback(payload) }
+      dialog.add_action_callback('save_custom_section') do |_context, payload|
+        data = GOStructAnalysis::Support.parse_dialog_payload(payload)
+        GOStructAnalysis::SectionDatabase.save_user_section(data)
+        dialog.execute_script("window.SECTION_DATABASE = #{GOStructAnalysis::SectionDatabase.get_full_database_json}; if (window.renderSecDBTable) renderSecDBTable();")
+      end
       dialog.add_action_callback('gotrussReport') { |_context, payload| gotruss_report_callback(payload) }
     end
 
@@ -139,11 +145,11 @@ module GOStructAnalysis
     def gotruss_report_body_html(model, full_result)
       info = model['projectInfo'] || {}
       sections = []
-      
+
       params = model['parameters'] || {}
       res = full_result[:result] || full_result['result'] || {}
       geo = full_result[:geometry] || full_result['geometry'] || {}
-      
+
 
 combo_str = params['combo'] ? params['combo'].upcase : '1.0DL + 1.0LL'
       dl_factor = params['dl_factor'] || 1.0
@@ -202,18 +208,18 @@ combo_str = params['combo'] ? params['combo'].upcase : '1.0DL + 1.0LL'
       total_bot_chord_len = 0.0
       total_chord_len = 0.0
       total_web_len = 0.0
-      
+
       elements = geo['elements'] || []
       nodes = geo['nodes'] || []
       member_forces = res['member_forces'] || res[:member_forces] || []
-      
+
       elements.each_with_index do |el, i|
         n1 = nodes[el['n1']]
         n2 = nodes[el['n2']]
         dx = n2['x'].to_f - n1['x'].to_f
         dy = n2['y'].to_f - n1['y'].to_f
         len = Math.sqrt(dx*dx + dy*dy)
-        
+
         type = el['type'] || ''
         if type == 'Top Chord'
           total_top_chord_len += len
@@ -226,10 +232,10 @@ combo_str = params['combo'] ? params['combo'].upcase : '1.0DL + 1.0LL'
         else
           total_web_len += len
         end
-        
+
         f = member_forces[i] || 0.0
         state = f > 0.01 ? '(T)' : (f < -0.01 ? '(C)' : '(0)')
-        
+
         forces_table_rows << "<tr><td>M#{i+1}</td><td>N#{el[:n1]}-N#{el[:n2]}</td><td>#{type}</td><td>#{round_value(f, 2)} #{state}</td><td>#{round_value(len, 3)}</td></tr>"
       end
 
@@ -302,7 +308,8 @@ combo_str = params['combo'] ? params['combo'].upcase : '1.0DL + 1.0LL'
       render_template(
         'gotruss_dialog.html',
         'MODEL_JSON' => json_script_value(model),
-        'RESULT_JSON' => json_script_value(result)
+        'RESULT_JSON' => json_script_value(result),
+        'SECTION_DATABASE_JSON' => GOStructAnalysis::SectionDatabase.get_full_database_json
       )
     end
 
@@ -337,13 +344,13 @@ combo_str = params['combo'] ? params['combo'].upcase : '1.0DL + 1.0LL'
       # 1. Use Geometry directly from Javascript payload
       gen = model['geometry']
       nodes = gen['nodes']
-      
+
       # Convert keys to symbols as expected by solver
       sym_nodes = nodes.map { |n| { id: n['id'].to_i, x: n['x'].to_f, y: n['y'].to_f, type: n['type'] } }
       sym_elements = gen['elements'].map { |e| { n1: e['n1'].to_i, n2: e['n2'].to_i, type: e['type'] } }
       sym_supports = gen['supports'].map { |s| { node: s['node'].to_i, dx: s['dx'], dy: s['dy'] } }
       sym_loads = gen['loads'].map { |l| { node: l['node'].to_i, fx: l['fx'].to_f, fy: l['fy'].to_f, case: l['case'] } }
-      
+
       # 2. Build and Solve DSM (Direct Stiffness Method)
       result = solve_truss(sym_nodes, sym_elements, sym_supports, sym_loads, model['parameters'])
 
@@ -362,42 +369,42 @@ combo_str = params['combo'] ? params['combo'].upcase : '1.0DL + 1.0LL'
       aw = params['Aw'].to_f / 10000.0
       e = params['E'].to_f
       e = 20_000_000_000.0 if e <= 0.0
-      
+
       num_nodes = nodes.length
       num_dof = num_nodes * 2
-      
+
       # K matrix (1D array mapping for simplicity or Array of Arrays)
       k_global = Array.new(num_dof) { Array.new(num_dof, 0.0) }
-      
+
       elements.each_with_index do |el, idx|
         n1 = nodes[el[:n1]]
         n2 = nodes[el[:n2]]
-        
+
         dx = n2[:x] - n1[:x]
         dy = n2[:y] - n1[:y]
         len = Math.sqrt(dx**2 + dy**2)
         cx = dx / len
         cy = dy / len
-        
+
         area = el[:type].to_s.include?('Chord') ? ac : aw
         k = e * area / len
-        
+
         k_local = [
           [cx*cx, cx*cy, -cx*cx, -cx*cy],
           [cx*cy, cy*cy, -cx*cy, -cy*cy],
           [-cx*cx, -cx*cy, cx*cx, cx*cy],
           [-cx*cy, -cy*cy, cx*cy, cy*cy]
         ]
-        
+
         dofs = [el[:n1]*2, el[:n1]*2+1, el[:n2]*2, el[:n2]*2+1]
-        
+
         4.times do |i|
           4.times do |j|
             k_global[dofs[i]][dofs[j]] += k * k_local[i][j]
           end
         end
       end
-      
+
       # Force vector
       f = Array.new(num_dof, 0.0)
       loads.each do |load|
@@ -405,7 +412,7 @@ combo_str = params['combo'] ? params['combo'].upcase : '1.0DL + 1.0LL'
         f[n*2] += load[:fx] || 0.0
         f[n*2+1] += load[:fy] || 0.0
       end
-      
+
       # Apply Boundary Conditions (Penalty Method)
       penalty = 1.0e12
       supports.each do |sup|
@@ -417,12 +424,12 @@ combo_str = params['combo'] ? params['combo'].upcase : '1.0DL + 1.0LL'
           k_global[n*2+1][n*2+1] += penalty
         end
       end
-      
+
       # Stabilize matrix for mechanisms (unsupported nodes in Vierendeel/Warren)
       (0...num_dof).each do |i|
         k_global[i][i] += 1e-3
       end
-      
+
       # Solve KU = F using simple Gaussian Elimination
       begin
         u = solve_linear_system(k_global, f)
@@ -433,35 +440,35 @@ combo_str = params['combo'] ? params['combo'].upcase : '1.0DL + 1.0LL'
           raise e
         end
       end
-      
+
       # Calculate Member Forces
       member_forces = []
       max_t_chord = 0; max_c_chord = 0
       max_t_web = 0; max_c_web = 0
       max_t_chord_m = -1; max_c_chord_m = -1
       max_t_web_m = -1; max_c_web_m = -1
-      
+
       elements.each_with_index do |el, idx|
         n1 = nodes[el[:n1]]
         n2 = nodes[el[:n2]]
-        
+
         dx = n2[:x] - n1[:x]
         dy = n2[:y] - n1[:y]
         len = Math.sqrt(dx**2 + dy**2)
         cx = dx / len
         cy = dy / len
-        
+
         is_chord = el[:type].downcase.include?('chord')
         area = is_chord ? ac : aw
-        
+
         u1x = u[el[:n1]*2]; u1y = u[el[:n1]*2+1]
         u2x = u[el[:n2]*2]; u2y = u[el[:n2]*2+1]
-        
+
         # force = (EA/L) * [-cx -cy cx cy] * U
         force = (e * area / len) * (-cx*u1x - cy*u1y + cx*u2x + cy*u2y)
-        
+
         member_forces << force
-        
+
         if is_chord
           if force > max_t_chord
             max_t_chord = force
@@ -482,7 +489,7 @@ combo_str = params['combo'] ? params['combo'].upcase : '1.0DL + 1.0LL'
           end
         end
       end
-      
+
       # Formatting displacements
       displacements = []
       max_dx = 0; max_dy = 0
@@ -491,7 +498,7 @@ combo_str = params['combo'] ? params['combo'].upcase : '1.0DL + 1.0LL'
         dx = u[i*2]
         dy = u[i*2+1]
         displacements << { dx: dx, dy: dy }
-        
+
         if dx.abs > max_dx.abs
           max_dx = dx.abs
           max_dx_n = i
@@ -509,34 +516,34 @@ combo_str = params['combo'] ? params['combo'].upcase : '1.0DL + 1.0LL'
         ry = sup[:dy] ? -penalty * u[n*2+1] : 0.0
         reactions[n] = { rx: rx, ry: ry }
       end
-      
+
       # Generate Step-by-Step Summary
       summary = "TRUSS ANALYSIS SUMMARY\n"
       summary += "======================\n\n"
-      
+
       summary += "1. Node Generation\n"
       nodes.each do |n|
         summary += "  Node #{n[:id]}: x = #{round_value(n[:x],3)} m, y = #{round_value(n[:y],3)} m [#{n[:type]}]\n"
       end
-      
+
       summary += "\n2. Element Generation\n"
       elements.each_with_index do |el, i|
         summary += "  Element #{i+1}: Node #{el[:n1]} -> Node #{el[:n2]} [#{el[:type]}]\n"
       end
-      
+
       summary += "\n3. Degrees of Freedom (DOF)\n"
       summary += "  Total Nodes: #{num_nodes}, Total DOF: #{num_dof}\n"
-      
+
       summary += "\n4. Applied Nodal Forces (F vector)\n"
       loads.each do |l|
         summary += "  Node #{l[:node]}: Fx = #{round_value(l[:fx]||0,2)} kg, Fy = #{round_value(l[:fy]||0,2)} kg (#{l[:case]})\n"
       end
-      
+
       summary += "\n5. Displacement Solution (U vector)\n"
       displacements.each_with_index do |d, i|
         summary += "  Node #{i}: dx = #{round_value(d[:dx]*1000, 4)} mm, dy = #{round_value(d[:dy]*1000, 4)} mm\n"
       end
-      
+
       summary += "\n6. Member Forces\n"
       member_forces.each_with_index do |f, i|
         state = f > 0.01 ? '(Tension)' : (f < -0.01 ? '(Compression)' : '(Zero)')
@@ -546,7 +553,7 @@ combo_str = params['combo'] ? params['combo'].upcase : '1.0DL + 1.0LL'
       reactions.each do |n, r|
         summary += "  Node #{n}: Rx = #{round_value(r[:rx], 2)} kg, Ry = #{round_value(r[:ry], 2)} kg\n"
       end
-      
+
       {
         reactions: reactions,
         displacements: displacements,

@@ -28,11 +28,13 @@
         top: 0;
         z-index: 5;
         display: flex;
-        gap: 10px;
         align-items: center;
         padding: 10px 18px;
         background: var(--graphite);
         color: #fff;
+      }
+      .printbar > * {
+        margin-right: 10px;
       }
       .printbar button {
         border: 1px solid var(--go);
@@ -134,12 +136,38 @@
     <script id="table-options-json" type="application/json">{{TABLE_OPTIONS_JSON}}</script>
     <div class="printbar">
       <button onclick="window.print()">Print Report</button>
-      <span>GOFrame V.1.0.3 / ผู้พัฒนา Phornjed Phongmanee / Report generated {{REPORT_DATE}}</span>
+      <span>GOFrame V.1.0.4.0 / ผู้พัฒนา Phornjed Phongmanee / Report generated {{REPORT_DATE}}</span>
     </div>
-    
+
     {{BODY_HTML}}
 
     <script>
+    if (!String.prototype.padEnd) {
+      String.prototype.padEnd = function(targetLength, padString) {
+        targetLength = targetLength >> 0;
+        padString = String((typeof padString !== 'undefined' ? padString : ' '));
+        if (this.length > targetLength) return String(this);
+        else {
+          targetLength = targetLength - this.length;
+          let rpt = '';
+          while (rpt.length < targetLength) { rpt += padString; }
+          return String(this) + rpt.slice(0, targetLength);
+        }
+      };
+    }
+    if (!String.prototype.padStart) {
+      String.prototype.padStart = function(targetLength, padString) {
+        targetLength = targetLength >> 0;
+        padString = String((typeof padString !== 'undefined' ? padString : ' '));
+        if (this.length > targetLength) return String(this);
+        else {
+          targetLength = targetLength - this.length;
+          let rpt = '';
+          while (rpt.length < targetLength) { rpt += padString; }
+          return rpt.slice(0, targetLength) + String(this);
+        }
+      };
+    }
       let currentModel = JSON.parse(document.getElementById("model-json").textContent);
       let currentResult = JSON.parse(document.getElementById("result-json").textContent);
 
@@ -164,12 +192,12 @@
       function drawDiagram(canvas, type, width, height, comboName) {
         if(!currentResult || !currentResult.ok) return;
         let ctx = canvas.getContext('2d');
-        
+
         let nodes = currentModel.nodes || [];
         let elements = currentModel.elements || [];
         let nloads = currentModel.nloads || [];
         let eloads = currentModel.eloads || [];
-        
+
         let targetRes = currentResult;
         if(comboName && comboName !== 'Envelope') {
             if(currentResult.combos && currentResult.combos[comboName]) targetRes = currentResult.combos[comboName];
@@ -182,7 +210,7 @@
         let minX = Math.min(...nodes.map(n=>n.x)), maxX = Math.max(...nodes.map(n=>n.x));
         let minY = Math.min(...nodes.map(n=>n.y)), maxY = Math.max(...nodes.map(n=>n.y));
         let dx = maxX - minX || 1, dy = maxY - minY || 1;
-        
+
         let padding = 40;
         let scale = Math.min((width - padding*2) / dx, (height - padding*2) / dy);
         let cx = (minX + maxX)/2, cy = (minY + maxY)/2;
@@ -191,19 +219,19 @@
         ctx.save();
         ctx.translate(width/2, height/2);
         ctx.scale(1, -1);
-        
+
         function projX(x) { return (x - cx) * scale; }
         function projY(y) { return (y - cy) * scale; }
-        
+
         // Draw basic frame geometry
         ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1;
         elements.forEach(el => {
             let n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
-            if(n1 && n2) { 
-                ctx.beginPath(); ctx.moveTo(projX(n1.x), projY(n1.y)); ctx.lineTo(projX(n2.x), projY(n2.y)); ctx.stroke(); 
+            if(n1 && n2) {
+                ctx.beginPath(); ctx.moveTo(projX(n1.x), projY(n1.y)); ctx.lineTo(projX(n2.x), projY(n2.y)); ctx.stroke();
             }
         });
-        
+
         // Deformation
         if (type === 'deformation') {
           let global_max_disp = 1e-9;
@@ -213,9 +241,9 @@
                   global_max_disp = Math.max(global_max_disp, Math.abs(rn1.dx), Math.abs(rn1.dy), Math.abs(rn2.dx), Math.abs(rn2.dy));
               }
           });
-          
+
           let defScale = (padding * 0.8) / (global_max_disp * scale);
-          
+
           // Draw Original Frame first
           ctx.strokeStyle = '#e0e0e0'; ctx.lineWidth = 1;
           elements.forEach(el => {
@@ -226,7 +254,7 @@
           });
 
           ctx.strokeStyle = '#3498db'; ctx.lineWidth = 2;
-          
+
           elements.forEach(el => {
               let n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
               let rn1 = targetRes.nodes.find(n => n.id === el.n1), rn2 = targetRes.nodes.find(n => n.id === el.n2);
@@ -235,15 +263,15 @@
                   let len = Math.sqrt(dx*dx + dy*dy);
                   if (len < 1e-4) len = 1;
                   let c = dx / len, s = dy / len;
-                  
+
                   let u1 = c*rn1.dx + s*rn1.dy;
                   let v1 = -s*rn1.dx + c*rn1.dy;
                   let th1 = rn1.rz;
-                  
+
                   let u2 = c*rn2.dx + s*rn2.dy;
                   let v2 = -s*rn2.dx + c*rn2.dy;
                   let th2 = rn2.rz;
-                  
+
                   let pts = [];
                   let numSegs = 10;
                   for(let i=0; i<=numSegs; i++) {
@@ -259,7 +287,7 @@
                       let gy = s*ux + c*vx;
                       pts.push({ x: n1.x + x*c + gx*defScale, y: n1.y + x*s + gy*defScale });
                   }
-                  
+
                   ctx.beginPath();
                   ctx.moveTo(projX(pts[0].x), projY(pts[0].y));
                   for(let i=1; i<=numSegs; i++) {
@@ -269,7 +297,7 @@
               }
           });
           ctx.scale(1, -1);
-          
+
           let max_dy_val = 0, max_dy_n = null;
           let max_dx_val = 0, max_dx_n = null;
           elements.forEach(el => {
@@ -281,7 +309,7 @@
                   if (Math.abs(rn2.dx) > max_dx_val) { max_dx_val = Math.abs(rn2.dx); max_dx_n = rn2; }
               }
           });
-          
+
           if (max_dy_n || max_dx_n) {
               let max_n_disp = max_dy_val >= max_dx_val ? max_dy_n : max_dx_n;
               if (max_n_disp && (max_dy_val > 1e-6 || max_dx_val > 1e-6)) {
@@ -297,7 +325,7 @@
                   ctx.fillText(label.join(', '), px, py + 20);
               }
           }
-          
+
           ctx.restore();
           return;
         }
@@ -320,24 +348,25 @@
                 if (angle > Math.PI/2 || angle <= -Math.PI/2) angle += Math.PI;
                 ctx.translate(midX, midY);
                 ctx.rotate(angle);
-                
+
                 let txtM = "M"+el.id;
                 let sections = currentModel.sections || [];
-                let secName = sections.find(s => s.id === el.sec)?.name || ("Sec " + el.sec);
+                let _sec = sections.find(s => s.id === el.sec);
+                let secName = _sec ? _sec.name : ("Sec " + el.sec);
                 ctx.font = '12px Arial'; let w1 = ctx.measureText(txtM).width;
                 ctx.font = '10px Arial'; let w2 = ctx.measureText(secName).width;
                 let w = Math.max(w1, w2) + 8;
                 let h = 14 + 12 + 4;
-                
+
                 ctx.fillStyle = 'rgba(255,255,255,0.7)';
                 ctx.fillRect(-w/2, -h - 6, w, h);
 
                 ctx.fillStyle = '#2980b9'; ctx.font = '12px Arial'; ctx.textAlign = 'center';
                 ctx.fillText(txtM, 0, -18);
-                
+
                 ctx.fillStyle = '#16a085'; ctx.font = '10px Arial'; ctx.textAlign = 'center';
                 ctx.fillText(secName, 0, -6);
-                
+
                 ctx.restore();
               }
             }
@@ -378,23 +407,23 @@
               let len = Math.sqrt(Math.pow(n2.x-n1.x, 2) + Math.pow(n2.y-n1.y, 2));
               ctx.save(); ctx.translate(projX(n1.x), projY(n1.y));
               if(ld.dir === 'Local Y') ctx.rotate(angle);
-              
+
               let lcColor = getColorForLC(ld.lcase);
               ctx.strokeStyle = lcColor; ctx.fillStyle = lcColor; ctx.lineWidth = 1;
-              
+
               let w1 = ld.w1, w2 = ld.w2;
               let maxW = Math.max(Math.abs(w1), Math.abs(w2));
               if (maxW === 0) { ctx.restore(); return; }
 
               let numArrows = Math.max(3, Math.floor(len));
               let points = [];
-              
+
               for(let i=0; i<=numArrows; i++) {
                 let t = i/numArrows;
                 let pos = t * (len*scale);
                 let currentW = w1 + (w2 - w1) * t;
                 let sign = currentW < 0 ? 1 : -1;
-                
+
                 let signW = w1 < 0 ? 1 : -1;
                 if (w1 === 0 && w2 !== 0) signW = w2 < 0 ? 1 : -1;
                 let stackKey = el.id + "_" + ld.dir + "_" + signW;
@@ -405,7 +434,7 @@
 
                 let arrowLen = Math.abs(currentW / maxW) * 15;
                 if (arrowLen < 2 && currentW !== 0) arrowLen = 2;
-                
+
                 ctx.beginPath();
                 if(ld.dir === 'Local Y') {
                   points.push({x: pos, y: sign * arrowLen + yOff});
@@ -431,9 +460,9 @@
                   for(let i=1; i<points.length; i++) ctx.lineTo(points[i].x, points[i].y);
                   ctx.stroke();
               }
-              
+
               ctx.scale(1, -1); ctx.font = '10px Arial'; ctx.textAlign = 'center';
-              
+
               let signW = w1 < 0 ? 1 : -1;
               if (w1 === 0 && w2 !== 0) signW = w2 < 0 ? 1 : -1;
               let stackKey = el.id + "_" + ld.dir + "_" + signW;
@@ -503,7 +532,7 @@
             });
           }
           ctx.restore();
-          
+
           // Draw XY axis
           ctx.save();
           ctx.resetTransform();
@@ -520,7 +549,7 @@
           let activeCases = new Set();
           eloads.forEach(ld => { if(type === 'Envelope' || type === 'All' || type === ld.lcase) activeCases.add(ld.lcase); });
           nloads.forEach(ld => { if(type === 'Envelope' || type === 'All' || type === ld.lcase) activeCases.add(ld.lcase); });
-          
+
           if (activeCases.size > 0) {
             let casesArr = Array.from(activeCases).sort();
             ctx.save();
@@ -528,12 +557,12 @@
             let boxWidth = 100;
             let boxHeight = casesArr.length * 20 + 10;
             ctx.translate(canvas.width - boxWidth - 20, canvas.height - boxHeight - 20);
-            
+
             ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
             ctx.fillRect(0, 0, boxWidth, boxHeight);
             ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1;
             ctx.strokeRect(0, 0, boxWidth, boxHeight);
-            
+
             casesArr.forEach((lc, i) => {
                ctx.fillStyle = getColorForLC(lc);
                ctx.fillRect(10, i * 20 + 10, 15, 10);
@@ -544,7 +573,7 @@
             });
             ctx.restore();
           }
-          
+
           return;
         }
 
@@ -567,16 +596,16 @@
                  let secId = el.sec;
                  let sec = (currentModel.sections||[]).find(s=>s.id===secId);
                  if(hasSelfWeight && sec) wy -= (sec.a / 10000) * sec.density * Math.cos(angle);
-                 elLoads.forEach(ld => { 
+                 elLoads.forEach(ld => {
                    let wAvg = (ld.w1 + ld.w2) / 2;
-                   wy += (ld.dir === 'Local Y') ? wAvg : wAvg * Math.cos(angle); 
+                   wy += (ld.dir === 'Local Y') ? wAvg : wAvg * Math.cos(angle);
                  });
                  let M_mid = (v1 + v2)/2 - (wy * len * len) / 8;
                  maxVal = Math.max(maxVal, Math.abs(M_mid));
               }
           }
         });
-        
+
         let diagScale = (padding * 0.8) / maxVal;
 
         res_elems.forEach(re => {
@@ -595,9 +624,9 @@
               if(hasSelfWeight || elLoads.length > 0) {
                  let sec = (currentModel.sections||[]).find(s=>s.id===el.sec);
                  if(hasSelfWeight && sec) wy -= (sec.a / 10000) * sec.density * Math.cos(angle);
-                 elLoads.forEach(ld => { 
+                 elLoads.forEach(ld => {
                    let wAvg = (ld.w1 + ld.w2) / 2;
-                   wy += (ld.dir === 'Local Y') ? wAvg : wAvg * Math.cos(angle); 
+                   wy += (ld.dir === 'Local Y') ? wAvg : wAvg * Math.cos(angle);
                  });
               }
           }
@@ -606,7 +635,7 @@
           let drawY2 = -v2 * diagScale;
 
           ctx.save(); ctx.translate(projX(n1.x), projY(n1.y)); ctx.rotate(angle);
-          
+
           let pts = [];
           if (type === 'bmd' && Math.abs(wy) > 1e-3) {
               let numPoints = 20; let dx_step = len / numPoints;
@@ -651,10 +680,10 @@
               }
               ctx.beginPath(); ctx.moveTo(0, drawY1); ctx.lineTo(len * scale, drawY2); ctx.stroke();
           }
-          
+
           ctx.scale(1, -1);
           ctx.fillStyle = '#000'; ctx.font = '10px Arial'; ctx.textAlign = 'center';
-          
+
           if (type === 'bmd' && Math.abs(wy) > 1e-3) {
               pts.true_extrema.forEach(ext => {
                   ctx.fillText(ext.val.toFixed(1), ext.x, -ext.y - (ext.y>0?5:-12));
@@ -666,7 +695,7 @@
               if (Math.abs(v1) > 1e-2) ctx.fillText(v1.toFixed(1), 0, -drawY1 - (drawY1>0?5:-12));
               if (Math.abs(v2) > 1e-2) ctx.fillText(v2.toFixed(1), len * scale, -drawY2 - (drawY2>0?5:-12));
           }
-          
+
           ctx.restore();
         });
 
@@ -675,13 +704,13 @@
           cRes.nodes.forEach(n_res => {
             let n = nodes.find(nd => nd.id === n_res.id);
             if(!n || n.support === 'Free') return;
-            
+
             let rx = n_res.fx, ry = n_res.fy, mz = n_res.mz;
             let px = projX(n.x), py = projY(n.y);
-            
+
             ctx.save(); ctx.translate(px, py);
             ctx.lineWidth = 2;
-            
+
             if (Math.abs(rx) > 1e-3) {
                let sign = rx > 0 ? 1 : -1;
                ctx.strokeStyle = '#e74c3c'; ctx.fillStyle = '#e74c3c';
@@ -703,11 +732,11 @@
                ctx.strokeStyle = '#2980b9'; ctx.fillStyle = '#2980b9';
                ctx.beginPath(); ctx.arc(0, 0, 15, Math.PI/4, 3*Math.PI/4); ctx.stroke();
                ctx.beginPath();
-               if (sign > 0) { 
+               if (sign > 0) {
                    ctx.moveTo(15*Math.cos(3*Math.PI/4), 15*Math.sin(3*Math.PI/4));
                    ctx.lineTo(15*Math.cos(3*Math.PI/4) + 6, 15*Math.sin(3*Math.PI/4) - 2);
                    ctx.lineTo(15*Math.cos(3*Math.PI/4) + 2, 15*Math.sin(3*Math.PI/4) + 6);
-               } else { 
+               } else {
                    ctx.moveTo(15*Math.cos(Math.PI/4), 15*Math.sin(Math.PI/4));
                    ctx.lineTo(15*Math.cos(Math.PI/4) - 6, 15*Math.sin(Math.PI/4) - 2);
                    ctx.lineTo(15*Math.cos(Math.PI/4) - 2, 15*Math.sin(Math.PI/4) + 6);
@@ -719,9 +748,9 @@
             ctx.restore();
           });
         }
-        
+
         ctx.restore();
-        
+
         // Draw XY axis
         ctx.save();
         ctx.resetTransform();
@@ -738,7 +767,7 @@
       function generateReportTables() {
         let res = currentResult;
         if (!res || !res.ok) return;
-        
+
         let tableOptions = ['t0','t1','t2','t3','t4','t5','t6','t7'];
         try {
             let optStr = document.getElementById("table-options-json").textContent.trim();
@@ -748,17 +777,17 @@
         } catch(e) {
             console.error("Parse error:", e);
         }
-        
+
         if (!tableOptions || tableOptions.length === 0) return;
-        
+
         let nodes = currentModel.nodes || [];
         let elements = currentModel.elements || [];
         let supports = nodes.filter(n => n.support !== 'Free');
-        
+
         let allCases = [];
         if (res.cases) { for(let k in res.cases) allCases.push({name: k, data: res.cases[k]}); }
         if (res.combos) { for(let k in res.combos) allCases.push({name: k, data: res.combos[k]}); }
-        
+
         if (allCases.length === 0) {
             allCases.push({name: 'Envelope', data: res});
         }
@@ -812,14 +841,14 @@
         if (tableOptions.includes('t1')) {
             html += '<div style="margin-bottom: 20px; page-break-inside: avoid;"><h3 style="margin-bottom: 5px; font-size: 14px; border-bottom: 1px solid #ccc; padding-bottom: 3px;">1. Displacements (Envelope)</h3>';
             html += '<table class="data-table" style="width: 100%; border-collapse: collapse; text-align: center;" border="1"><thead><tr style="background:#f0f0f0;"><th>Case</th><th>Node</th><th>L/C</th><th>X (mm)</th><th>Y (mm)</th><th>Resultant (mm)</th><th>rZ (rad)</th></tr></thead><tbody>';
-            
+
             let dispRows = [];
         nodes.forEach(n => {
            let max_x = {val: -Infinity, c: ''}, min_x = {val: Infinity, c: ''};
            let max_y = {val: -Infinity, c: ''}, min_y = {val: Infinity, c: ''};
            let max_rz = {val: -Infinity, c: ''}, min_rz = {val: Infinity, c: ''};
            let max_res = {val: -Infinity, c: ''};
-           
+
            allCases.forEach(c => {
               let cn = c.data.nodes.find(nd => nd.id === n.id);
               if(!cn) return;
@@ -832,7 +861,7 @@
               let res_val = Math.sqrt(cn.dx*cn.dx + cn.dy*cn.dy);
               if(res_val > max_res.val) { max_res.val = res_val; max_res.c = c.name; }
            });
-           
+
            if(max_x.c) {
                let rlist = [
                    {lbl: 'Max X', c: max_x.c, type: 'x'}, {lbl: 'Min X', c: min_x.c, type: 'x'},
@@ -890,7 +919,7 @@
            out += rows.join('') + '</tbody></table></div>';
            return out;
         }
-        
+
         if (tableOptions.includes('t2')) {
             html += buildReactionEnvelope(serviceCases, '2. Service Load for Stability Check (Support Nodes)');
         }
@@ -947,18 +976,18 @@
         if (tableOptions.includes('t7')) {
             html += '<div style="margin-bottom: 20px;"><h3 style="margin-bottom: 5px; font-size: 14px; border-bottom: 1px solid #ccc; padding-bottom: 3px;">7. Beam Force Detail</h3>';
             html += '<table class="data-table" style="width: 100%; border-collapse: collapse; text-align: center;" border="1"><thead><tr style="background:#f0f0f0;"><th>Beam</th><th>L/C</th><th>Dist (m)</th><th>Fx (kg)</th><th>Fy (kg)</th><th>Mz (kg.m)</th></tr></thead><tbody>';
-        
+
         elements.forEach(el => {
             let n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
             let len = Math.sqrt(Math.pow(n2.x-n1.x, 2) + Math.pow(n2.y-n1.y, 2));
             let angle = Math.atan2(n2.y-n1.y, n2.x-n1.x);
             let sec = (currentModel.sections || []).find(s => s.id === el.sec);
             let elLoads = (currentModel.eloads || []).filter(ld => ld.elem === el.id);
-            
+
             allCases.forEach(c => {
                 let ce = c.data.elements.find(e => e.id === el.id);
                 if(!ce) return;
-                
+
                 let cinfo = (currentModel.loadcombos || []).find(lc => lc.name === c.name);
                 let caseFactors = {};
                 if(cinfo) {
@@ -966,20 +995,20 @@
                 } else {
                     caseFactors[c.name] = 1.0;
                 }
-                
+
                 let wy1 = 0, wy2 = 0;
                 let hasSelfWeight = currentModel.settings && currentModel.settings.include_self_weight;
-                
+
                 for(let lcName in caseFactors) {
                     let f = caseFactors[lcName];
                     if(f === 0) continue;
-                    
+
                     if(hasSelfWeight && sec && lcName === 'DL') {
                         let sw = -(sec.a / 10000) * sec.density * Math.cos(angle);
                         wy1 += sw * f;
                         wy2 += sw * f;
                     }
-                    
+
                     elLoads.filter(ld => ld.case === lcName).forEach(ld => {
                         let w1 = ld.w1 !== undefined ? ld.w1 : (ld.w || 0);
                         let w2 = ld.w2 !== undefined ? ld.w2 : w1;
@@ -990,23 +1019,23 @@
                         }
                     });
                 }
-                
+
                 let v1_m = -ce.n1_forces.moment, v2_m = ce.n2_forces.moment;
                 let a1 = ce.n1_forces.axial, a2 = -ce.n2_forces.axial;
                 let v1_s = ce.n1_forces.shear, v2_s = -ce.n2_forces.shear;
-                
+
                 let wa = -wy1, wb = -wy2;
-                
+
                 html += `<tr><td rowspan="5" style="vertical-align:middle; border-bottom: 1px solid #ccc;">${el.id}</td><td rowspan="5" style="vertical-align:middle; border-bottom: 1px solid #ccc;">${c.name}</td>`;
                 for(let i=0; i<=4; i++) {
                     let xl = i/4.0;
                     let x = len * xl;
-                    
+
                     let fx = a1 + (a2-a1)*xl;
                     let fy = v1_s + (v2_s-v1_s)*xl;
                     let Ms = ((2*wa + wb)*len/6)*x - (wa/2)*x*x - ((wb - wa)/(6*len))*x*x*x;
                     let mz = v1_m + (v2_m-v1_m)*xl + Ms;
-                    
+
                     if(i > 0) html += `<tr>`;
                     let trStyle = (i === 4) ? 'border-bottom: 1px solid #ccc;' : '';
                     html += `<td style="${trStyle}">${x.toFixed(3)}</td><td style="${trStyle}">${fx.toFixed(2)}</td><td style="${trStyle}">${fy.toFixed(2)}</td><td style="${trStyle}">${mz.toFixed(2)}</td></tr>`;

@@ -196,7 +196,7 @@
     <!-- 1. Intro -->
     <div id="intro" class="content-section active">
       <h1>บทนำ (Introduction)</h1>
-      <p>ยินดีต้อนรับสู่ <b>GO Struct Analysis V.1.0.3</b> โปรแกรมสำหรับวิเคราะห์โครงสร้าง 2 มิติที่ทำงานร่วมกับ SketchUp พัฒนาโดย <b>Phornjed Phongmanee</b></p>
+      <p>ยินดีต้อนรับสู่ <b>GO Struct Analysis V.1.0.4.0</b> โปรแกรมสำหรับวิเคราะห์โครงสร้าง 2 มิติที่ทำงานร่วมกับ SketchUp พัฒนาโดย <b>Phornjed Phongmanee</b></p>
       <p>โปรแกรมนี้ถูกออกแบบมาให้ใช้งานง่าย รวดเร็ว และสามารถคำนวณพร้อมทั้งสร้างโมเดล 3 มิติกลับไปยังหน้าจอ SketchUp ได้ทันที เพียงแค่กรอกข้อมูลในตารางฝั่งซ้ายมือ ระบบจะวาดแปลนให้แบบ Real-time</p>
       <div class="highlight">
         <strong>ข้อแนะนำการใช้งาน:</strong><br>
@@ -209,12 +209,12 @@
       <img src="images/manual_beam.png" class="hero-img" alt="Beam Analysis">
       <h1>คู่มือการใช้งานคานต่อเนื่อง (GOBeam)</h1>
       <p>โมดูลนี้ใช้สำหรับคำนวณคานที่มีจุดรองรับหลายจุด (Continuous Beam) โดยสามารถกำหนดหน้าตัด ความยาวช่วง และน้ำหนักบรรทุกได้อย่างละเอียด เหมาะสำหรับคานบ้านและคานอาคารพานิชย์</p>
-      
+
       <div class="step-box">
         <h3><span class="step-num">1</span> การกำหนดหน้าตัดและความยาวช่วงคาน (Geometry)</h3>
         <p>ที่แท็บ <b>Geometry & Section</b> ทางซ้ายมือ ให้ระบุจำนวนช่องคาน (Spans) โปรแกรมจะสร้างตารางความยาวขึ้นมาโดยอัตโนมัติ คุณสามารถแก้ความยาว <b>L (m)</b> และเลือก <b>Section (หน้าตัด)</b> ให้แต่ละช่วงคานได้</p>
       </div>
-      
+
       <div class="step-box">
         <h3><span class="step-num">2</span> การตั้งค่าจุดรองรับ (Supports)</h3>
         <p>ไปที่ตาราง Supports คุณสามารถเปลี่ยนพฤติกรรมของเสาแต่ละต้นได้ โดยมีให้เลือก 3 แบบ:</p>
@@ -224,7 +224,7 @@
           <li><b>Free (อิสระ)</b>: ไม่มีเสารองรับ (ใช้สำหรับทำคานยื่น - Cantilever)</li>
         </ul>
       </div>
-      
+
       <div class="step-box">
         <h3><span class="step-num">3</span> การใส่น้ำหนักบรรทุก (Loads)</h3>
         <img src="images/manual_beam_loads.png" class="inline-img" alt="Beam Loads">
@@ -245,7 +245,7 @@
       <img src="images/manual_frame.png" class="hero-img" alt="Frame Analysis">
       <h1>คู่มือการใช้งานโครงข้อแข็ง (GOFrame)</h1>
       <p>โมดูลนี้ออกแบบมาเพื่อวิเคราะห์โครงข้อแข็ง (Rigid Frame) ที่มีการเชื่อมต่อแบบแข็งระหว่างเสากับคาน เหมาะสำหรับอาคารทรงสูง หรือโครงสร้างเหล็กรูปพรรณ (Portal Frame)</p>
-      
+
       <div class="step-box">
         <h3><span class="step-num">1</span> การใช้ Frame Generator (สร้างอัตโนมัติ)</h3>
         <img src="images/manual_frame_gen.png" class="inline-img" alt="Frame Generator">
@@ -256,7 +256,7 @@
           <li>กำหนดความสูงและความกว้าง เมื่อพร้อมแล้วกดปุ่ม <b>Generate Template</b> โปรแกรมจะสร้างจุดและเส้นให้ทั้งหมด</li>
         </ol>
       </div>
-      
+
       <div class="step-box">
         <h3><span class="step-num">2</span> การปรับแต่งโหนดและชิ้นส่วน (Nodes & Elements)</h3>
         <p>แม้จะใช้ Generator คุณก็ยังสามารถลบหรือเพิ่มชิ้นส่วนอิสระได้ โดยใช้แถบเครื่องมือบนจอภาพที่มีปุ่ม <b>➕ Node</b> (วาดจุด) และ <b>📏 Member</b> (ลากเส้นเชื่อมจุด) คุณยังสามารถไปแก้ตาราง Elements ด้านซ้ายเพื่อเปลี่ยนหน้าตัด (เช่น จาก I-Beam เป็น Pipe) ทีละชิ้นได้</p>
@@ -273,7 +273,7 @@
       <img src="images/manual_truss.png" class="hero-img" alt="Truss Analysis">
       <h1>คู่มือการใช้งานโครงถัก (GOTruss)</h1>
       <p>โมดูลวิเคราะห์โครงถัก เน้นการส่งถ่ายแรงตามแนวแกน (Axial Force) เป็นหลัก โปรแกรมนี้ทำงานโดยตั้งสมมติฐานว่าทุกจุดต่อเป็นจุดหมุน (Pin-jointed)</p>
-      
+
       <div class="step-box">
         <h3><span class="step-num">1</span> เลือกรูปแบบโครงถักมาตรฐาน</h3>
         <img src="images/manual_truss_types.png" class="inline-img" alt="Truss Types">
@@ -284,7 +284,7 @@
           <li><b>Warren Truss</b>: ลักษณะรูปตัว W ต่อเนื่อง เหมาะสำหรับช่วงพาดปานกลาง</li>
         </ul>
       </div>
-      
+
       <div class="step-box">
         <h3><span class="step-num">2</span> การปรับสัดส่วนโครงถัก (Geometry)</h3>
         <p>คุณสามารถระบุ:</p>
@@ -306,12 +306,12 @@
       <img src="images/manual_bulkedit.png" class="hero-img" alt="Bulk Edit">
       <h1>เครื่องมือจัดการหลายชิ้นส่วน (Bulk Edit / Multi-select)</h1>
       <p>เป็นฟีเจอร์ขั้นสูงที่ช่วยให้คุณประหยัดเวลาได้อย่างมหาศาล โดยเฉพาะเมื่อทำงานกับ Frame หรือ Truss ขนาดใหญ่ที่มีชิ้นส่วนเกิน 50 ชิ้นขึ้นไป</p>
-      
+
       <div class="step-box">
         <h3><span class="step-num">1</span> การเลือกชิ้นส่วน (Box Selection)</h3>
         <p>ที่แถบเครื่องมือวาดรูป (Canvas Tools) ให้กดเลือกโหมด <b>🖱️ Select</b> จากนั้นนำเมาส์ไปลากเป็นกล่องสี่เหลี่ยมครอบชิ้นส่วนในหน้าจอ Preview ชิ้นส่วนที่โดนครอบจะถูกไฮไลท์สีฟ้า</p>
       </div>
-      
+
       <div class="step-box">
         <h3><span class="step-num">2</span> การใช้งาน Selection Panel</h3>
         <p>เมื่อมีชิ้นส่วนถูกเลือก จะมีหน้าต่าง <b>Selection Panel</b> โปร่งแสงลอยขึ้นมาที่มุมขวาล่างของจอ ในนั้นจะมี 2 ความสามารถหลัก:</p>
@@ -320,7 +320,7 @@
           <li><b>+ Apply Load (ใส่แรง)</b>: กดเพื่อเปิด Popup สำหรับระบุค่าแรง (w1, w2, ทิศทาง, Load Case) ระบบจะนำค่าเหล่านี้ไปเขียนลงตาราง Load ให้กับทุกชิ้นส่วนที่เลือกไว้ สะดวกมากเวลาจะใส่แรงลมให้กับหลังคาทั้งแถบ!</li>
         </ol>
       </div>
-      
+
       <div class="highlight">
         <strong>การลบทีละมากๆ:</strong> คุณสามารถกดปุ่ม ❌ Delete บน Panel หรือกดปุ่ม <code>Delete</code> บนคีย์บอร์ด เพื่อลบชิ้นส่วนที่เลือกได้ทั้งหมดในคลิกเดียว
       </div>

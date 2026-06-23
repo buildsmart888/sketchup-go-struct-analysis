@@ -57,22 +57,30 @@
         display: flex; align-items: center; justify-content: space-between;
         background: var(--graphite); color: #fff; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; flex-shrink: 0;
       }
-      .brand { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 800; }
+      .brand { display: flex; align-items: center; font-size: 16px; font-weight: 800; }
+      .brand > * { margin-right: 10px; }
       .go-mark { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 6px; background: var(--go); font-weight: 900; letter-spacing: -1px; }
       .brand-title { display: flex; flex-direction: column; }
       .brand-title small { color: #b7c5c9; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; }
-      .grid { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 10px; flex: 1; min-height: 0; }
-      aside { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; padding-right: 4px; }
+      .grid { display: flex; flex: 1; min-height: 0; }
+      aside { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; overflow-y: auto; padding-right: 4px; margin-right: 10px; }
+      aside > * { margin-bottom: 8px; flex-shrink: 0; }
+      aside > *:last-child { margin-bottom: 0; }
       fieldset { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 12px; box-shadow: 0 4px 12px rgba(25,42,47,0.04); margin: 0; }
       legend { color: var(--graphite); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; padding: 0 5px; }
-      .row { display: grid; grid-template-columns: 110px minmax(0, 1fr) 20px; gap: 4px; align-items: center; margin-bottom: 6px; }
+      .row { display: flex; align-items: center; margin-bottom: 6px; }
       .row:last-child { margin-bottom: 0; }
-      .row.factor { grid-template-columns: 110px 1fr; }
-      .unit { font-size: 11px; color: var(--muted); padding-left: 2px; }
-      .analyze { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+      .row > label, .row > span:first-child { width: 110px; flex-shrink: 0; margin-right: 4px; }
+      .row > input, .row > select { flex: 1; min-width: 0; }
+      .row > .unit { width: 20px; flex-shrink: 0; margin-left: 4px; }
+      .row.factor > input { flex: 1; margin-right: 24px; }
+      .analyze { display: flex; flex-direction: column; margin-top: 4px; }
+      .analyze > * { margin-bottom: 6px; }
+      .analyze > *:last-child { margin-bottom: 0; }
       .sidebar { width: 280px; background-color: #f8f9fa; padding: 15px; border-right: 1px solid var(--line); display: flex; flex-direction: column; overflow-y: auto; }
-      .stage { border: 1px solid var(--line); border-radius: 8px; background: #fff; display: flex; flex-direction: column; overflow: hidden; }
-      .tabs { display: flex; gap: 4px; padding: 8px 10px 0; background: #f7faf9; border-bottom: 1px solid var(--line); }
+      .stage { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: #fff; display: flex; flex-direction: column; overflow: hidden; }
+      .tabs { display: flex; padding: 8px 10px 0; background: #f7faf9; border-bottom: 1px solid var(--line); }
+      .tabs > * { margin-right: 4px; }
       .tab { background: var(--graphite); border-radius: 6px 6px 0 0; color: #fff; padding: 6px 14px; min-height: 30px; border: none; font-size: 12px; }
       .tab.inactive { color: #607177; background: #e8eeee; cursor: pointer; border-bottom: 1px solid var(--line); }
       .canvas-area { flex: 1; position: relative; padding: 10px; min-height: 0; }
@@ -95,12 +103,12 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
     <div class="topbar">
       <div class="brand">
         <div class="brand-title">
-          <span>GOTruss V.1.0.3</span>
+          <span>GOTruss V.1.0.4.0</span>
           <small>GO Struct Analysis / ผู้พัฒนา Phornjed Phongmanee</small>
         </div>
       </div>
     </div>
-    
+
     <div class="grid">
       <aside>
         <fieldset>
@@ -111,7 +119,7 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
           <div class="row factor"><label>Engineer</label><input type="text" id="inp-engineer" value="Structural Engineer"></div>
           <div class="row factor"><label>Location</label><input type="text" id="inp-location" value="Bangkok THAILAND"></div>
         </fieldset>
-        
+
         <fieldset>
   <legend>Analysis</legend>
   <div class="row factor">
@@ -173,8 +181,8 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
   <div class="row factor"><label>Panels (N)</label><input type="number" id="inp-n" value="10" min="2" step="2" style="width: 60px; flex: none;" oninput="updateDefaultUniformLoad(); updateGeometryPreview()"></div>
   <fieldset>
     <legend>Support Nodes (index from ends)</legend>
-    <div style="display:flex; justify-content:center; gap:20px;">
-      <input type="number" id="inp-ne-left" value="1" min="0" style="width: 60px;" oninput="updateDefaultUniformLoad(); updateGeometryPreview()">
+    <div style="display:flex; justify-content:center;">
+      <input type="number" id="inp-ne-left" value="1" min="0" style="width: 60px; margin-right: 20px;" oninput="updateDefaultUniformLoad(); updateGeometryPreview()">
       <input type="number" id="inp-ne-right" value="1" min="0" style="width: 60px;" oninput="updateDefaultUniformLoad(); updateGeometryPreview()">
     </div>
   </fieldset>
@@ -210,14 +218,22 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
 </fieldset>
 
 
-        
+
 
         <fieldset>
-          <div class="row factor" style="display:flex; flex-wrap:wrap; gap:10px;">
-            <label style="display:flex; align-items:center; gap:4px; font-weight:normal;"><input type="checkbox" id="chk-show-nodes" onchange="renderAll()" checked> Node Labels</label>
-            <label style="display:flex; align-items:center; gap:4px; font-weight:normal;"><input type="checkbox" id="chk-show-members" onchange="renderAll()" checked> Member Labels</label>
-            <label style="display:flex; align-items:center; gap:4px; font-weight:normal;"><input type="checkbox" id="chk-show-reactions" onchange="renderAll()" checked> Reactions</label>
+          <div class="row factor" style="display:flex; flex-wrap:wrap;">
+            <label style="display:flex; align-items:center; font-weight:normal; margin-right:10px;"><input type="checkbox" id="chk-show-nodes" onchange="renderAll()" checked style="margin-right:4px;"> Node Labels</label>
+            <label style="display:flex; align-items:center; font-weight:normal; margin-right:10px;"><input type="checkbox" id="chk-show-members" onchange="renderAll()" checked style="margin-right:4px;"> Member Labels</label>
+            <label style="display:flex; align-items:center; font-weight:normal;"><input type="checkbox" id="chk-show-reactions" onchange="renderAll()" checked style="margin-right:4px;"> Reactions</label>
           </div>
+          <div style="display:flex; margin-top: 10px;">
+        <div style="margin-right: 10px;">
+          <input type="checkbox" id="m-chk-node" onchange="renderMemberForces()" checked> <label for="m-chk-node">Show Nodes</label>
+        </div>
+        <div>
+          <input type="checkbox" id="m-chk-val" onchange="renderMemberForces()" checked> <label for="m-chk-val">Show Values</label>
+        </div>
+      </div>
         </fieldset>
 
         <div class="analyze">
@@ -252,6 +268,36 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
   </div>
 
     <script>
+        if (!String.prototype.padStart) {
+            String.prototype.padStart = function padStart(targetLength, padString) {
+                targetLength = targetLength >> 0;
+                padString = String(typeof padString !== 'undefined' ? padString : ' ');
+                if (this.length > targetLength) {
+                    return String(this);
+                } else {
+                    targetLength = targetLength - this.length;
+                    if (targetLength > padString.length) {
+                        padString += padString.repeat(targetLength / padString.length);
+                    }
+                    return padString.slice(0, targetLength) + String(this);
+                }
+            };
+        }
+        if (!String.prototype.padEnd) {
+            String.prototype.padEnd = function padEnd(targetLength, padString) {
+                targetLength = targetLength >> 0;
+                padString = String(typeof padString !== 'undefined' ? padString : ' ');
+                if (this.length > targetLength) {
+                    return String(this);
+                } else {
+                    targetLength = targetLength - this.length;
+                    if (targetLength > padString.length) {
+                        padString += padString.repeat(targetLength / padString.length);
+                    }
+                    return String(this) + padString.slice(0, targetLength);
+                }
+            };
+        }
         let currentModel = null;
         let currentResult = null;
         let isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
@@ -272,7 +318,7 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
                 let rHtml = `{{RESULT_JSON}}`;
                 if(mHtml && mHtml !== '{{MODEL_JSON}}') currentModel = JSON.parse(mHtml);
                 if(rHtml && rHtml !== '{{RESULT_JSON}}') currentResult = JSON.parse(rHtml);
-                
+
                 if(currentModel) populateInputs(currentModel.parameters, currentModel.projectInfo);
                 if(currentResult && currentResult.ok) {
                     renderAll();
@@ -362,7 +408,7 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
             if(p.truss_type) document.getElementById('inp-truss-type').value = p.truss_type;
             document.getElementById('inp-ac').value = p.Ac;
             document.getElementById('inp-aw').value = p.Aw;
-            
+
             document.getElementById('inp-dl-factor').value = p.dl_factor !== undefined ? p.dl_factor : 1.0;
             document.getElementById('inp-ll-factor').value = p.ll_factor !== undefined ? p.ll_factor : 1.0;
             if(p.combo) document.getElementById('inp-combo').value = p.combo;
@@ -394,16 +440,16 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
             let ne_right = parseInt(params.Ne_right); if(isNaN(ne_right)) ne_right = 0;
             let l = parseFloat(params.L) || 0.5;
             let type = params.truss_type || 'flat_pratt';
-            
+
             let he = parseFloat(params.He); if(isNaN(he)) he = 0.5;
             let hm = parseFloat(params.Hm) || 1.0;
             let hb = parseFloat(params.Hb) || 0.5;
             let hs = parseFloat(params.Hs); if(isNaN(hs)) hs = 2.0;
             let ac = parseFloat(params.Ac) || 15.0;
             let aw = parseFloat(params.Aw) || 10.0;
-            
+
             if (type.includes('triangular') || type === 'bridge_howe' || type === 'bridge_pratt') he = 0.0;
-            
+
             let left_pointy = (he <= 0.001);
             let right_pointy = (he <= 0.001);
 
@@ -413,7 +459,7 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
             let loads = [];
 
             let W = n * l;
-            
+
             for (let i = 0; i <= n; i++) {
                 let x = i * l;
                 let y_btm = 0.0;
@@ -487,7 +533,7 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
                     elements.push({ n1: i, n2: n + 1 + i, type: 'web', A: aw });
                 }
             }
-            
+
             if (diag_pattern !== 'none') {
                 let peak_index = Math.floor(n / 2);
                 if (type === 'shed' || type === 'shed_warren') {
@@ -527,7 +573,7 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
 
             supports.push({ node: ne_left, dx: true, dy: true });
             supports.push({ node: n - ne_right, dx: false, dy: true });
-            
+
             // Distribute Uniform Loads
             if (params.uniform_loads) {
                 params.uniform_loads.forEach(ul => {
@@ -540,14 +586,14 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
                     let w_factored = w * factor;
 
                     let chordNodes = nodes.filter(nd => nd.type.toLowerCase() === chord.toLowerCase()).sort((a,b) => a.x - b.x);
-                    
+
                     chordNodes.forEach((node, idx) => {
                         let trib_start = idx === 0 ? node.x : (node.x + chordNodes[idx-1].x) / 2.0;
                         let trib_end = idx === chordNodes.length - 1 ? node.x : (node.x + chordNodes[idx+1].x) / 2.0;
-                        
+
                         let overlap_start = Math.max(trib_start, x1);
                         let overlap_end = Math.min(trib_end, x2);
-                        
+
                         if (overlap_start < overlap_end) {
                             let trib_length = overlap_end - overlap_start;
                             loads.push({ node: node.id, fx: 0, fy: -w_factored * trib_length, case: type });
@@ -565,12 +611,12 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
                     let type = pl.type || 'DL';
                     let factor = type === 'LL' ? (parseFloat(params.ll_factor)||1) : (parseFloat(params.dl_factor)||1);
                     let p_factored = p_val * factor;
-                    
+
                     let chordNodes = nodes.filter(nd => nd.type.toLowerCase() === chord.toLowerCase()).sort((a,b) => a.x - b.x);
-                    
+
                     let left_node = chordNodes.slice().reverse().find(nd => nd.x <= x + 0.001);
                     let right_node = chordNodes.find(nd => nd.x >= x - 0.001);
-                    
+
                     if (left_node && right_node) {
                         if (left_node.id === right_node.id) {
                             loads.push({ node: left_node.id, fx: 0, fy: -p_factored, case: type });
@@ -675,7 +721,7 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
             updateModel();
             switchTab('tab-result', 'tabbtn-result');
         }
-        
+
         function draw3D() {
             if(!currentResult) return alert("Analyze first!");
             sketchupCall('gotrussDraw3D', { model: currentModel, result: currentResult });
@@ -696,7 +742,7 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
 
             let geo = currentModel.geometry;
             if (!geo || !geo.nodes) return ctx;
-            
+
             function drawDimLine(x1, y1, x2, y2, text, offset_x=0, offset_y=0) {
                 ctx.beginPath();
                 ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
@@ -709,7 +755,7 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
                 ctx.moveTo(x1+nx, y1+ny); ctx.lineTo(x1-nx, y1-ny);
                 ctx.moveTo(x2+nx, y2+ny); ctx.lineTo(x2-nx, y2-ny);
                 ctx.stroke();
-                
+
                 ctx.fillStyle = '#444'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText(text, (x1+x2)/2 + offset_x, (y1+y2)/2 + offset_y);
             }
@@ -795,11 +841,11 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
                 let color = isDL ? '#ff0000' : '#0000ff';
                 ctx.strokeStyle = color;
                 ctx.fillStyle = color;
-                
+
                 if(load.fy < 0) {
                     offsetByNode[load.node] = (offsetByNode[load.node] || 0) + 1;
                     let num = offsetByNode[load.node];
-                    
+
                     let px = tf.x(n.x) + (num > 1 ? 10 : 0);
                     let py = tf.y(n.y) - 5;
                     drawArrow(ctx, px, py - 30, px, py);
@@ -821,7 +867,7 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
                     if (!n) continue;
                     let px = tf.x(n.x);
                     let py = tf.y(n.y);
-                    
+
                     if (Math.abs(ry) > 0.1) {
                         let dir = ry > 0 ? 1 : -1;
                         drawArrow(ctx, px, py + dir * 30, px, py + dir * 5);
@@ -838,26 +884,26 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
             }
 
             // Removed drawLabels to prevent crash. Loads are not meant to be drawn here anyway, but kept the geo.loads loop just in case.
-            
+
             // Draw Dimensions
             let minX = Math.min(...geo.nodes.map(n=>n.x)), maxX = Math.max(...geo.nodes.map(n=>n.x));
             let minY = Math.min(...geo.nodes.map(n=>n.y)), maxY = Math.max(...geo.nodes.map(n=>n.y));
             let p1x = tf.x(minX), p2x = tf.x(maxX);
             let p1y = tf.y(minY), p2y = tf.y(maxY);
             let p_btm = tf.y(0); // Assuming bottom chord is mostly near 0
-            
+
             ctx.beginPath(); ctx.moveTo(p1x, p_btm+15); ctx.lineTo(p1x, p_btm+35); ctx.stroke();
             ctx.beginPath(); ctx.moveTo(p2x, p_btm+15); ctx.lineTo(p2x, p_btm+35); ctx.stroke();
             ctx.beginPath(); ctx.moveTo(p1x, p_btm+25); ctx.lineTo(p2x, p_btm+25); ctx.stroke();
             ctx.fillStyle = '#666'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText((maxX-minX).toFixed(2) + ' m', (p1x+p2x)/2, p_btm+20);
-            
+
             // Draw Y Dimension
             if (maxY > minY + 0.1) {
                 let pdx = p2x + 15;
                 ctx.beginPath(); ctx.moveTo(pdx, p1y); ctx.lineTo(pdx+20, p1y); ctx.stroke();
                 ctx.beginPath(); ctx.moveTo(pdx, p2y); ctx.lineTo(pdx+20, p2y); ctx.stroke();
                 ctx.beginPath(); ctx.moveTo(pdx+10, p1y); ctx.lineTo(pdx+10, p2y); ctx.stroke();
-                
+
                 ctx.save();
                 ctx.translate(pdx+15, (p1y+p2y)/2);
                 ctx.rotate(-Math.PI/2);
@@ -910,8 +956,8 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
 
             // Scale deformation for visibility (e.g., max deformation becomes 20px)
             let maxDef = Math.max(res.max_dx, res.max_dy);
-            let defScale = maxDef > 0 ? (20.0 / maxDef) / tf.scale : 0; 
-            
+            let defScale = maxDef > 0 ? (20.0 / maxDef) / tf.scale : 0;
+
             ctx.lineWidth = 2;
             ctx.strokeStyle = '#ff0000'; // Red deformed shape
             geo.elements.forEach(el => {
@@ -921,7 +967,7 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
                 let d1y = res.displacements[el.n1].dy * defScale;
                 let d2x = res.displacements[el.n2].dx * defScale;
                 let d2y = res.displacements[el.n2].dy * defScale;
-                
+
                 ctx.beginPath();
                 ctx.moveTo(tf.x(n1.x + d1x), tf.y(n1.y + d1y));
                 ctx.lineTo(tf.x(n2.x + d2x), tf.y(n2.y + d2y));
@@ -941,21 +987,21 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
                 let d1y = res.displacements[res.max_dy_n].dy * defScale;
                 let px = tf.x(n.x + d1x);
                 let py = tf.y(n.y + d1y);
-                
+
                 // Draw a circle/target
                 ctx.beginPath();
                 ctx.arc(px, py, 6, 0, 2*Math.PI);
                 ctx.strokeStyle = 'rgba(255, 100, 100, 0.8)';
                 ctx.lineWidth = 2;
                 ctx.stroke();
-                
+
                 // Draw an arrow pointing to it
                 ctx.beginPath();
                 ctx.moveTo(px, py + 30);
                 ctx.lineTo(px, py + 8);
                 ctx.strokeStyle = 'red';
                 ctx.stroke();
-                
+
                 // Draw arrowhead
                 ctx.beginPath();
                 ctx.moveTo(px, py + 8);
@@ -963,7 +1009,7 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
                 ctx.lineTo(px + 4, py + 15);
                 ctx.fillStyle = 'red';
                 ctx.fill();
-                
+
                 // Text label
                 ctx.fillStyle = 'red';
                 ctx.font = 'bold 12px sans-serif';
@@ -977,21 +1023,21 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
                 let d1y = res.displacements[res.max_dx_n].dy * defScale;
                 let px = tf.x(n.x + d1x);
                 let py = tf.y(n.y + d1y);
-                
+
                 // Draw a circle/target
                 ctx.beginPath();
                 ctx.arc(px, py, 6, 0, 2*Math.PI);
                 ctx.strokeStyle = 'rgba(100, 100, 255, 0.8)';
                 ctx.lineWidth = 2;
                 ctx.stroke();
-                
+
                 // Draw an arrow pointing to it (horizontal)
                 ctx.beginPath();
                 ctx.moveTo(px + 30, py);
                 ctx.lineTo(px + 8, py);
                 ctx.strokeStyle = 'blue';
                 ctx.stroke();
-                
+
                 // Draw arrowhead
                 ctx.beginPath();
                 ctx.moveTo(px + 8, py);
@@ -999,7 +1045,7 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
                 ctx.lineTo(px + 15, py + 4);
                 ctx.fillStyle = 'blue';
                 ctx.fill();
-                
+
                 // Text label
                 ctx.fillStyle = 'blue';
                 ctx.font = 'bold 12px sans-serif';
@@ -1024,13 +1070,13 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
             text += `Overall:\n`;
             text += `  Max Displacement (Y) : ${(res.max_dy*1000).toFixed(2)} mm\n`;
             text += `  Max Displacement (X) : ${(res.max_dx*1000).toFixed(2)} mm\n\n`;
-            
+
             text += `MEMBER FORCES (kg) & LENGTH (m.)\n`;
             text += `-------------------------------------------------\n`;
-            
+
             let total_chord_len = 0;
             let total_web_len = 0;
-            
+
             res.member_forces.forEach((f, i) => {
                 let el = geo.elements[i];
                 let n1 = geo.nodes[el.n1];
@@ -1055,11 +1101,11 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
             text += `Total Chord Length : ${total_chord_len.toFixed(3)} m.\n`;
             text += `Total Web Length   : ${total_web_len.toFixed(3)} m.\n`;
             text += `Total Truss Length : ${(total_chord_len + total_web_len).toFixed(3)} m.\n\n`;
-            
+
             if (res.summary) {
                 text += `\n${res.summary}\n`;
             }
-            
+
             document.getElementById('result-text-area').innerText = text;
         }
 
@@ -1114,24 +1160,24 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
             geo.elements.forEach((el, i) => {
                 let f = res.member_forces[i];
                 if(Math.abs(f) < 0.1) return;
-                
+
                 let n1 = geo.nodes[el.n1];
                 let n2 = geo.nodes[el.n2];
                 let x1 = tf.x(n1.x), y1 = tf.y(n1.y);
                 let x2 = tf.x(n2.x), y2 = tf.y(n2.y);
-                
+
                 let dx = x2 - x1, dy = y2 - y1;
                 let len = Math.sqrt(dx*dx + dy*dy);
                 let cx = dx/len, cy = dy/len;
                 let nx = -cy, ny = cx;
-                
+
                 let width = (Math.abs(f) / maxF) * 15;
                 if(width < 2) width = 2;
-                
+
                 ctx.fillStyle = f > 0 ? 'rgba(0,0,255,0.4)' : 'rgba(255,0,0,0.4)';
                 ctx.strokeStyle = f > 0 ? 'rgba(0,0,255,0.8)' : 'rgba(255,0,0,0.8)';
                 ctx.lineWidth = 1;
-                
+
                 ctx.beginPath();
                 ctx.moveTo(x1 + nx*width, y1 + ny*width);
                 ctx.lineTo(x2 + nx*width, y2 + ny*width);
@@ -1141,27 +1187,27 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
                 ctx.fill();
                 ctx.stroke();
             });
-            
+
             // Draw numerical forces text on top
             geo.elements.forEach((el, i) => {
                 let f = res.member_forces[i];
                 if(Math.abs(f) < 0.1) return;
-                
+
                 let n1 = geo.nodes[el.n1];
                 let n2 = geo.nodes[el.n2];
                 let px = (tf.x(n1.x) + tf.x(n2.x)) / 2;
                 let py = (tf.y(n1.y) + tf.y(n2.y)) / 2;
-                
+
                 ctx.fillStyle = '#000';
                 ctx.font = '11px sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                
+
                 let text = (f >= 0 ? '+' : '') + f.toFixed(1);
                 let w = ctx.measureText(text).width;
                 ctx.fillStyle = 'rgba(255,255,255,0.85)';
                 ctx.fillRect(px - w/2 - 2, py - 7, w + 4, 14);
-                
+
                 ctx.fillStyle = f > 0 ? '#0000ff' : '#ff0000';
                 ctx.fillText(text, px, py);
             });
@@ -1191,7 +1237,7 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
                     if (!n) continue;
                     let px = tf.x(n.x);
                     let py = tf.y(n.y);
-                    
+
                     if (Math.abs(ry) > 0.1) {
                         let dir = ry > 0 ? 1 : -1;
                         drawArrow(ctx, px, py + dir * 30, px, py + dir * 5);
@@ -1283,7 +1329,7 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
             // Draw Uniform Loads
             ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
             ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
-            
+
             function getChordY(x, isTop, geo) {
                 let targetType = isTop ? 'top' : 'bottom';
                 let chordNodes = geo.nodes.filter(n => n.type === targetType && n.type !== 'orphaned').sort((a, b) => a.x - b.x);
@@ -1303,14 +1349,14 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
                 params.uniform_loads.forEach(l => {
                     let isTop = l.chord.toLowerCase() === 'top';
                     let x1 = parseFloat(l.x1), x2 = parseFloat(l.x2);
-                    
+
                     let xVals = new Set([x1, x2]);
                     geo.nodes.forEach(n => {
                         if (n.x > x1 && n.x < x2) xVals.add(n.x);
                     });
                     let sortedX = Array.from(xVals).sort((a,b) => a - b);
                     let pts = sortedX.map(x => ({ x: x, y: getChordY(x, isTop, geo) }));
-                    
+
                     ctx.beginPath();
                     pts.forEach((p, i) => {
                         let px = tf.x(p.x), py = tf.y(p.y) + (isTop ? -20 : 20);
@@ -1323,7 +1369,7 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
                     ctx.closePath();
                     ctx.fill();
                     ctx.stroke();
-                    
+
                     ctx.fillStyle = 'red';
                     ctx.font = '10px sans-serif';
                     let midPt = pts[Math.floor(pts.length/2)];
@@ -1339,11 +1385,11 @@ td input, td select { width: 100%; min-width: 40px; height: 24px; padding: 2px 4
                     let isTop = l.chord.toLowerCase() === 'top';
                     let x = parseFloat(l.x);
                     let y = getChordY(x, isTop, geo);
-                    
+
                     // find nearest node to snap perfectly
                     let n = geo.nodes.find(nd => Math.abs(nd.x - x) < 0.1 && nd.type === (isTop ? 'top' : 'bottom') && nd.type !== 'orphaned');
                     if (n) { x = n.x; y = n.y; }
-                    
+
                     let px = tf.x(x);
                     let py = tf.y(y);
                     ctx.strokeStyle = 'blue';
