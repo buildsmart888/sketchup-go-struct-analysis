@@ -39,10 +39,18 @@ def build_rbz(extension_name, root_file, version)
     Dir.glob("#{target_folder_name}/**/*").each do |src|
       dest = File.join(build_dir, src)
 
-      # Exclude test files, hidden files, or docs if needed
-      next if src.include?('test_')
+      rel = src.tr('\\', '/')
+      base = File.basename(src)
+
+      # Exclude development-only files so the RBZ contains only extension runtime assets.
+      next if rel.end_with?('/scratch') || rel.include?('/scratch/')
+      next if rel.include?('/.git')
+      next if rel.include?('/debug_data.')
+      next if rel.end_with?('/temp') || rel.include?('/temp')
+      next if rel.include?('/test_')
+      next if base == 'test.js'
+      next if base == 'test_env.js'
       next if src.end_with?('.md')
-      next if src.include?('.git')
 
       if File.directory?(src)
         FileUtils.mkdir_p(dest)
