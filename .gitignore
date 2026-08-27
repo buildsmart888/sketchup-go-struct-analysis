@@ -14,3 +14,9 @@ go_struct_analysis/temp*.js
 go_struct_analysis/temp*.html
 go_struct_analysis/test_env.js
 go_struct_analysis/templates/test.js
+
+# Python desktop development
+go_struct_desktop/.venv/
+go_struct_desktop/.pytest_cache/
+go_struct_desktop/**/__pycache__/
+go_struct_desktop/**/*.egg-info/

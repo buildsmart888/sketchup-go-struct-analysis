@@ -1,0 +1,30 @@
+{
+  "projectInfo": {"name": "Portal frame regression"},
+  "settings": {"include_self_weight": false},
+  "nodes": [
+    {"id": 1, "x": 0.0, "y": 0.0, "support": "Fixed"},
+    {"id": 2, "x": 4.0, "y": 0.0, "support": "Fixed"},
+    {"id": 3, "x": 0.0, "y": 3.0, "support": "Free"},
+    {"id": 4, "x": 4.0, "y": 3.0, "support": "Free"}
+  ],
+  "sections": [
+    {"id": 1, "e": 2000000000.0, "a": 900.0, "i": 67500.0, "density": 2400.0},
+    {"id": 2, "e": 2000000000.0, "a": 1500.0, "i": 312500.0, "density": 2400.0}
+  ],
+  "elements": [
+    {"id": 1, "n1": 1, "n2": 3, "sec": 1, "release": "Rigid-Rigid"},
+    {"id": 2, "n1": 2, "n2": 4, "sec": 1, "release": "Rigid-Rigid"},
+    {"id": 3, "n1": 3, "n2": 4, "sec": 2, "release": "Rigid-Rigid"}
+  ],
+  "loadcases": ["DL", "LL"],
+  "loadcombos": [
+    {"name": "Service", "factors": {"DL": 1.0, "LL": 1.0}},
+    {"name": "ULS", "factors": {"DL": 1.2, "LL": 1.6}}
+  ],
+  "nloads": [
+    {"node": 3, "lcase": "LL", "fx": 10.0, "fy": 0.0, "mz": 0.0}
+  ],
+  "eloads": [
+    {"elem": 3, "lcase": "DL", "dir": "Global Y", "w1": -20.0, "w2": -20.0}
+  ]
+}
