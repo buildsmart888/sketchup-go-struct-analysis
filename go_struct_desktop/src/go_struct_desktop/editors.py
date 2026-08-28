@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .units import UNIT_SYSTEMS
+
 
 Converter = Callable[[str], Any]
 
@@ -134,6 +136,11 @@ class TableEditor(QWidget):
                 widget.setCurrentText(current)
             widget.blockSignals(False)
 
+    def set_column_title(self, key: str, title: str) -> None:
+        index = next((item for item, column in enumerate(self.columns) if column.key == key), None)
+        if index is not None:
+            self.table.setHorizontalHeaderItem(index, QTableWidgetItem(title))
+
     def _insert_row(self, row: Mapping[str, Any]) -> None:
         row_index = self.table.rowCount()
         self.table.insertRow(row_index)
@@ -243,17 +250,26 @@ class ProjectEditor(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.fields = {key: QLineEdit(self) for key in ("name", "project", "company", "engineer", "location")}
+        self.units = QComboBox(self)
+        for unit in UNIT_SYSTEMS.values():
+            self.units.addItem(unit.label, unit.key)
         form = QFormLayout(self)
         form.setContentsMargins(12, 12, 12, 12)
         for label, key in (("Frame name", "name"), ("Project", "project"), ("Company", "company"), ("Engineer", "engineer"), ("Location", "location")):
             form.addRow(label, self.fields[key])
             self.fields[key].textChanged.connect(self.changed)
+        form.addRow("Display units", self.units)
+        self.units.currentIndexChanged.connect(self.changed)
 
     def set_values(self, values: Mapping[str, Any]) -> None:
         for key, field in self.fields.items():
             field.blockSignals(True)
             field.setText(str(values.get(key, "")))
             field.blockSignals(False)
+        self.units.blockSignals(True)
+        index = self.units.findData(str(values.get("units", "legacy_kg_m")))
+        self.units.setCurrentIndex(index if index >= 0 else 0)
+        self.units.blockSignals(False)
 
     def values(self) -> dict[str, str]:
-        return {key: field.text().strip() for key, field in self.fields.items()}
+        return {**{key: field.text().strip() for key, field in self.fields.items()}, "units": str(self.units.currentData())}

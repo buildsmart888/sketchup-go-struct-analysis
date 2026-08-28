@@ -31,6 +31,8 @@ class DisplaySettings:
     moment_positive: str = "bottom_tension"
     diagram_scale_mode: str = "auto"
     diagram_scale_multiplier: float = 1.0
+    fbd_reference_x: float = 0.0
+    fbd_reference_y: float = 0.0
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | None) -> "DisplaySettings":
@@ -90,6 +92,12 @@ class DisplayPanel(QWidget):
         self.diagram_scale_multiplier.setRange(0.1, 10.0)
         self.diagram_scale_multiplier.setSingleStep(0.1)
         self.diagram_scale_multiplier.setValue(1.0)
+        self.fbd_reference_x = QDoubleSpinBox(self)
+        self.fbd_reference_x.setRange(-1.0e6, 1.0e6)
+        self.fbd_reference_x.setDecimals(3)
+        self.fbd_reference_y = QDoubleSpinBox(self)
+        self.fbd_reference_y.setRange(-1.0e6, 1.0e6)
+        self.fbd_reference_y.setDecimals(3)
         self._build_layout()
         self._apply_settings(self._settings)
         for control in (
@@ -101,6 +109,8 @@ class DisplayPanel(QWidget):
         for control in (self.diagram_placement, self.axial_positive, self.shear_positive, self.moment_positive, self.diagram_scale_mode):
             control.currentIndexChanged.connect(self._emit_settings)
         self.diagram_scale_multiplier.valueChanged.connect(self._emit_settings)
+        self.fbd_reference_x.valueChanged.connect(self._emit_settings)
+        self.fbd_reference_y.valueChanged.connect(self._emit_settings)
         self.load_case.currentIndexChanged.connect(lambda: self.load_case_changed.emit(str(self.load_case.currentData() or "")))
         self.view_mode.currentIndexChanged.connect(lambda: self.view_mode_changed.emit(str(self.view_mode.currentData() or "model")))
 
@@ -163,10 +173,11 @@ class DisplayPanel(QWidget):
 
     def _fbd_tab(self) -> QWidget:
         tab = QWidget(self)
-        layout = QVBoxLayout(tab)
-        layout.addWidget(self.reactions)
-        layout.addWidget(self.equilibrium)
-        layout.addStretch()
+        layout = QFormLayout(tab)
+        layout.addRow(self.reactions)
+        layout.addRow(self.equilibrium)
+        layout.addRow("Moment reference X (m)", self.fbd_reference_x)
+        layout.addRow("Moment reference Y (m)", self.fbd_reference_y)
         return tab
 
     def _emit_settings(self) -> None:
@@ -189,6 +200,8 @@ class DisplayPanel(QWidget):
             moment_positive=str(self.moment_positive.currentData()),
             diagram_scale_mode=str(self.diagram_scale_mode.currentData()),
             diagram_scale_multiplier=self.diagram_scale_multiplier.value(),
+            fbd_reference_x=self.fbd_reference_x.value(),
+            fbd_reference_y=self.fbd_reference_y.value(),
         )
         self._settings = settings
         self.settings_changed.emit(settings)
@@ -212,3 +225,5 @@ class DisplayPanel(QWidget):
         self.moment_positive.setCurrentIndex(self.moment_positive.findData(settings.moment_positive))
         self.diagram_scale_mode.setCurrentIndex(self.diagram_scale_mode.findData(settings.diagram_scale_mode))
         self.diagram_scale_multiplier.setValue(settings.diagram_scale_multiplier)
+        self.fbd_reference_x.setValue(settings.fbd_reference_x)
+        self.fbd_reference_y.setValue(settings.fbd_reference_y)

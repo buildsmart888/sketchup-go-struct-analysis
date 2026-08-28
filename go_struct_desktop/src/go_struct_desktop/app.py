@@ -8,14 +8,14 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings, QStandardPaths, Qt
 from PySide6.QtGui import QAction, QFont, QKeySequence
-from PySide6.QtWidgets import QApplication, QButtonGroup, QDockWidget, QFileDialog, QMainWindow, QMessageBox, QStyle, QToolBar, QToolButton, QWidget
+from PySide6.QtWidgets import QApplication, QButtonGroup, QDockWidget, QFileDialog, QInputDialog, QMainWindow, QMessageBox, QStyle, QToolBar, QToolButton, QWidget
 
 from go_struct_core import FrameModel, ModelValidationError, analyze_frame_data, build_frame_postprocess
 
 from .frame_workspace import FrameInputPanel, FrameResultsPanel, default_frame_model
-from .display import DisplayPanel
+from .display import DisplayPanel, DisplaySettings
 from .inspector import PropertyInspector
 
 
@@ -31,6 +31,8 @@ class MainWindow(QMainWindow):
         self._history: list[dict[str, Any]] = []
         self._history_index = -1
         self._suppress_model_events = False
+        self._dirty = False
+        self._settings = QSettings("BuildSmart888", "GOStructDesktop")
         self.input_panel = FrameInputPanel(self)
         self.results_panel = FrameResultsPanel(self)
         self.inspector = PropertyInspector(self)
@@ -42,9 +44,11 @@ class MainWindow(QMainWindow):
         self.results_panel.delete_requested.connect(self._confirm_delete)
         self.inspector.model_change_requested.connect(self._canvas_model_edited)
         self.display_panel.settings_changed.connect(self.results_panel.set_display_settings)
+        self.display_panel.settings_changed.connect(self._save_display_settings)
         self.display_panel.load_case_changed.connect(self.results_panel.canvas.set_load_case)
         self.display_panel.view_mode_changed.connect(self.results_panel.canvas.set_view_mode)
         self.results_panel.set_display_settings(self.display_panel.settings)
+        self._restore_display_settings()
         self.set_model(default_frame_model())
         self.run_analysis()
 
@@ -89,6 +93,7 @@ class MainWindow(QMainWindow):
         self.resizeDocks([self.input_dock], [360], Qt.Orientation.Horizontal)
         self.resizeDocks([self.results_dock], [170], Qt.Orientation.Vertical)
         self._build_actions()
+        self._restore_workspace()
         self.statusBar().showMessage("Ready")
 
     def _create_dock(self, title: str, object_name: str, widget: QWidget) -> QDockWidget:
@@ -126,6 +131,10 @@ class MainWindow(QMainWindow):
         export_action = QAction("Export Analysis JSON", self)
         export_action.setToolTip("Export the normalized model, analysis, and diagrams")
         export_action.triggered.connect(self.export_analysis)
+
+        recover_action = QAction("Recover Autosave", self)
+        recover_action.setToolTip("Recover the most recent unsaved model snapshot")
+        recover_action.triggered.connect(self.recover_autosave)
 
         self.undo_action = QAction("Undo", self)
         self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
@@ -169,6 +178,7 @@ class MainWindow(QMainWindow):
         split_tool_action = tool_action("Split Member", "split")
         nodal_load_action = tool_action("Nodal Load", "nodal_load")
         member_load_action = tool_action("Member Load", "member_load")
+        zoom_window_action = tool_action("Zoom Window", "zoom_window", "Z")
 
         file_menu = self.menuBar().addMenu("File")
         file_menu.addAction(new_action)
@@ -177,6 +187,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(save_as_action)
         file_menu.addSeparator()
         file_menu.addAction(export_action)
+        file_menu.addAction(recover_action)
         edit_menu = self.menuBar().addMenu("Edit")
         edit_menu.addAction(self.undo_action)
         edit_menu.addAction(self.redo_action)
@@ -201,6 +212,22 @@ class MainWindow(QMainWindow):
         align_y.triggered.connect(lambda: self.results_panel.canvas.align_selected("y"))
         align_menu.addAction(align_x)
         align_menu.addAction(align_y)
+        mirror_vertical = QAction("Mirror selection vertically", self)
+        mirror_vertical.triggered.connect(lambda: self.results_panel.canvas.mirror_selection("vertical"))
+        mirror_horizontal = QAction("Mirror selection horizontally", self)
+        mirror_horizontal.triggered.connect(lambda: self.results_panel.canvas.mirror_selection("horizontal"))
+        move_selection = QAction("Move selection by delta", self)
+        move_selection.triggered.connect(self._move_selection_by_delta)
+        array_selection = QAction("Array selection", self)
+        array_selection.triggered.connect(self._array_selection)
+        select_section = QAction("Select members by active section", self)
+        select_section.triggered.connect(self._select_members_by_active_section)
+        model_menu.addSeparator()
+        model_menu.addAction(mirror_vertical)
+        model_menu.addAction(mirror_horizontal)
+        model_menu.addAction(move_selection)
+        model_menu.addAction(array_selection)
+        model_menu.addAction(select_section)
         for title in ("Nodes", "Members", "Sections"):
             action = QAction(f"Open {title} table", self)
             action.triggered.connect(lambda _checked=False, value=title: self.input_panel.activate_tab(value))
@@ -221,6 +248,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.display_dock.toggleViewAction())
         view_menu.addAction(self.inspector_dock.toggleViewAction())
         view_menu.addAction(fit_selection_action)
+        view_menu.addAction(zoom_window_action)
         view_menu.addAction(fit_diagram_action)
         results_menu = self.menuBar().addMenu("Results")
         results_menu.addAction(analyze_action)
@@ -356,9 +384,11 @@ class MainWindow(QMainWindow):
         self._history = [copy.deepcopy(current_model)]
         self._history_index = 0
         self._update_history_actions()
+        self._set_dirty(False)
 
     def new_model(self) -> None:
         self._current_path = None
+        self._clear_autosave()
         self.set_model(default_frame_model())
         self.run_analysis()
         self.statusBar().showMessage("New portal frame")
@@ -374,6 +404,7 @@ class MainWindow(QMainWindow):
             self._show_error("Unable to open model", str(exc))
             return
         self._current_path = Path(path)
+        self._clear_autosave()
         self.set_model(model)
         self.run_analysis()
         self.statusBar().showMessage(f"Opened {self._current_path.name}")
@@ -434,6 +465,8 @@ class MainWindow(QMainWindow):
             return
         self._record_history(model)
         self.results_panel.clear_analysis()
+        self._set_dirty(True)
+        self._autosave_model(model)
         self.statusBar().showMessage("Model changed. Run analysis to refresh results.")
 
     def _canvas_model_edited(self, model: Mapping[str, Any]) -> None:
@@ -445,6 +478,32 @@ class MainWindow(QMainWindow):
             {int(node["id"]) for node in self.results_panel.canvas._model.get("nodes", [])},
             {int(member["id"]) for member in self.results_panel.canvas._model.get("elements", [])},
         )
+
+    def _move_selection_by_delta(self) -> None:
+        units = self.input_panel.unit_system
+        dx, accepted = QInputDialog.getDouble(self, "Move selection", f"Delta X ({units.length_unit})", 0.0, -1.0e9, 1.0e9, 3)
+        if not accepted:
+            return
+        dy, accepted = QInputDialog.getDouble(self, "Move selection", f"Delta Y ({units.length_unit})", 0.0, -1.0e9, 1.0e9, 3)
+        if accepted:
+            self.results_panel.canvas.move_selection(dx / units.length_factor, dy / units.length_factor)
+
+    def _array_selection(self) -> None:
+        units = self.input_panel.unit_system
+        count, accepted = QInputDialog.getInt(self, "Array selection", "Additional copies", 1, 1, 100)
+        if not accepted:
+            return
+        dx, accepted = QInputDialog.getDouble(self, "Array selection", f"Delta X ({units.length_unit})", self.results_panel.grid_spacing.value(), -1.0e9, 1.0e9, 3)
+        if not accepted:
+            return
+        dy, accepted = QInputDialog.getDouble(self, "Array selection", f"Delta Y ({units.length_unit})", 0.0, -1.0e9, 1.0e9, 3)
+        if accepted:
+            self.results_panel.canvas.array_selection(count, dx / units.length_factor, dy / units.length_factor)
+
+    def _select_members_by_active_section(self) -> None:
+        section_id = self.results_panel.active_section.currentData()
+        if section_id is not None:
+            self.results_panel.canvas.select_members_by_section(int(section_id))
 
     def _set_canvas_diagram(self, mode: str) -> None:
         selector = self.results_panel.canvas_diagram_selector
@@ -490,6 +549,8 @@ class MainWindow(QMainWindow):
         self._set_input_model(self._history[self._history_index])
         self.results_panel.set_model(self.input_panel.model_data())
         self.results_panel.clear_analysis()
+        self._set_dirty(True)
+        self._autosave_model(self.input_panel.model_data())
         self._update_history_actions()
         self.statusBar().showMessage(f"{action}. Run analysis to refresh results.")
 
@@ -506,7 +567,86 @@ class MainWindow(QMainWindow):
         except (OSError, ModelValidationError, ValueError) as exc:
             self._show_error("Unable to save model", str(exc))
             return
+        self._set_dirty(False)
+        self._clear_autosave()
         self.statusBar().showMessage(f"Saved {path.name}")
+
+    def _set_dirty(self, dirty: bool) -> None:
+        self._dirty = dirty
+        title = "GO Struct Desktop | 2D Frame"
+        self.setWindowTitle(f"* {title}" if dirty else title)
+
+    @property
+    def _autosave_path(self) -> Path:
+        root = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation))
+        return root / "recovery.goframe.json"
+
+    def _autosave_model(self, model: Mapping[str, Any]) -> None:
+        try:
+            path = self._autosave_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(FrameModel.from_dict(model).to_dict(), indent=2), encoding="utf-8")
+        except (OSError, ModelValidationError, ValueError):
+            self.statusBar().showMessage("Model changed. Autosave could not be written.")
+
+    def _clear_autosave(self) -> None:
+        try:
+            self._autosave_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def recover_autosave(self) -> None:
+        path = self._autosave_path
+        if not path.exists():
+            self.statusBar().showMessage("No autosave recovery file is available.")
+            return
+        try:
+            self.set_model(json.loads(path.read_text(encoding="utf-8")))
+            self.run_analysis()
+        except (OSError, json.JSONDecodeError, ModelValidationError, ValueError) as exc:
+            self._show_error("Unable to recover autosave", str(exc))
+            return
+        self._set_dirty(True)
+        self.statusBar().showMessage("Recovered autosave. Save the model to keep it.")
+
+    def _restore_workspace(self) -> None:
+        if QApplication.platformName() == "offscreen":
+            return
+        geometry = self._settings.value("workspace/geometry")
+        state = self._settings.value("workspace/state")
+        if geometry:
+            self.restoreGeometry(geometry)
+        if state:
+            self.restoreState(state)
+        canvas = self._settings.value("workspace/canvas", {})
+        if isinstance(canvas, Mapping):
+            self.results_panel.grid_toggle.setChecked(bool(canvas.get("grid", self.results_panel.grid_toggle.isChecked())))
+            self.results_panel.snap_toggle.setChecked(bool(canvas.get("snap", self.results_panel.snap_toggle.isChecked())))
+            self.results_panel.snap_nodes_toggle.setChecked(bool(canvas.get("snap_nodes", self.results_panel.snap_nodes_toggle.isChecked())))
+            self.results_panel.grid_spacing.setValue(float(canvas.get("grid_spacing", self.results_panel.grid_spacing.value())))
+
+    def _save_display_settings(self, settings) -> None:  # type: ignore[no-untyped-def]
+        self._settings.setValue("workspace/display", settings.to_dict())
+
+    def _restore_display_settings(self) -> None:
+        saved = self._settings.value("workspace/display", {})
+        if isinstance(saved, Mapping):
+            self.display_panel._apply_settings(DisplaySettings.from_mapping(saved))
+            self.results_panel.set_display_settings(self.display_panel.settings)
+
+    def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+        self._settings.setValue("workspace/geometry", self.saveGeometry())
+        self._settings.setValue("workspace/state", self.saveState())
+        self._settings.setValue(
+            "workspace/canvas",
+            {
+                "grid": self.results_panel.grid_toggle.isChecked(),
+                "snap": self.results_panel.snap_toggle.isChecked(),
+                "snap_nodes": self.results_panel.snap_nodes_toggle.isChecked(),
+                "grid_spacing": self.results_panel.grid_spacing.value(),
+            },
+        )
+        event.accept()
 
     def _show_error(self, title: str, detail: str) -> None:
         QMessageBox.critical(self, title, detail)

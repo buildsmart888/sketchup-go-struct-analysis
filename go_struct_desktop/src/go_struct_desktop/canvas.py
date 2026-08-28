@@ -11,6 +11,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QToolTip, QWidget
 
 from .display import DisplaySettings
+from .units import UnitSystem, get_unit_system
 
 
 class FrameCanvas(QWidget):
@@ -40,6 +41,7 @@ class FrameCanvas(QWidget):
         self._view_mode = "results"
         self._load_case = ""
         self._display = DisplaySettings()
+        self._units = get_unit_system("legacy_kg_m")
         self._deformed_members: list[Mapping[str, Any]] = []
         self._diagram_members: list[Mapping[str, Any]] = []
         self._diagram_mode = "none"
@@ -110,6 +112,10 @@ class FrameCanvas(QWidget):
         self._grid_visible = settings.show_grid
         self.update()
 
+    def set_unit_system(self, key: str) -> None:
+        self._units = get_unit_system(key)
+        self.update()
+
     def set_deformed_members(self, members: list[Mapping[str, Any]]) -> None:
         self._deformed_members = members
         self.update()
@@ -145,7 +151,7 @@ class FrameCanvas(QWidget):
         return {"nodes": sorted(self._selected_nodes), "members": sorted(self._selected_members)}
 
     def set_tool(self, tool: str) -> None:
-        self._tool = tool if tool in {"select", "node", "member", "pan", "support", "nodal_load", "member_load", "split"} else "select"
+        self._tool = tool if tool in {"select", "node", "member", "pan", "support", "nodal_load", "member_load", "split", "zoom_window"} else "select"
         self._member_start = None
         self._member_current = None
         self._selection_origin = None
@@ -178,23 +184,75 @@ class FrameCanvas(QWidget):
         self.set_tool("support")
 
     def duplicate_selection(self) -> None:
+        self._duplicate_selection(lambda x, y: (x + (self._grid_spacing if self._snap_enabled else 1.0), y + (self._grid_spacing if self._snap_enabled else 1.0)))
+
+    def array_selection(self, count: int, delta_x: float, delta_y: float) -> None:
+        if count < 1:
+            return
+        for index in range(1, count + 1):
+            self._duplicate_selection(lambda x, y, factor=index: (x + factor * delta_x, y + factor * delta_y), select_new=index == count)
+
+    def mirror_selection(self, axis: str) -> None:
+        nodes = self._selection_nodes_including_members()
+        if not nodes:
+            self.authoring_message.emit("Select a node or member to mirror.")
+            return
+        coordinates = {int(node["id"]): node for node in self._model.get("nodes", [])}
+        values = [coordinates[node_id] for node_id in nodes]
+        center = sum(float(node["x"] if axis == "vertical" else node["y"]) for node in values) / len(values)
+        if axis == "vertical":
+            self._duplicate_selection(lambda x, y: (2.0 * center - x, y))
+        else:
+            self._duplicate_selection(lambda x, y: (x, 2.0 * center - y))
+
+    def move_selection(self, delta_x: float, delta_y: float) -> None:
+        node_ids = self._selection_nodes_including_members()
+        if not node_ids:
+            self.authoring_message.emit("Select a node or member to move.")
+            return
+        model = self._mutable_model()
+        for node in model["nodes"]:
+            if int(node["id"]) in node_ids:
+                node["x"] = float(node["x"]) + delta_x
+                node["y"] = float(node["y"]) + delta_y
+        if not self._model_has_valid_member_lengths(model):
+            self.authoring_message.emit("Move would create a zero-length member.")
+            return
+        self._emit_model(model)
+
+    def select_members_by_section(self, section_id: int) -> None:
+        members = {int(member["id"]) for member in self._model.get("elements", []) if int(member.get("sec", -1)) == section_id}
+        self._set_selection(set(), members)
+        self.authoring_message.emit(f"Selected {len(members)} member(s) using Section {section_id}.")
+
+    def _selection_nodes_including_members(self) -> set[int]:
         member_ids = set(self._selected_members)
         node_ids = set(self._selected_nodes)
         for member in self._model.get("elements", []):
             if int(member["id"]) in member_ids:
                 node_ids.update((int(member["n1"]), int(member["n2"])))
         if not node_ids:
+            return set()
+        return node_ids
+
+    def _duplicate_selection(self, transform, select_new: bool = True) -> None:  # type: ignore[no-untyped-def]
+        member_ids = set(self._selected_members)
+        node_ids = self._selection_nodes_including_members()
+        if not node_ids:
             self.authoring_message.emit("Select a node or member to duplicate.")
             return
         model = self._mutable_model()
         node_by_id = {int(node["id"]): node for node in model["nodes"]}
-        offset = self._grid_spacing if self._snap_enabled else 1.0
         mapping: dict[int, int] = {}
         for node_id in sorted(node_ids):
             source = node_by_id[node_id]
             new_id = self._next_id(model["nodes"])
             mapping[node_id] = new_id
-            model["nodes"].append({**source, "id": new_id, "x": float(source["x"]) + offset, "y": float(source["y"]) + offset})
+            x, y = transform(float(source["x"]), float(source["y"]))
+            if any(math.isclose(float(node["x"]), x, abs_tol=1.0e-9) and math.isclose(float(node["y"]), y, abs_tol=1.0e-9) for node in model["nodes"]):
+                self.authoring_message.emit("Duplicate overlaps an existing node. Change the transform.")
+                return
+            model["nodes"].append({**source, "id": new_id, "x": x, "y": y})
         new_members: set[int] = set()
         for member in list(model["elements"]):
             if int(member["id"]) not in member_ids:
@@ -208,7 +266,8 @@ class FrameCanvas(QWidget):
         for load in list(model["nloads"]):
             if int(load["node"]) in mapping:
                 model["nloads"].append({**load, "node": mapping[int(load["node"])]})
-        self._set_selection(set(mapping.values()), new_members)
+        if select_new:
+            self._set_selection(set(mapping.values()), new_members)
         self._emit_model(model)
 
     def align_selected(self, axis: str) -> None:
@@ -312,6 +371,9 @@ class FrameCanvas(QWidget):
                     self.authoring_message.emit("Click a member to split it.")
                 else:
                     self._split_member(int(member["id"]), self._screen_to_model(event.position()))
+            elif self._tool == "zoom_window":
+                self._selection_origin = event.position()
+                self._selection_rect = QRectF(event.position(), event.position())
             elif self._tool == "select":
                 load = self._load_at(event.position()) if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier) else None
                 if load is not None:
@@ -346,6 +408,9 @@ class FrameCanvas(QWidget):
                 self._selection_rect = QRectF(self._selection_origin, event.position()).normalized()
                 self._selection_crossing = event.position().x() < self._selection_origin.x()
                 self.update()
+            elif self._tool == "zoom_window" and self._selection_origin is not None:
+                self._selection_rect = QRectF(self._selection_origin, event.position()).normalized()
+                self.update()
             else:
                 self._show_hover_value(event.position(), event.globalPosition().toPoint())
         super().mouseMoveEvent(event)
@@ -366,6 +431,11 @@ class FrameCanvas(QWidget):
                 self._node_drag_position = None
             elif self._tool == "select" and self._selection_origin is not None:
                 self._apply_selection(event.position())
+                self._selection_origin = None
+                self._selection_rect = None
+                self.update()
+            elif self._tool == "zoom_window" and self._selection_origin is not None:
+                self._apply_zoom_window()
                 self._selection_origin = None
                 self._selection_rect = None
                 self.update()
@@ -681,19 +751,20 @@ class FrameCanvas(QWidget):
                     painter.setPen(reaction_color)
                     painter.drawText(point + QPointF(10.0, 34.0), " | ".join(labels))
         if self._display.show_equilibrium:
-            fx, fy, moment = self._equilibrium_residual(factors, node_by_id)
+            fx, fy, moment = self._equilibrium_residual(factors, node_by_id, (self._display.fbd_reference_x, self._display.fbd_reference_y))
             painter.setPen(QColor("#334155"))
             title = self._result_selection.removeprefix("case:").removeprefix("combo:")
             lines = [
                 f"Free body | {title}",
-                f"ΣFx = {fx:,.3e} kg",
-                f"ΣFy = {fy:,.3e} kg",
-                f"ΣMz@0,0 = {moment:,.3e} kg-m",
+                f"ΣFx = {self._units.force(fx):,.3e} {self._units.force_unit}",
+                f"ΣFy = {self._units.force(fy):,.3e} {self._units.force_unit}",
+                f"ΣMz@{self._units.length(self._display.fbd_reference_x):g},{self._units.length(self._display.fbd_reference_y):g} = {self._units.moment(moment):,.3e} {self._units.moment_label()}",
             ]
             painter.drawText(QRectF(18.0, 42.0, 260.0, 92.0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "\n".join(lines))
 
-    def _equilibrium_residual(self, factors: Mapping[str, float], node_by_id: Mapping[int, Mapping[str, Any]]) -> tuple[float, float, float]:
+    def _equilibrium_residual(self, factors: Mapping[str, float], node_by_id: Mapping[int, Mapping[str, Any]], reference: tuple[float, float] = (0.0, 0.0)) -> tuple[float, float, float]:
         total_fx = total_fy = total_moment = 0.0
+        ref_x, ref_y = reference
         for load in self._model.get("nloads", []):
             factor = float(factors.get(str(load.get("lcase")), 0.0))
             node = node_by_id.get(load.get("node"))
@@ -702,7 +773,7 @@ class FrameCanvas(QWidget):
             fx, fy, mz = float(load.get("fx", 0.0)) * factor, float(load.get("fy", 0.0)) * factor, float(load.get("mz", 0.0)) * factor
             total_fx += fx
             total_fy += fy
-            total_moment += mz + float(node["x"]) * fy - float(node["y"]) * fx
+            total_moment += mz + (float(node["x"]) - ref_x) * fy - (float(node["y"]) - ref_y) * fx
         elements = {element.get("id"): element for element in self._model.get("elements", [])}
         for load in self._model.get("eloads", []):
             factor = float(factors.get(str(load.get("lcase")), 0.0))
@@ -732,7 +803,7 @@ class FrameCanvas(QWidget):
                 y = float(first["y"]) + sine * at_x
                 total_fx += fx
                 total_fy += fy
-                total_moment += x * fy - y * fx
+                total_moment += (x - ref_x) * fy - (y - ref_y) * fx
                 continue
             if load.get("type") == "Point Moment":
                 total_moment += float(load.get("m", 0.0)) * factor
@@ -753,7 +824,7 @@ class FrameCanvas(QWidget):
             y = float(first["y"]) + sine * local_x
             total_fx += fx
             total_fy += fy
-            total_moment += x * fy - y * fx
+            total_moment += (x - ref_x) * fy - (y - ref_y) * fx
         if self._result:
             for node in self._result.get("nodes", []):
                 model_node = node_by_id.get(node.get("id"))
@@ -762,7 +833,7 @@ class FrameCanvas(QWidget):
                 fx, fy, mz = float(node.get("fx", 0.0)), float(node.get("fy", 0.0)), float(node.get("mz", 0.0))
                 total_fx += fx
                 total_fy += fy
-                total_moment += mz + float(model_node["x"]) * fy - float(model_node["y"]) * fx
+                total_moment += mz + (float(model_node["x"]) - ref_x) * fy - (float(model_node["y"]) - ref_y) * fx
         return total_fx, total_fy, total_moment
 
     def _draw_deformed_shape(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, span_x: float, span_y: float) -> None:
@@ -922,11 +993,11 @@ class FrameCanvas(QWidget):
             self._hover_sample = sample
             self.update()
         lines = [
-            f"E{member['id']} | N{member['n1']} - N{member['n2']} | x = {float(point['x_m']):.3f} m",
-            f"N = {self._display_diagram_value('n_kg', float(point.get('n_kg', 0.0))):,.3f} kg ({self._display.axial_positive} +)",
-            f"V = {self._display_diagram_value('v_kg', float(point.get('v_kg', 0.0))):,.3f} kg ({self._display.shear_positive} +)",
-            f"M = {self._display_diagram_value('m_kg_m', float(point.get('m_kg_m', 0.0))):,.3f} kg-m ({self._display.moment_positive})",
-            f"FE deflection = {float(point.get('v_mm', 0.0)):,.4f} mm",
+            f"E{member['id']} | N{member['n1']} - N{member['n2']} | x = {self._units.length(float(point['x_m'])):.3f} {self._units.length_unit}",
+            f"N = {self._units.force(self._display_diagram_value('n_kg', float(point.get('n_kg', 0.0)))):,.3f} {self._units.force_unit} ({self._display.axial_positive} +)",
+            f"V = {self._units.force(self._display_diagram_value('v_kg', float(point.get('v_kg', 0.0)))):,.3f} {self._units.force_unit} ({self._display.shear_positive} +)",
+            f"M = {self._units.moment(self._display_diagram_value('m_kg_m', float(point.get('m_kg_m', 0.0)))):,.3f} {self._units.moment_label()} ({self._display.moment_positive})",
+            f"FE deflection = {self._units.length(float(point.get('v_mm', 0.0)) / 1000.0):,.4f} {self._units.length_unit}",
         ]
         QToolTip.showText(global_position, "\n".join(lines), self)
 
@@ -1003,11 +1074,13 @@ class FrameCanvas(QWidget):
         self._hover_sample = None
         QToolTip.hideText()
 
-    @staticmethod
-    def _format_diagram_value(key: str, value: float) -> str:
+    def _format_diagram_value(self, key: str, value: float) -> str:
         label = {"n_kg": "N", "v_kg": "V", "m_kg_m": "M", "v_mm": "v"}[key]
-        unit = "mm" if key == "v_mm" else "kg-m" if key == "m_kg_m" else "kg"
-        return f"{label} {value:,.2f} {unit}"
+        if key == "v_mm":
+            return f"{label} {self._units.length(value / 1000.0):,.2f} {self._units.length_unit}"
+        if key == "m_kg_m":
+            return f"{label} {self._units.moment(value):,.2f} {self._units.moment_label()}"
+        return f"{label} {self._units.force(value):,.2f} {self._units.force_unit}"
 
     def _draw_nodes_and_supports(self, painter: QPainter, nodes: list[Mapping[str, Any]], screen) -> None:
         font = QFont(painter.font())
@@ -1441,6 +1514,28 @@ class FrameCanvas(QWidget):
         node = self._node_at(position) if self._selection_filter in {"nodes", "both"} else None
         member = self._member_at(position) if node is None and self._selection_filter in {"members", "both"} else None
         self._set_selection({int(node["id"])} if node else set(), {int(member["id"])} if member else set())
+
+    def _apply_zoom_window(self) -> None:
+        if self._selection_rect is None or self._selection_rect.width() < 8.0 or self._selection_rect.height() < 8.0:
+            self.authoring_message.emit("Drag a window to zoom.")
+            return
+        first = self._screen_to_model(self._selection_rect.topLeft())
+        second = self._screen_to_model(self._selection_rect.bottomRight())
+        self._fit_model_bounds(min(first[0], second[0]), max(first[0], second[0]), min(first[1], second[1]), max(first[1], second[1]))
+
+    def _fit_model_bounds(self, min_x: float, max_x: float, min_y: float, max_y: float) -> None:
+        all_nodes = self._model.get("nodes", [])
+        if not all_nodes:
+            return
+        all_min_x, all_max_x = min(float(node["x"]) for node in all_nodes), max(float(node["x"]) for node in all_nodes)
+        all_min_y, all_max_y = min(float(node["y"]) for node in all_nodes), max(float(node["y"]) for node in all_nodes)
+        base_scale = min(max(self.width() - 140.0, 1.0) / max(all_max_x - all_min_x, 1.0), max(self.height() - 140.0, 1.0) / max(all_max_y - all_min_y, 1.0))
+        target_scale = min(max(self.width() - 140.0, 1.0) / max(max_x - min_x, 1.0e-6), max(self.height() - 140.0, 1.0) / max(max_y - min_y, 1.0e-6))
+        self._zoom = max(0.35, min(8.0, target_scale / base_scale))
+        current_scale = base_scale * self._zoom
+        model_center_x, model_center_y = (all_min_x + all_max_x) / 2.0, (all_min_y + all_max_y) / 2.0
+        selection_center_x, selection_center_y = (min_x + max_x) / 2.0, (min_y + max_y) / 2.0
+        self._pan = QPointF(-(selection_center_x - model_center_x) * current_scale, (selection_center_y - model_center_y) * current_scale)
 
     @staticmethod
     def _segment_crosses_rect(start: QPointF, end: QPointF, rect: QRectF) -> bool:

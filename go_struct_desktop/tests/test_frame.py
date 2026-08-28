@@ -40,6 +40,27 @@ def test_cantilever_displacement_matches_closed_form() -> None:
     assert result["combos"]["Service"]["nodes"][1]["dy"] == pytest.approx(0.0, abs=1e-12)
 
 
+def test_simply_supported_uniform_load_reactions_and_fe_deflection_are_stable() -> None:
+    model = cantilever_model()
+    model["nodes"] = [
+        {"id": 1, "x": 0.0, "y": 0.0, "support": "Pinned"},
+        {"id": 2, "x": 6.0, "y": 0.0, "support": "RollerX"},
+    ]
+    model["elements"][0] = {"id": 1, "n1": 1, "n2": 2, "sec": 1, "release": "Rigid-Rigid"}
+    model["nloads"] = []
+    model["eloads"] = [{"elem": 1, "lcase": "DL", "dir": "Global Y", "w1": -8.0, "w2": -8.0}]
+
+    result = analyze_frame_data(model)
+
+    postprocess = build_frame_postprocess(model, result)
+    midspan = min(postprocess["cases"]["DL"]["members"][0]["points"], key=lambda point: abs(float(point["x_m"]) - 3.0))
+    assert result["ok"] is True
+    assert result["cases"]["DL"]["nodes"][0]["fy"] == pytest.approx(24.0)
+    assert result["cases"]["DL"]["nodes"][1]["fy"] == pytest.approx(24.0)
+    # A single Euler-Bernoulli element gives a cubic FE interpolation of the exact quartic UDL curve.
+    assert midspan["v_mm"] / 1000.0 == pytest.approx(-5.4e-6, rel=1e-10)
+
+
 def test_portal_frame_combinations_are_linear_and_equilibrated() -> None:
     model = load_portal()
     result = analyze_frame_data(model)

@@ -34,6 +34,7 @@ from .diagrams import FrameDiagramsPanel
 from .display import DisplaySettings
 from .editors import CombinationEditor, Column, ProjectEditor, TableEditor, as_float, as_int
 from .inspector import LoadDialog
+from .units import UnitSystem, get_unit_system
 
 
 SUPPORTS = ("Free", "Pinned", "Fixed", "RollerX", "RollerY")
@@ -44,7 +45,7 @@ MEMBER_LOAD_TYPES = ("Distributed", "Point Force", "Point Moment")
 
 def default_frame_model() -> dict[str, Any]:
     return {
-        "projectInfo": {"name": "Portal Frame", "project": "", "company": "", "engineer": "", "location": ""},
+        "projectInfo": {"name": "Portal Frame", "project": "", "company": "", "engineer": "", "location": "", "units": "legacy_kg_m"},
         "settings": {"include_self_weight": False},
         "nodes": [
             {"id": 1, "x": 0.0, "y": 0.0, "support": "Fixed"},
@@ -75,10 +76,13 @@ class FrameInputPanel(QWidget):
     """Model input tabs. This class has no solver or file-system knowledge."""
 
     model_changed = Signal()
+    units_changed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._synchronizing_cases = False
+        self._changing_units = False
+        self._unit_key = "legacy_kg_m"
         self.project = ProjectEditor(self)
         self.self_weight = QCheckBox("Include self weight", self)
         self.nodes = TableEditor(
@@ -118,6 +122,8 @@ class FrameInputPanel(QWidget):
             editor.changed.connect(self.model_changed)
         self.self_weight.toggled.connect(self.model_changed)
         self.load_cases.changed.connect(self._on_load_cases_changed)
+        self.project.units.currentIndexChanged.connect(self._on_units_changed)
+        self._update_unit_headers()
 
     def _build_layout(self) -> None:
         self.tabs = QTabWidget(self)
@@ -149,32 +155,123 @@ class FrameInputPanel(QWidget):
 
     def set_model(self, model: Mapping[str, Any]) -> None:
         parsed = FrameModel.from_dict(model).to_dict()
+        self._changing_units = True
+        self._unit_key = str(parsed.get("projectInfo", {}).get("units", "legacy_kg_m"))
         self.project.set_values(parsed.get("projectInfo", {}))
         self.self_weight.blockSignals(True)
         self.self_weight.setChecked(parsed.get("settings", {}).get("include_self_weight") is True)
         self.self_weight.blockSignals(False)
-        self.nodes.set_rows(parsed["nodes"])
+        self.nodes.set_rows(self._display_rows(parsed["nodes"], "nodes"))
         self.elements.set_rows(parsed["elements"])
-        self.sections.set_rows(parsed["sections"])
+        self.sections.set_rows(self._display_rows(parsed["sections"], "sections"))
         self.load_cases.set_rows([{"name": value} for value in parsed["loadcases"]])
         self._synchronize_load_cases()
         self.combinations.set_rows(parsed["loadcombos"])
-        self.nodal_loads.set_rows(parsed["nloads"])
-        self.element_loads.set_rows(parsed["eloads"])
+        self.nodal_loads.set_rows(self._display_rows(parsed["nloads"], "nloads"))
+        self.element_loads.set_rows(self._display_rows(parsed["eloads"], "eloads"))
+        self._update_unit_headers()
+        self._changing_units = False
+        self.units_changed.emit(self._unit_key)
         self.model_changed.emit()
 
     def model_data(self) -> dict[str, Any]:
+        return self._model_data_for_units(self._unit_key)
+
+    def _model_data_for_units(self, unit_key: str) -> dict[str, Any]:
+        project_info = self.project.values()
+        project_info["units"] = unit_key
         return {
-            "projectInfo": self.project.values(),
+            "projectInfo": project_info,
             "settings": {"include_self_weight": self.self_weight.isChecked()},
-            "nodes": self.nodes.values(),
+            "nodes": self._canonical_rows(self.nodes.values(), "nodes", unit_key),
             "elements": self.elements.values(),
-            "sections": self.sections.values(),
+            "sections": self._canonical_rows(self.sections.values(), "sections", unit_key),
             "loadcases": self._load_case_names(),
             "loadcombos": self.combinations.values(),
-            "nloads": self.nodal_loads.values(),
-            "eloads": self.element_loads.values(),
+            "nloads": self._canonical_rows(self.nodal_loads.values(), "nloads", unit_key),
+            "eloads": self._canonical_rows(self.element_loads.values(), "eloads", unit_key),
         }
+
+    def _on_units_changed(self, _index: int | None = None) -> None:
+        if self._changing_units:
+            return
+        new_key = str(self.project.units.currentData())
+        if new_key == self._unit_key:
+            return
+        canonical = self._model_data_for_units(self._unit_key)
+        canonical["projectInfo"]["units"] = new_key
+        self._changing_units = True
+        self._unit_key = new_key
+        self.nodes.set_rows(self._display_rows(canonical["nodes"], "nodes"))
+        self.sections.set_rows(self._display_rows(canonical["sections"], "sections"))
+        self.nodal_loads.set_rows(self._display_rows(canonical["nloads"], "nloads"))
+        self.element_loads.set_rows(self._display_rows(canonical["eloads"], "eloads"))
+        self._update_unit_headers()
+        self._changing_units = False
+        self.units_changed.emit(new_key)
+        self.model_changed.emit()
+
+    @property
+    def unit_system(self) -> UnitSystem:
+        return get_unit_system(self._unit_key)
+
+    def _display_rows(self, rows: list[Mapping[str, Any]], kind: str) -> list[dict[str, Any]]:
+        unit = self.unit_system
+        converted: list[dict[str, Any]] = []
+        for source in rows:
+            row = dict(source)
+            if kind == "nodes":
+                row["x"], row["y"] = unit.length(float(row["x"])), unit.length(float(row["y"]))
+            elif kind == "sections":
+                row["e"] = float(row["e"]) * unit.force_factor / unit.length_factor**2
+                row["density"] = float(row.get("density", 0.0)) * unit.force_factor / unit.length_factor**3
+            elif kind == "nloads":
+                row["fx"], row["fy"], row["mz"] = unit.force(float(row["fx"])), unit.force(float(row["fy"])), unit.moment(float(row["mz"]))
+            elif kind == "eloads":
+                row["x_m"] = unit.length(float(row.get("x_m", 0.0)))
+                row["p"] = unit.force(float(row.get("p", 0.0)))
+                row["m"] = unit.moment(float(row.get("m", 0.0)))
+                row["w1"] = unit.distributed(float(row.get("w1", 0.0)))
+                row["w2"] = unit.distributed(float(row.get("w2", 0.0)))
+            converted.append(row)
+        return converted
+
+    @staticmethod
+    def _canonical_rows(rows: list[dict[str, Any]], kind: str, unit_key: str) -> list[dict[str, Any]]:
+        unit = get_unit_system(unit_key)
+        converted: list[dict[str, Any]] = []
+        for source in rows:
+            row = dict(source)
+            if kind == "nodes":
+                row["x"], row["y"] = float(row["x"]) / unit.length_factor, float(row["y"]) / unit.length_factor
+            elif kind == "sections":
+                row["e"] = float(row["e"]) * unit.length_factor**2 / unit.force_factor
+                row["density"] = float(row.get("density", 0.0)) * unit.length_factor**3 / unit.force_factor
+            elif kind == "nloads":
+                row["fx"], row["fy"], row["mz"] = float(row["fx"]) / unit.force_factor, float(row["fy"]) / unit.force_factor, float(row["mz"]) / unit.moment_factor
+            elif kind == "eloads":
+                row["x_m"] = float(row.get("x_m", 0.0)) / unit.length_factor
+                row["p"] = float(row.get("p", 0.0)) / unit.force_factor
+                row["m"] = float(row.get("m", 0.0)) / unit.moment_factor
+                row["w1"] = float(row.get("w1", 0.0)) / unit.distributed_factor
+                row["w2"] = float(row.get("w2", 0.0)) / unit.distributed_factor
+            converted.append(row)
+        return converted
+
+    def _update_unit_headers(self) -> None:
+        unit = self.unit_system
+        self.nodes.set_column_title("x", f"X ({unit.length_unit})")
+        self.nodes.set_column_title("y", f"Y ({unit.length_unit})")
+        self.sections.set_column_title("e", f"E ({unit.force_unit}/{unit.length_unit}2)")
+        self.sections.set_column_title("density", f"Density ({unit.force_unit}/{unit.length_unit}3)")
+        self.nodal_loads.set_column_title("fx", f"Fx ({unit.force_label()})")
+        self.nodal_loads.set_column_title("fy", f"Fy ({unit.force_label()})")
+        self.nodal_loads.set_column_title("mz", f"Mz ({unit.moment_label()})")
+        self.element_loads.set_column_title("x_m", f"At x ({unit.length_unit})")
+        self.element_loads.set_column_title("p", f"P ({unit.force_label()})")
+        self.element_loads.set_column_title("m", f"M ({unit.moment_label()})")
+        self.element_loads.set_column_title("w1", f"W1 ({unit.distributed_label()})")
+        self.element_loads.set_column_title("w2", f"W2 ({unit.distributed_label()})")
 
     def _load_case_names(self) -> list[str]:
         return [row["name"] for row in self.load_cases.values() if row["name"]] or ["DL"]
@@ -206,6 +303,8 @@ class FrameResultsPanel(QWidget):
         self._model: Mapping[str, Any] = {}
         self._analysis: Mapping[str, Any] | None = None
         self._postprocess: Mapping[str, Any] | None = None
+        self._diagnostic_items: list[Mapping[str, Any]] = []
+        self._units = get_unit_system("legacy_kg_m")
         self.canvas = FrameCanvas(self)
         self.canvas_tools = QButtonGroup(self)
         self.canvas_tools.setExclusive(True)
@@ -284,7 +383,7 @@ class FrameResultsPanel(QWidget):
         self.grid_toggle.toggled.connect(self.canvas.set_grid_visible)
         self.snap_toggle.toggled.connect(self.canvas.set_snap_enabled)
         self.snap_nodes_toggle.toggled.connect(self.canvas.set_snap_to_node)
-        self.grid_spacing.valueChanged.connect(self.canvas.set_grid_spacing)
+        self.grid_spacing.valueChanged.connect(self._grid_spacing_changed)
         self.selection_filter.currentIndexChanged.connect(self._selection_filter_changed)
         self.active_section.currentIndexChanged.connect(self._active_section_changed)
         self.fit_button.clicked.connect(self.canvas.fit_view)
@@ -299,6 +398,7 @@ class FrameResultsPanel(QWidget):
         self.support_button.clicked.connect(lambda: self.canvas.set_pending_support(self.support_type.currentText()))
         self.node_results.cellClicked.connect(self._select_node_result)
         self.member_results.cellClicked.connect(self._select_member_result)
+        self.diagnostics.cellDoubleClicked.connect(self._select_diagnostic)
 
     @property
     def analysis(self) -> Mapping[str, Any] | None:
@@ -306,6 +406,7 @@ class FrameResultsPanel(QWidget):
 
     def set_model(self, model: Mapping[str, Any]) -> None:
         self._model = model
+        self.set_unit_system(str(model.get("projectInfo", {}).get("units", "legacy_kg_m")))
         sections = model.get("sections", [])
         current_section = self.active_section.currentData()
         self.active_section.blockSignals(True)
@@ -318,6 +419,27 @@ class FrameResultsPanel(QWidget):
         if self.active_section.currentData() is not None:
             self.canvas.set_active_section(int(self.active_section.currentData()))
         self.canvas.set_model(model)
+
+    def set_unit_system(self, key: str) -> None:
+        new_units = get_unit_system(key)
+        old_units = self._units
+        canonical_grid = self.grid_spacing.value() / old_units.length_factor
+        self._units = new_units
+        self.grid_spacing.blockSignals(True)
+        self.grid_spacing.setValue(canonical_grid * new_units.length_factor)
+        self.grid_spacing.setSuffix(f" {new_units.length_unit}")
+        self.grid_spacing.blockSignals(False)
+        self.canvas.set_grid_spacing(canonical_grid)
+        self.canvas.set_unit_system(new_units.key)
+        self.summary.setHorizontalHeaderLabels([f"Max displacement ({new_units.length_unit})", f"Max axial ({new_units.force_unit})", f"Max moment ({new_units.moment_label()})"])
+        self.node_results.setHorizontalHeaderLabels(["Node", f"dx ({new_units.length_unit})", f"dy ({new_units.length_unit})", "Rz (rad)", f"Rx ({new_units.force_unit})", f"Ry ({new_units.force_unit})", f"Mz ({new_units.moment_label()})"])
+        self.member_results.setHorizontalHeaderLabels(["Member", f"N1 axial ({new_units.force_unit})", f"N1 shear ({new_units.force_unit})", f"N1 moment ({new_units.moment_label()})", f"N2 axial ({new_units.force_unit})", f"N2 shear ({new_units.force_unit})", f"N2 moment ({new_units.moment_label()})"])
+        self.equilibrium.setHorizontalHeaderLabels(["Load Case", f"Residual Fx ({new_units.force_unit})", f"Residual Fy ({new_units.force_unit})", f"Residual Mz ({new_units.moment_label()})", "Pass"])
+        if self._analysis:
+            self._selection_changed()
+
+    def _grid_spacing_changed(self, value: float) -> None:
+        self.canvas.set_grid_spacing(value / self._units.length_factor)
 
     def set_display_settings(self, settings: DisplaySettings) -> None:
         self.grid_toggle.blockSignals(True)
@@ -437,7 +559,7 @@ class FrameResultsPanel(QWidget):
 
     def _canvas_pointer_changed(self, x: float, y: float) -> None:
         self.canvas_status_changed.emit(
-            f"X: {x:.3f} m | Y: {y:.3f} m | {self.canvas.tool.title()} | Grid {self.grid_spacing.value():.3f} m | "
+            f"X: {self._units.length(x):.3f} {self._units.length_unit} | Y: {self._units.length(y):.3f} {self._units.length_unit} | {self.canvas.tool.title()} | Grid {self.grid_spacing.value():.3f} {self._units.length_unit} | "
             f"{'Snap' if self.snap_toggle.isChecked() else 'Free'}"
         )
 
@@ -446,7 +568,7 @@ class FrameResultsPanel(QWidget):
 
     def _request_load(self, kind: str, context: Mapping[str, Any]) -> None:
         if kind == "nodal":
-            dialog = LoadDialog("nodal", list(self._model.get("loadcases", [])), parent=self)
+            dialog = LoadDialog("nodal", list(self._model.get("loadcases", [])), parent=self, units=self._units)
             if dialog.exec() == dialog.DialogCode.Accepted:
                 self.canvas.add_nodal_load(int(context["node"]), dialog.values())
             return
@@ -458,7 +580,7 @@ class FrameResultsPanel(QWidget):
         first, second = nodes[int(member["n1"])], nodes[int(member["n2"])]
         dx, dy = float(second["x"]) - float(first["x"]), float(second["y"]) - float(first["y"])
         length = math.hypot(dx, dy)
-        dialog = LoadDialog("member", list(self._model.get("loadcases", [])), length, self)
+        dialog = LoadDialog("member", list(self._model.get("loadcases", [])), length, self, self._units)
         requested = context.get("position", (float(first["x"]), float(first["y"])))
         if length > 1.0e-12:
             at_x = max(0.0, min(length, ((float(requested[0]) - float(first["x"])) * dx + (float(requested[1]) - float(first["y"])) * dy) / length))
@@ -470,7 +592,7 @@ class FrameResultsPanel(QWidget):
         index = int(context["index"])
         load = context["load"]
         if kind == "nodal":
-            dialog = LoadDialog("nodal", list(self._model.get("loadcases", [])), parent=self)
+            dialog = LoadDialog("nodal", list(self._model.get("loadcases", [])), parent=self, units=self._units)
             dialog.set_values(load)
             if dialog.exec() == dialog.DialogCode.Accepted:
                 self.canvas.update_nodal_load(index, {"node": load["node"], **dialog.values()})
@@ -482,7 +604,7 @@ class FrameResultsPanel(QWidget):
             return
         first, second = nodes[int(member["n1"])], nodes[int(member["n2"])]
         length = math.hypot(float(second["x"]) - float(first["x"]), float(second["y"]) - float(first["y"]))
-        dialog = LoadDialog("member", list(self._model.get("loadcases", [])), length, self)
+        dialog = LoadDialog("member", list(self._model.get("loadcases", [])), length, self, self._units)
         dialog.set_values(load)
         if dialog.exec() == dialog.DialogCode.Accepted:
             self.canvas.update_member_load(index, dialog.values())
@@ -499,23 +621,23 @@ class FrameResultsPanel(QWidget):
     def _populate_tables(self, result: Mapping[str, Any]) -> None:
         nodes = result.get("nodes", [])
         elements = result.get("elements", [])
-        maximum_displacement = max((float(node.get("dx", 0.0)) ** 2 + float(node.get("dy", 0.0)) ** 2 for node in nodes), default=0.0) ** 0.5 * 1000.0
+        maximum_displacement = self._units.length(max((float(node.get("dx", 0.0)) ** 2 + float(node.get("dy", 0.0)) ** 2 for node in nodes), default=0.0) ** 0.5)
         maximum_axial = max((abs(float(member[side]["axial"])) for member in elements for side in ("n1_forces", "n2_forces")), default=0.0)
         maximum_moment = max((abs(float(member[side]["moment"])) for member in elements for side in ("n1_forces", "n2_forces")), default=0.0)
         self.summary.setRowCount(1)
-        for column, value in enumerate((maximum_displacement, maximum_axial, maximum_moment)):
+        for column, value in enumerate((maximum_displacement, self._units.force(maximum_axial), self._units.moment(maximum_moment))):
             self.summary.setItem(0, column, QTableWidgetItem(f"{value:,.4f}"))
 
         self.node_results.setRowCount(len(nodes))
         for row, node in enumerate(nodes):
-            values = (node["id"], float(node["dx"]) * 1000.0, float(node["dy"]) * 1000.0, node["rz"], node["fx"], node["fy"], node["mz"])
+            values = (node["id"], self._units.length(float(node["dx"])), self._units.length(float(node["dy"])), node["rz"], self._units.force(float(node["fx"])), self._units.force(float(node["fy"])), self._units.moment(float(node["mz"])))
             for column, value in enumerate(values):
                 self.node_results.setItem(row, column, QTableWidgetItem(str(value) if column == 0 else f"{float(value):,.5f}"))
 
         self.member_results.setRowCount(len(elements))
         for row, member in enumerate(elements):
             first, second = member["n1_forces"], member["n2_forces"]
-            values = (member["id"], first["axial"], first["shear"], first["moment"], second["axial"], second["shear"], second["moment"])
+            values = (member["id"], self._units.force(float(first["axial"])), self._units.force(float(first["shear"])), self._units.moment(float(first["moment"])), self._units.force(float(second["axial"])), self._units.force(float(second["shear"])), self._units.moment(float(second["moment"])))
             for column, value in enumerate(values):
                 self.member_results.setItem(row, column, QTableWidgetItem(str(value) if column == 0 else f"{float(value):,.4f}"))
 
@@ -550,7 +672,8 @@ class FrameResultsPanel(QWidget):
 
     def _populate_diagnostics(self) -> None:
         diagnostics = self._postprocess.get("diagnostics", {}) if self._postprocess else {}
-        items = diagnostics.get("items", [])
+        items = list(diagnostics.get("items", []))
+        self._diagnostic_items = items
         self.diagnostics.setRowCount(len(items))
         for row, item in enumerate(items):
             self.diagnostics.setItem(row, 0, QTableWidgetItem(str(item.get("severity", "info")).upper()))
@@ -562,6 +685,19 @@ class FrameResultsPanel(QWidget):
             values = (check["load_case"], residual["fx_kg"], residual["fy_kg"], residual["mz_kg_m"], "PASS" if check["ok"] else "CHECK")
             for column, value in enumerate(values):
                 self.equilibrium.setItem(row, column, QTableWidgetItem(str(value) if column in (0, 4) else f"{float(value):.3e}"))
+
+    def _select_diagnostic(self, row: int, _column: int) -> None:
+        if row < 0 or row >= len(self._diagnostic_items):
+            return
+        item = self._diagnostic_items[row]
+        nodes = {int(value) for value in item.get("nodes", [])}
+        members = {int(value) for value in item.get("members", [])}
+        if not nodes and not members:
+            self.canvas_status_changed.emit("This diagnostic has no specific canvas objects.")
+            return
+        self.canvas._set_selection(nodes, members)
+        self.canvas.fit_selection()
+        self.canvas_status_changed.emit("Selected objects referenced by diagnostic. Double-click another row to inspect it.")
 
     @staticmethod
     def _result_table(headers: list[str], rows: int) -> QTableWidget:

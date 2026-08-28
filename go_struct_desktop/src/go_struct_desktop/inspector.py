@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .units import UnitSystem, get_unit_system
+
 
 SUPPORTS = ("Free", "Pinned", "Fixed", "RollerX", "RollerY")
 RELEASES = ("Rigid-Rigid", "Pin-Rigid", "Rigid-Pin", "Pin-Pin")
@@ -257,9 +259,10 @@ class PropertyInspector(QWidget):
 class LoadDialog(QDialog):
     """Small modal input for a canvas load tool."""
 
-    def __init__(self, kind: str, load_cases: list[str], member_length: float = 0.0, parent: QWidget | None = None) -> None:
+    def __init__(self, kind: str, load_cases: list[str], member_length: float = 0.0, parent: QWidget | None = None, units: UnitSystem | None = None) -> None:
         super().__init__(parent)
         self.kind = kind
+        self.units = units or get_unit_system("legacy_kg_m")
         self.setWindowTitle("Nodal load" if kind == "nodal" else "Member load")
         form = QFormLayout(self)
         self.load_case = QComboBox(self)
@@ -273,23 +276,23 @@ class LoadDialog(QDialog):
         self.direction = QComboBox(self)
         self.direction.addItems(DIRECTIONS)
         self.direction.setCurrentText("Local Y")
-        self.x_m = _spin(self, member_length / 2.0, 0.0, max(member_length, 0.0))
+        self.x_m = _spin(self, self.units.length(member_length / 2.0), 0.0, max(self.units.length(member_length), 0.0))
         self.p = _spin(self)
         self.m = _spin(self)
         self.w1 = _spin(self)
         self.w2 = _spin(self)
         if kind == "nodal":
-            form.addRow("Fx (kg)", self.fx)
-            form.addRow("Fy (kg)", self.fy)
-            form.addRow("Mz (kg-m)", self.mz)
+            form.addRow(f"Fx ({self.units.force_unit})", self.fx)
+            form.addRow(f"Fy ({self.units.force_unit})", self.fy)
+            form.addRow(f"Mz ({self.units.moment_label()})", self.mz)
         else:
             form.addRow("Type", self.load_type)
             form.addRow("Direction", self.direction)
-            form.addRow("At x (m)", self.x_m)
-            form.addRow("P (kg)", self.p)
-            form.addRow("M (kg-m)", self.m)
-            form.addRow("W1 (kg/m)", self.w1)
-            form.addRow("W2 (kg/m)", self.w2)
+            form.addRow(f"At x ({self.units.length_unit})", self.x_m)
+            form.addRow(f"P ({self.units.force_unit})", self.p)
+            form.addRow(f"M ({self.units.moment_label()})", self.m)
+            form.addRow(f"W1 ({self.units.distributed_label()})", self.w1)
+            form.addRow(f"W2 ({self.units.distributed_label()})", self.w2)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -297,29 +300,29 @@ class LoadDialog(QDialog):
 
     def values(self) -> dict[str, Any]:
         if self.kind == "nodal":
-            return {"lcase": self.load_case.currentText(), "fx": self.fx.value(), "fy": self.fy.value(), "mz": self.mz.value()}
+            return {"lcase": self.load_case.currentText(), "fx": self.fx.value() / self.units.force_factor, "fy": self.fy.value() / self.units.force_factor, "mz": self.mz.value() / self.units.moment_factor}
         return {
             "lcase": self.load_case.currentText(),
             "type": self.load_type.currentText(),
             "dir": self.direction.currentText(),
-            "x_m": self.x_m.value(),
-            "p": self.p.value(),
-            "m": self.m.value(),
-            "w1": self.w1.value(),
-            "w2": self.w2.value(),
+            "x_m": self.x_m.value() / self.units.length_factor,
+            "p": self.p.value() / self.units.force_factor,
+            "m": self.m.value() / self.units.moment_factor,
+            "w1": self.w1.value() / self.units.distributed_factor,
+            "w2": self.w2.value() / self.units.distributed_factor,
         }
 
     def set_values(self, values: Mapping[str, Any]) -> None:
         self.load_case.setCurrentText(str(values.get("lcase", self.load_case.currentText())))
         if self.kind == "nodal":
-            self.fx.setValue(float(values.get("fx", 0.0)))
-            self.fy.setValue(float(values.get("fy", 0.0)))
-            self.mz.setValue(float(values.get("mz", 0.0)))
+            self.fx.setValue(self.units.force(float(values.get("fx", 0.0))))
+            self.fy.setValue(self.units.force(float(values.get("fy", 0.0))))
+            self.mz.setValue(self.units.moment(float(values.get("mz", 0.0))))
             return
         self.load_type.setCurrentText(str(values.get("type", "Distributed")))
         self.direction.setCurrentText(str(values.get("dir", "Local Y")))
-        self.x_m.setValue(float(values.get("x_m", 0.0)))
-        self.p.setValue(float(values.get("p", 0.0)))
-        self.m.setValue(float(values.get("m", 0.0)))
-        self.w1.setValue(float(values.get("w1", values.get("w", 0.0))))
-        self.w2.setValue(float(values.get("w2", values.get("w1", values.get("w", 0.0)))))
+        self.x_m.setValue(self.units.length(float(values.get("x_m", 0.0))))
+        self.p.setValue(self.units.force(float(values.get("p", 0.0))))
+        self.m.setValue(self.units.moment(float(values.get("m", 0.0))))
+        self.w1.setValue(self.units.distributed(float(values.get("w1", values.get("w", 0.0)))))
+        self.w2.setValue(self.units.distributed(float(values.get("w2", values.get("w1", values.get("w", 0.0))))))

@@ -303,6 +303,12 @@ def test_fbd_uses_single_combo_and_balances_reactions(app: QApplication) -> None
     residual = panel.canvas._equilibrium_residual(factors, {node["id"]: node for node in panel.canvas._model["nodes"]})
     assert factors == {"DL": 1.0, "LL": 1.0}
     assert max(abs(value) for value in residual) < 1.0e-8
+    referenced_residual = panel.canvas._equilibrium_residual(
+        factors,
+        {node["id"]: node for node in panel.canvas._model["nodes"]},
+        (2.75, 1.25),
+    )
+    assert max(abs(value) for value in referenced_residual) < 1.0e-8
     assert not panel.canvas.grab().isNull()
 
     panel.result_selector.setCurrentIndex(panel.result_selector.findData("envelope"))
@@ -354,3 +360,40 @@ def test_input_panel_preserves_dynamic_load_case_values(app: QApplication) -> No
 
     assert stored["nloads"][0]["lcase"] == "LL"
     assert stored["eloads"][0]["lcase"] == "DL"
+
+
+def test_project_units_convert_editor_values_but_keep_solver_payload_canonical(app: QApplication) -> None:
+    panel = FrameInputPanel()
+    panel.set_model(default_frame_model())
+
+    panel.project.units.setCurrentIndex(panel.project.units.findData("n_mm"))
+    app.processEvents()
+    stored = panel.model_data()
+
+    assert stored["projectInfo"]["units"] == "n_mm"
+    assert stored["nodes"][1]["x"] == pytest.approx(6.0)
+    assert stored["nloads"][0]["fx"] == pytest.approx(10.0)
+    assert "mm" in panel.nodes.table.horizontalHeaderItem(1).text()
+    assert "N" in panel.nodal_loads.table.horizontalHeaderItem(2).text()
+
+
+def test_productivity_commands_and_diagnostic_navigation(app: QApplication) -> None:
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+    canvas = window.results_panel.canvas
+    canvas._set_selection(set(), {3})
+    canvas.array_selection(1, 2.0, 0.0)
+    app.processEvents()
+    assert len(window.input_panel.model_data()["elements"]) == 4
+    canvas.select_members_by_section(2)
+    assert 3 in canvas.selection["members"]
+
+    model = default_frame_model()
+    model["elements"].append({"id": 4, "n1": 3, "n2": 4, "sec": 2, "release": "Rigid-Rigid"})
+    window.set_model(model)
+    window.run_analysis()
+    row = next(index for index in range(window.results_panel.diagnostics.rowCount()) if "duplicate" in window.results_panel.diagnostics.item(index, 1).text().lower())
+    window.results_panel._select_diagnostic(row, 1)
+    assert {3, 4}.issubset(set(canvas.selection["members"]))
+    window.close()

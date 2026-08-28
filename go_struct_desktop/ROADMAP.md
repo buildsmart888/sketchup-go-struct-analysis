@@ -28,7 +28,7 @@ six nodal degrees of freedom and torsional member stiffness.
   right-to-left crossing selection.
 - Canvas changes flow back through the editable model tables and invalidate stale results.
 
-## In progress: Phase 2.3 Model editor
+## Completed: Phase 2.3 Model editor
 
 - Selection-aware Property dock for node coordinates, support, load-case nodal loads, member
   endpoints/section/releases, and batch edits.
@@ -44,7 +44,7 @@ six nodal degrees of freedom and torsional member stiffness.
 - Model Input and Analysis Results now use independently movable, floatable, and closable docks;
   compact grouped canvas controls live in the main toolbar beside file/edit commands.
 
-## In progress: Display and FBD foundation
+## Completed: Display and FBD foundation
 
 - UI-only display settings for model, load, result-convention, and FBD layers.
 - Directionally correct nodal force/moment and linearly varying distributed-load rendering.
@@ -53,6 +53,19 @@ six nodal degrees of freedom and torsional member stiffness.
 - Member load schema now supports distributed load, point force, and point moment. Point locations use
   `x_m` measured from member I toward member J; they flow through the solver, diagrams, input canvas,
   and FBD equilibrium.
+
+## Completed: Phase 2.4 Reliability and workflow hardening
+
+- Project-level display units for legacy kg-m, kN-m, N-mm, and tf-m, with conversion at UI boundaries
+  and a stable legacy JSON/solver contract.
+- Regression coverage now includes cantilever, portal combination/equilibrium, point-load/moment, and
+  simply-supported UDL FE benchmarks.
+- Workspace layout, display settings, and grid/snap preferences persist; unsaved model edits write a
+  recoverable autosave snapshot.
+- Double-click Diagnostics selects and fits implicated nodes/members. FBD can evaluate moment residual
+  about an explicit reference point.
+- Mirror, array, move-by-delta, zoom-window, and select-by-section tools build on the common canvas
+  model-change/undo history path.
 
 ## Next: Phase 3
 

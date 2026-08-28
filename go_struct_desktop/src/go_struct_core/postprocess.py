@@ -309,26 +309,26 @@ def _envelope_postprocess(combos: Mapping[str, Mapping[str, Any]], model: FrameM
 
 
 def _model_diagnostics(model: FrameModel, analysis: Mapping[str, Any]) -> dict[str, Any]:
-    items: list[dict[str, str]] = []
+    items: list[dict[str, Any]] = []
     incidences: dict[int, int] = defaultdict(int)
     for element in model.elements:
         incidences[element.n1] += 1
         incidences[element.n2] += 1
     for node in model.nodes:
         if incidences[node.id] == 0:
-            items.append({"severity": "warning", "message": f"Node {node.id} is not connected to a member."})
+            items.append({"severity": "warning", "message": f"Node {node.id} is not connected to a member.", "nodes": [node.id]})
     coordinates: dict[tuple[float, float], list[int]] = defaultdict(list)
     for node in model.nodes:
         coordinates[(node.x, node.y)].append(node.id)
     for coordinate, node_ids in coordinates.items():
         if len(node_ids) > 1:
-            items.append({"severity": "warning", "message": f"Nodes {', '.join(str(node_id) for node_id in node_ids)} share coordinates ({coordinate[0]:g}, {coordinate[1]:g})."})
+            items.append({"severity": "warning", "message": f"Nodes {', '.join(str(node_id) for node_id in node_ids)} share coordinates ({coordinate[0]:g}, {coordinate[1]:g}).", "nodes": node_ids})
     member_pairs: dict[tuple[int, int], list[int]] = defaultdict(list)
     for element in model.elements:
         member_pairs[tuple(sorted((element.n1, element.n2)))].append(element.id)
     for pair, member_ids in member_pairs.items():
         if len(member_ids) > 1:
-            items.append({"severity": "warning", "message": f"Members {', '.join(str(member_id) for member_id in member_ids)} duplicate the N{pair[0]}-N{pair[1]} connection."})
+            items.append({"severity": "warning", "message": f"Members {', '.join(str(member_id) for member_id in member_ids)} duplicate the N{pair[0]}-N{pair[1]} connection.", "members": member_ids})
     node_by_id = {node.id: node for node in model.nodes}
     for index, first in enumerate(model.elements):
         for second in model.elements[index + 1 :]:
@@ -340,10 +340,10 @@ def _model_diagnostics(model: FrameModel, analysis: Mapping[str, Any]) -> dict[s
                 (node_by_id[second.n1].x, node_by_id[second.n1].y),
                 (node_by_id[second.n2].x, node_by_id[second.n2].y),
             ):
-                items.append({"severity": "warning", "message": f"Members {first.id} and {second.id} intersect without a shared node. Split/connect them before analysis."})
+                items.append({"severity": "warning", "message": f"Members {first.id} and {second.id} intersect without a shared node. Split/connect them before analysis.", "members": [first.id, second.id]})
     restraints = sum(3 if node.support == "Fixed" else 2 if node.support == "Pinned" else 1 if node.support in {"RollerX", "RollerY"} else 0 for node in model.nodes)
     if restraints < 3:
-        items.append({"severity": "warning", "message": "Fewer than three translational restraints are defined; the frame may be unstable."})
+        items.append({"severity": "warning", "message": "Fewer than three translational restraints are defined; the frame may be unstable.", "nodes": [node.id for node in model.nodes if node.support == "Free"]})
     if not analysis.get("ok"):
         items.append({"severity": "error", "message": str(analysis.get("error", "Analysis did not complete."))})
         items.append({"severity": "warning", "message": "Mechanism check: review free translations/rotations, member releases, and support directions near the unstable region."})

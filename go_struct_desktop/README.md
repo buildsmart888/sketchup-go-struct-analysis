@@ -21,6 +21,9 @@ reused by a CLI, and later called by the Ruby extension through a bridge.
 - Directionally correct nodal forces/moments and uniform or linearly varying member loads in Local X/Y or Global X/Y for an active input load case.
 - Free-body diagrams for a single analysis case or combination, including support reactions and global equilibrium residuals.
 - Calculation details, topology screening, and load-case equilibrium checks.
+- Project display units for legacy kg-m, kN-m, N-mm, and tf-m; values are converted at the UI boundary while JSON and solver inputs remain legacy-compatible.
+- Workspace persistence for docks, display settings, grid/snap state, plus autosave/recovery for unsaved model changes.
+- Productivity tools for mirrored/array copies, move-by-delta, zoom window, and selecting members by section.
 
 GOBeam, GOTruss, reports, and the SketchUp bridge remain outside the current increment. The existing
 Ruby extension remains the production SketchUp integration.
@@ -86,3 +89,14 @@ visual sign conventions. Auto/Manual diagram scale and `View > Fit Diagram` cont
 overlay without changing result values. These choices transform presentation only; the solver's native
 values and units are unchanged. The Free body view accepts a single Case or Combo, never an Envelope, because
 an envelope can contain values governed by different combinations and is not a balanced load state.
+The FBD panel also accepts a moment reference point. Double-clicking a Diagnostics row selects and
+fits its implicated canvas objects, where applicable.
+
+## Reliability and recovery
+
+Choose `Display units` in the Project tab to work in Legacy kg-m, kN-m, N-mm, or tf-m. Existing
+GOFrame JSON remains canonical in kg/m internally, so legacy files and the future Ruby bridge retain
+their contract. Model table edits and canvas load dialogs convert to/from the chosen display system.
+
+The desktop restores dock placement, display conventions, and grid/snap preferences on restart. Every
+model edit writes a recovery snapshot; use `File > Recover Autosave` after an interrupted session.
