@@ -5,7 +5,7 @@ import math
 import pytest
 
 from go_struct_core import TrussModel, analyze_truss_data, build_frame_postprocess
-from go_struct_desktop.truss_templates import pratt_truss_template, triangle_truss_template, warren_truss_template
+from go_struct_desktop.truss_templates import howe_truss_template, pratt_truss_template, roof_truss_template, triangle_truss_template, warren_truss_template
 
 
 def triangle_truss() -> dict:
@@ -70,8 +70,18 @@ def test_truss_rejects_member_loads_moments_and_frame_releases() -> None:
     assert "cannot use a frame end release" in analyze_truss_data(release)["error"]
 
 
+def test_truss_sections_do_not_require_frame_inertia() -> None:
+    model = triangle_truss()
+    model["sections"][0].pop("i")
+
+    normalized = TrussModel.from_dict(model).to_dict()
+
+    assert normalized["sections"][0]["i"] == 1.0
+    assert analyze_truss_data(model)["ok"] is True
+
+
 def test_truss_templates_are_stable_and_ready_for_nodal_loads() -> None:
-    for model in (triangle_truss_template(), warren_truss_template(4), pratt_truss_template(4)):
+    for model in (triangle_truss_template(), warren_truss_template(4), pratt_truss_template(4), howe_truss_template(4), roof_truss_template(4)):
         assert TrussModel.from_dict(model).to_dict()["projectInfo"]["analysisType"] == "Truss"
         assert analyze_truss_data(model)["ok"] is True
 
@@ -79,3 +89,7 @@ def test_truss_templates_are_stable_and_ready_for_nodal_loads() -> None:
         warren_truss_template(1)
     with pytest.raises(ValueError, match="at least two"):
         pratt_truss_template(1)
+    with pytest.raises(ValueError, match="at least two"):
+        howe_truss_template(1)
+    with pytest.raises(ValueError, match="even number"):
+        roof_truss_template(3)

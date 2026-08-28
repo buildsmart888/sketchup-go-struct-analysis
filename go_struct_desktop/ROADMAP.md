@@ -102,7 +102,8 @@ workspace. Beam and Truss remain separate workspaces, not incomplete Frame featu
   load cases, combinations, envelopes, and mechanism detection.
 - Dedicated `go-struct-truss` entry point with `.gotruss.json` files, independent workspace state,
   axial-only `N` result display, and tension/compression member colours.
-- Triangle, Warren, and Pratt templates/examples. Truss authoring hides frame-only member loads,
+- Triangle, Warren, Pratt, Howe, and pitched Roof templates/examples, with span or panel-width and
+  height inputs at creation time. Truss authoring hides frame-only inertia/density, member loads,
   releases, `V`, `M`, and bending-deflection result modes.
 
 ## Later: Phase 4

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -21,7 +22,22 @@ class TrussModel:
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "TrussModel":
-        frame = FrameModel.from_dict(raw)
+        # The shared frame schema requires I, while a pin-jointed truss only uses E*A.
+        # Retain a harmless internal value so Truss project files may omit I entirely.
+        data = deepcopy(dict(raw))
+        raw_sections = data.get("sections")
+        if isinstance(raw_sections, list):
+            sections: list[Any] = []
+            for section in raw_sections:
+                if isinstance(section, Mapping):
+                    normalized = dict(section)
+                    if not normalized.get("i"):
+                        normalized["i"] = 1.0
+                    sections.append(normalized)
+                else:
+                    sections.append(section)
+            data["sections"] = sections
+        frame = FrameModel.from_dict(data)
         errors: list[str] = []
         analysis_type = str(frame.project_info.get("analysisType", "Truss"))
         if analysis_type.lower() not in {"truss", "2d truss"}:

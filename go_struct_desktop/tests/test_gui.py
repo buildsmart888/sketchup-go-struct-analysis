@@ -118,6 +118,10 @@ def test_truss_workspace_uses_axial_only_authoring_and_results(app: QApplication
     assert window.results_panel.diagrams.quantity_selector.currentData() == "n_kg"
     member_load_tab = window.input_panel.tabs.indexOf(window.input_panel.element_loads)
     assert not window.input_panel.tabs.isTabVisible(member_load_tab)
+    assert window.input_panel.sections.table.isColumnHidden(3)
+    assert window.input_panel.sections.table.isColumnHidden(4)
+    assert not window.input_panel.self_weight.isVisible()
+    assert len(window._workspace.examples) == 5
     window.results_panel.canvas.set_tool("member_load")
     assert window.results_panel.canvas.tool == "select"
     window.close()

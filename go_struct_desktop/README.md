@@ -29,7 +29,7 @@ reused by a CLI, and later called by the Ruby extension through a bridge.
 - An initial 1D Beam workspace with a standalone Euler-Bernoulli solver, its own files/autosave,
   and editable cantilever, simply supported, continuous, and released-beam examples.
 
-The Beam workspace foundation is in progress. GOTruss, reports, and the SketchUp bridge remain
+The Beam and Truss workspace foundations are in progress. Reports and the SketchUp bridge remain
 outside the current increment. The existing Ruby extension remains the production SketchUp integration.
 
 ## Units and compatibility
@@ -95,8 +95,9 @@ go-struct-truss
 The Truss workspace writes `.gotruss.json` files and uses a dedicated planar pin-jointed solver.
 Members report tension-positive axial `N`; green members are in tension and red members are in
 compression for the active result selection. Apply only nodal `Fx/Fy` loads. Member loads, nodal
-moments, self weight, and frame end releases are intentionally unavailable. Use `Truss > New Template`
-to start a Triangle, Warren, or Pratt truss.
+moments, self weight, and frame end releases are intentionally unavailable. Truss sections require only
+`E` and `A`; the frame-only `I` and density fields are hidden. Use `Truss > New Template` to start a
+Triangle, Warren, Pratt, Howe, or pitched Roof truss, then choose the span or panel width and height.
 
 ## Canvas authoring
 

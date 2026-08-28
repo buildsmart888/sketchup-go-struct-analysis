@@ -45,7 +45,8 @@ The data contract mirrors `go_struct_analysis/goframe.rb` and the `collectData()
   boundary preserve one horizontal node baseline before data reaches the solver.
 - Phase 3.2: the Truss workspace uses `TrussModel` and a planar pin-jointed solver with only `Ux`
   and `Uy` per node. It shares the editor, units, results, and validation contract, but rejects
-  member loads, nodal moments, self weight, and frame end releases.
+  member loads, nodal moments, self weight, and frame end releases. `I` remains an internal frame-schema
+  compatibility field only; Truss files and UI need only material `E` and area `A`.
 - Phase 4: report and export services consume JSON-compatible analysis results.
 - Phase 5: a Ruby bridge sends model JSON to a Python process and stores its result in existing
   `GOStructAnalysis` BIM attributes.

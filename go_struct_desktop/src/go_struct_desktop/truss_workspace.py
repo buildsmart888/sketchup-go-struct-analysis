@@ -13,7 +13,7 @@ from go_struct_core import TrussModel, analyze_truss_data, build_frame_postproce
 from .app import MainWindow, WorkspaceDefinition
 from .examples import FrameExample
 from .truss_canvas import TrussCanvas
-from .truss_templates import pratt_truss_template, triangle_truss_template, warren_truss_template
+from .truss_templates import howe_truss_template, pratt_truss_template, roof_truss_template, triangle_truss_template, warren_truss_template
 
 
 def _loaded_triangle() -> dict[str, Any]:
@@ -36,10 +36,26 @@ def _loaded_pratt() -> dict[str, Any]:
     return model
 
 
+def _loaded_howe() -> dict[str, Any]:
+    model = howe_truss_template()
+    top_nodes = [node for node in model["nodes"] if float(node["y"]) > 0.0]
+    model["nloads"] = [{"node": int(node["id"]), "lcase": "DL", "fx": 0.0, "fy": -8.0, "mz": 0.0} for node in top_nodes[1:-1]]
+    return model
+
+
+def _loaded_roof() -> dict[str, Any]:
+    model = roof_truss_template()
+    top_nodes = [node for node in model["nodes"] if float(node["y"]) > 0.0]
+    model["nloads"] = [{"node": int(node["id"]), "lcase": "DL", "fx": 0.0, "fy": -6.0, "mz": 0.0} for node in top_nodes]
+    return model
+
+
 TRUSS_EXAMPLES: tuple[FrameExample, ...] = (
     FrameExample("truss_triangle", "1. Triangle Truss", "Three-bar truss with a symmetric apex load.", _loaded_triangle, "case:DL", "n_kg"),
     FrameExample("truss_warren", "2. Warren Truss", "Four-panel Warren truss with vertical chord loads.", _loaded_warren, "case:DL", "n_kg"),
     FrameExample("truss_pratt", "3. Pratt Truss", "Four-panel Pratt truss with top-chord nodal loads.", _loaded_pratt, "case:DL", "n_kg"),
+    FrameExample("truss_howe", "4. Howe Truss", "Four-panel Howe truss with top-chord nodal loads.", _loaded_howe, "case:DL", "n_kg"),
+    FrameExample("truss_roof", "5. Roof Truss", "Pitched roof truss with distributed nodal roof loading.", _loaded_roof, "case:DL", "n_kg"),
 )
 
 
@@ -86,6 +102,9 @@ class TrussMainWindow(MainWindow):
         self.input_panel.tabs.setTabVisible(member_load_tab, False)
         self.input_panel.nodal_loads.table.setColumnHidden(4, True)
         self.input_panel.elements.table.setColumnHidden(4, True)
+        self.input_panel.sections.table.setColumnHidden(3, True)
+        self.input_panel.sections.table.setColumnHidden(4, True)
+        self.input_panel.self_weight.setVisible(False)
         self.inspector.node_mz.setEnabled(False)
         self.inspector.member_release.setEnabled(False)
         self.inspector.batch_release.setEnabled(False)
@@ -98,7 +117,7 @@ class TrussMainWindow(MainWindow):
     def _add_truss_actions(self) -> None:
         menu = self.menuBar().addMenu("Truss")
         templates = menu.addMenu("New Template")
-        for title, action in (("Triangle", self._new_triangle), ("Warren", self._new_warren), ("Pratt", self._new_pratt)):
+        for title, action in (("Triangle", self._new_triangle), ("Warren", self._new_warren), ("Pratt", self._new_pratt), ("Howe", self._new_howe), ("Roof", self._new_roof)):
             item = QAction(title, self)
             item.triggered.connect(action)
             templates.addAction(item)
@@ -109,17 +128,53 @@ class TrussMainWindow(MainWindow):
             menu.addAction(item)
 
     def _new_triangle(self) -> None:
-        self._load_template(triangle_truss_template(), "triangle truss")
+        dimensions = self._dimensions("Triangle truss", 6.0, 3.0)
+        if dimensions:
+            self._load_template(triangle_truss_template(*dimensions), "triangle truss")
 
     def _new_warren(self) -> None:
-        panels, accepted = QInputDialog.getInt(self, "Warren truss", "Number of panels", 4, 2, 50)
-        if accepted:
-            self._load_template(warren_truss_template(panels), f"Warren truss: {panels} panels")
+        dimensions = self._panel_dimensions("Warren truss", 2.0)
+        if dimensions:
+            panels, panel_m, height_m = dimensions
+            self._load_template(warren_truss_template(panels, panel_m, height_m), f"Warren truss: {panels} panels")
 
     def _new_pratt(self) -> None:
-        panels, accepted = QInputDialog.getInt(self, "Pratt truss", "Number of panels", 4, 2, 50)
-        if accepted:
-            self._load_template(pratt_truss_template(panels), f"Pratt truss: {panels} panels")
+        dimensions = self._panel_dimensions("Pratt truss", 2.5)
+        if dimensions:
+            panels, panel_m, height_m = dimensions
+            self._load_template(pratt_truss_template(panels, panel_m, height_m), f"Pratt truss: {panels} panels")
+
+    def _new_howe(self) -> None:
+        dimensions = self._panel_dimensions("Howe truss", 2.5)
+        if dimensions:
+            panels, panel_m, height_m = dimensions
+            self._load_template(howe_truss_template(panels, panel_m, height_m), f"Howe truss: {panels} panels")
+
+    def _new_roof(self) -> None:
+        dimensions = self._panel_dimensions("Roof truss", 3.0, even_panels=True)
+        if dimensions:
+            panels, panel_m, height_m = dimensions
+            self._load_template(roof_truss_template(panels, panel_m, height_m), f"Roof truss: {panels} panels")
+
+    def _dimensions(self, title: str, default_width: float, default_height: float) -> tuple[float, float] | None:
+        width, accepted = QInputDialog.getDouble(self, title, "Span (m)", default_width, 0.1, 10000.0, 3)
+        if not accepted:
+            return None
+        height, accepted = QInputDialog.getDouble(self, title, "Height (m)", default_height, 0.1, 10000.0, 3)
+        return (width, height) if accepted else None
+
+    def _panel_dimensions(self, title: str, default_height: float, even_panels: bool = False) -> tuple[int, float, float] | None:
+        panels, accepted = QInputDialog.getInt(self, title, "Number of panels", 4, 2, 50)
+        if not accepted:
+            return None
+        if even_panels and panels % 2:
+            self.statusBar().showMessage("Roof truss requires an even number of panels", 4000)
+            return None
+        panel_m, accepted = QInputDialog.getDouble(self, title, "Panel width (m)", 3.0, 0.1, 10000.0, 3)
+        if not accepted:
+            return None
+        height, accepted = QInputDialog.getDouble(self, title, "Height (m)", default_height, 0.1, 10000.0, 3)
+        return (panels, panel_m, height) if accepted else None
 
     def _load_template(self, model: dict[str, Any], message: str) -> None:
         self.set_model(model)
