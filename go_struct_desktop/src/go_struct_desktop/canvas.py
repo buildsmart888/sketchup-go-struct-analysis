@@ -11,13 +11,22 @@ from PySide6.QtWidgets import QWidget
 
 
 class FrameCanvas(QWidget):
-    """Draws the structural model and an optionally exaggerated deformation shape."""
+    """Draws the structural model, deformation, and selected member diagrams."""
+
+    _DIAGRAMS = {
+        "n_kg": ("N", QColor("#0f766e")),
+        "v_kg": ("V", QColor("#b45309")),
+        "m_kg_m": ("M", QColor("#1d4ed8")),
+        "v_mm": ("FE deflection", QColor("#be123c")),
+    }
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._model: Mapping[str, Any] = {}
         self._result: Mapping[str, Any] | None = None
         self._deformed_members: list[Mapping[str, Any]] = []
+        self._diagram_members: list[Mapping[str, Any]] = []
+        self._diagram_mode = "none"
         self._show_deformed = True
         self._zoom = 1.0
         self._pan = QPointF()
@@ -35,10 +44,23 @@ class FrameCanvas(QWidget):
         self._result = result
         if result is None:
             self._deformed_members = []
+            self._diagram_members = []
         self.update()
 
     def set_deformed_members(self, members: list[Mapping[str, Any]]) -> None:
         self._deformed_members = members
+        self.update()
+
+    @property
+    def diagram_mode(self) -> str:
+        return self._diagram_mode
+
+    def set_diagram_members(self, members: list[Mapping[str, Any]]) -> None:
+        self._diagram_members = members
+        self.update()
+
+    def set_diagram_mode(self, mode: str) -> None:
+        self._diagram_mode = mode if mode in {*self._DIAGRAMS, "all"} else "none"
         self.update()
 
     def set_show_deformed(self, show: bool) -> None:
@@ -111,6 +133,7 @@ class FrameCanvas(QWidget):
                 continue
             painter.drawLine(screen(float(first["x"]), float(first["y"])), screen(float(second["x"]), float(second["y"])))
 
+        self._draw_diagram_overlays(painter, node_by_id, screen, span_x, span_y)
         self._draw_deformed_shape(painter, node_by_id, screen, span_x, span_y)
         self._draw_nodes_and_supports(painter, nodes, screen)
         self._draw_legend(painter)
@@ -213,6 +236,54 @@ class FrameCanvas(QWidget):
                 curve.append(screen(deformed_x, deformed_y))
             painter.drawPolyline(curve)
 
+    def _draw_diagram_overlays(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, span_x: float, span_y: float) -> None:
+        if not self._diagram_members or self._diagram_mode == "none":
+            return
+        keys = list(self._DIAGRAMS) if self._diagram_mode == "all" else [self._diagram_mode]
+        for key in keys:
+            maximum = max(
+                (abs(float(point.get(key, 0.0))) for member in self._diagram_members for point in member.get("points", [])),
+                default=0.0,
+            )
+            if maximum <= 1.0e-12:
+                continue
+            # A common scale per result selection preserves visual comparisons between members.
+            amplitude = max(span_x, span_y) * (0.075 if self._diagram_mode == "all" else 0.14) / maximum
+            label, color = self._DIAGRAMS[key]
+            self._draw_member_diagram(painter, node_by_id, screen, key, amplitude, color, self._diagram_mode == "all")
+
+    def _draw_member_diagram(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, key: str, amplitude: float, color: QColor, compact: bool) -> None:
+        pen = QPen(color, 1.7 if compact else 2.2, Qt.PenStyle.DashLine if key == "v_mm" else Qt.PenStyle.SolidLine)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        fill = QColor(color)
+        fill.setAlpha(38 if compact else 62)
+        for member in self._diagram_members:
+            node = node_by_id.get(member.get("n1"))
+            points = member.get("points", [])
+            if node is None or len(points) < 2:
+                continue
+            angle = float(member.get("angle_rad", 0.0))
+            direction_x, direction_y = math.cos(angle), math.sin(angle)
+            normal_x, normal_y = -direction_y, direction_x
+            base = QPolygonF()
+            curve = QPolygonF()
+            for point in points:
+                x = float(point.get("x_m", 0.0))
+                origin_x = float(node["x"]) + direction_x * x
+                origin_y = float(node["y"]) + direction_y * x
+                offset = float(point.get(key, 0.0)) * amplitude
+                base.append(screen(origin_x, origin_y))
+                curve.append(screen(origin_x + normal_x * offset, origin_y + normal_y * offset))
+            polygon = QPolygonF(base)
+            for point in reversed(curve):
+                polygon.append(point)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(fill)
+            painter.drawPolygon(polygon)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(pen)
+            painter.drawPolyline(curve)
+
     def _draw_nodes_and_supports(self, painter: QPainter, nodes: list[Mapping[str, Any]], screen) -> None:
         font = QFont(painter.font())
         font.setPointSize(9)
@@ -244,6 +315,16 @@ class FrameCanvas(QWidget):
             painter.drawLine(110, 24, 136, 24)
             painter.setPen(QColor("#334155"))
             painter.drawText(144, 29, "Deformed")
+        if self._diagram_mode != "none":
+            keys = list(self._DIAGRAMS) if self._diagram_mode == "all" else [self._diagram_mode]
+            x = 238
+            for key in keys:
+                label, color = self._DIAGRAMS[key]
+                painter.setPen(QPen(color, 2.0, Qt.PenStyle.DashLine if key == "v_mm" else Qt.PenStyle.SolidLine))
+                painter.drawLine(x, 24, x + 20, 24)
+                painter.setPen(QColor("#334155"))
+                painter.drawText(x + 26, 29, label)
+                x += 26 + painter.fontMetrics().horizontalAdvance(label) + 18
 
     @staticmethod
     def _nice_step(value: float) -> float:

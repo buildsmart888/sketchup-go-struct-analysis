@@ -13,6 +13,7 @@
 
 - Reusable member post-processing for axial force (N), shear (V), moment (M), and FE deflection.
 - Interactive member diagrams with governing envelope information.
+- Canvas overlays for individual or combined N, V, M, and FE-deflection diagrams.
 - Detailed end-action/extrema view, topology screening, and load-case equilibrium checks.
 
 The current 2D solver does not calculate torsion (T). Torsion requires a future 3D frame model with

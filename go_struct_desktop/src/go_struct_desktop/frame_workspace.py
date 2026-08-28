@@ -182,6 +182,13 @@ class FrameResultsPanel(QWidget):
         self._postprocess: Mapping[str, Any] | None = None
         self.canvas = FrameCanvas(self)
         self.result_selector = QComboBox(self)
+        self.canvas_diagram_selector = QComboBox(self)
+        self.canvas_diagram_selector.addItem("No diagrams", "none")
+        self.canvas_diagram_selector.addItem("Axial N", "n_kg")
+        self.canvas_diagram_selector.addItem("Shear V", "v_kg")
+        self.canvas_diagram_selector.addItem("Moment M", "m_kg_m")
+        self.canvas_diagram_selector.addItem("FE deflection", "v_mm")
+        self.canvas_diagram_selector.addItem("All diagrams", "all")
         self.deformed_toggle = QCheckBox("Deformed", self)
         self.deformed_toggle.setChecked(True)
         self.summary = self._result_table(["Max displacement (mm)", "Max axial (kg)", "Max moment (kg-m)"], 1)
@@ -196,6 +203,7 @@ class FrameResultsPanel(QWidget):
         self.steps.setReadOnly(True)
         self._build_layout()
         self.result_selector.currentIndexChanged.connect(self._selection_changed)
+        self.canvas_diagram_selector.currentIndexChanged.connect(self._canvas_diagram_changed)
         self.deformed_toggle.toggled.connect(self.canvas.set_show_deformed)
 
     @property
@@ -213,6 +221,7 @@ class FrameResultsPanel(QWidget):
         self.result_selector.clear()
         self.result_selector.blockSignals(False)
         self.canvas.set_result(None)
+        self.canvas.set_diagram_members([])
         self.summary.setRowCount(0)
         self.node_results.setRowCount(0)
         self.member_results.setRowCount(0)
@@ -241,6 +250,8 @@ class FrameResultsPanel(QWidget):
         controls.setContentsMargins(0, 0, 0, 0)
         controls.addWidget(QLabel("Result", self))
         controls.addWidget(self.result_selector)
+        controls.addWidget(QLabel("Canvas", self))
+        controls.addWidget(self.canvas_diagram_selector)
         controls.addStretch()
         controls.addWidget(self.deformed_toggle)
 
@@ -273,10 +284,14 @@ class FrameResultsPanel(QWidget):
         selected, selected_postprocess = self._selected_data(str(selection))
         self.canvas.set_result(selected)
         self.canvas.set_deformed_members(selected_postprocess.get("members", []))
+        self.canvas.set_diagram_members(selected_postprocess.get("members", []))
         self.diagrams.set_members(selected_postprocess.get("members", []))
         self._populate_tables(selected)
         self._populate_calculation_details(str(selection), selected_postprocess)
         self.steps.setPlainText("\n".join(self._analysis.get("steps", [])))
+
+    def _canvas_diagram_changed(self) -> None:
+        self.canvas.set_diagram_mode(str(self.canvas_diagram_selector.currentData() or "none"))
 
     def _selected_data(self, selection: str) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
         if selection.startswith("case:"):

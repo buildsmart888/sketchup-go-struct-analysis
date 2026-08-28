@@ -12,6 +12,7 @@ reused by a CLI, and later called by the Ruby extension through a bridge.
 - Regression, equilibrium, and validation tests.
 - A PySide 2D Frame workspace with editable model tables, model/deformed-shape views, and results.
 - Member diagrams for axial force (N), shear (V), moment (M), and FE deflection.
+- Canvas overlays for N, V, M, FE deflection, or all diagrams on the structural model.
 - Calculation details, topology screening, and load-case equilibrium checks.
 
 GOBeam, GOTruss, reports, and the SketchUp bridge remain outside the current increment. The existing

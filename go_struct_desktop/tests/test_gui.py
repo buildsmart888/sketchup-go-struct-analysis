@@ -32,6 +32,13 @@ def test_frame_workspace_analyzes_default_model(app: QApplication) -> None:
     window.results_panel.result_selector.setCurrentIndex(window.results_panel.result_selector.findData("combo:ULS"))
     app.processEvents()
     assert window.results_panel.diagrams.member_selector.count() == 3
+    window.results_panel.canvas_diagram_selector.setCurrentIndex(window.results_panel.canvas_diagram_selector.findData("m_kg_m"))
+    app.processEvents()
+    assert window.results_panel.canvas.diagram_mode == "m_kg_m"
+    assert not window.results_panel.canvas.grab().isNull()
+    window.results_panel.canvas_diagram_selector.setCurrentIndex(window.results_panel.canvas_diagram_selector.findData("all"))
+    app.processEvents()
+    assert window.results_panel.canvas.diagram_mode == "all"
     assert "Member calculations" in window.results_panel.calculation_details.toPlainText()
     assert not window.results_panel.diagrams.canvas.grab().isNull()
     assert not window.results_panel.canvas.grab().isNull()
