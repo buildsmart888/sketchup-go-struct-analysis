@@ -9,7 +9,7 @@
 
 - PySide Frame workspace for model editing, JSON open/save, analysis, and tabular results.
 
-## Current: Phase 2.1
+## Completed: Phase 2.1 Results and diagrams
 
 - Reusable member post-processing for axial force (N), shear (V), moment (M), and FE deflection.
 - Interactive member diagrams with governing envelope information.
@@ -66,6 +66,24 @@ six nodal degrees of freedom and torsional member stiffness.
   about an explicit reference point.
 - Mirror, array, move-by-delta, zoom-window, and select-by-section tools build on the common canvas
   model-change/undo history path.
+
+## Completed: Phase 2 closeout
+
+- Direct result-mode buttons provide Model, N, V, M, Deflection, All, and FBD views; explicit
+  analysis requests report completion with elapsed time and analyzed model counts.
+- Model view can display a selected input load case, every input load case together, or the factored
+  loads for a load combination. FBD remains deliberately limited to one solvable case or combination.
+- Deflection values use unit-aware precision so small metric deflections remain readable.
+- Five editable built-in examples cover cantilevers, simply supported beams, portal combinations,
+  member releases, point force/moment, triangular load, and reaction checks.
+- An EngiLab Frame.2D `.fr2d` importer provides access to every locally installed reference example,
+  with a bundled fallback set when EngiLab is unavailable. Unsupported translational springs are
+  reported during import rather than silently modeled incorrectly.
+
+## Phase 2 exit status
+
+Phase 2 is complete: GO Struct Desktop has a production-ready 2D Frame modeling and analysis
+workspace. Beam and Truss remain separate workspaces, not incomplete Frame features.
 
 ## Next: Phase 3
 
