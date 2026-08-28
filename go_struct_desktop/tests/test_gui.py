@@ -57,6 +57,22 @@ def test_frame_workspace_analyzes_default_model(app: QApplication) -> None:
     window.close()
 
 
+def test_manual_analysis_reports_completion(app: QApplication, monkeypatch: pytest.MonkeyPatch) -> None:
+    window = MainWindow()
+    shown: list[tuple[int, int, float]] = []
+    monkeypatch.setattr(
+        window,
+        "_show_analysis_complete",
+        lambda model, elapsed: shown.append((len(model["nodes"]), len(model["elements"]), elapsed)),
+    )
+
+    window.run_analysis(show_completion=True)
+
+    assert shown and shown[0][:2] == (4, 3)
+    assert shown[0][2] >= 0.0
+    window.close()
+
+
 def test_workspace_input_and_results_are_independent_docks(app: QApplication) -> None:
     window = MainWindow()
     window.show()

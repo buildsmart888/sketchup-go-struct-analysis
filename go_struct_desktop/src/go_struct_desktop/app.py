@@ -6,6 +6,7 @@ import copy
 import json
 import sys
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Mapping
 
 from PySide6.QtCore import QSettings, QStandardPaths, Qt
@@ -150,7 +151,7 @@ class MainWindow(QMainWindow):
         analyze_action = QAction(style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay), "Analyze", self)
         analyze_action.setShortcut(QKeySequence("F5"))
         analyze_action.setToolTip("Run 2D frame analysis")
-        analyze_action.triggered.connect(self.run_analysis)
+        analyze_action.triggered.connect(lambda: self.run_analysis(show_completion=True))
 
         delete_action = QAction("Delete", self)
         delete_action.setShortcut(QKeySequence.StandardKey.Delete)
@@ -460,7 +461,8 @@ class MainWindow(QMainWindow):
             return
         self.statusBar().showMessage(f"Exported {Path(path).name}")
 
-    def run_analysis(self) -> None:
+    def run_analysis(self, show_completion: bool = False) -> None:
+        started_at = perf_counter()
         try:
             model = FrameModel.from_dict(self.input_panel.model_data()).to_dict()
         except (ModelValidationError, ValueError) as exc:
@@ -473,7 +475,22 @@ class MainWindow(QMainWindow):
             self._show_error("Analysis failed", str(result.get("error", "Unknown error")))
             return
         self.results_panel.set_analysis(result, build_frame_postprocess(model, result))
-        self.statusBar().showMessage(f"Analysis complete: {len(model['nodes'])} nodes, {len(model['elements'])} members")
+        elapsed_seconds = perf_counter() - started_at
+        self.statusBar().showMessage(
+            f"Analysis complete: {len(model['nodes'])} nodes, {len(model['elements'])} members ({elapsed_seconds:.2f} s)"
+        )
+        if show_completion:
+            self._show_analysis_complete(model, elapsed_seconds)
+
+    def _show_analysis_complete(self, model: Mapping[str, Any], elapsed_seconds: float) -> None:
+        QMessageBox.information(
+            self,
+            "Analysis complete",
+            "The 2D frame analysis finished successfully.\n\n"
+            f"Nodes: {len(model['nodes'])}\n"
+            f"Members: {len(model['elements'])}\n"
+            f"Elapsed time: {elapsed_seconds:.2f} s",
+        )
 
     def _model_edited(self) -> None:
         if self._suppress_model_events:
