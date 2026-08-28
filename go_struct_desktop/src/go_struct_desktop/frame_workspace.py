@@ -200,10 +200,15 @@ class FrameResultsPanel(QWidget):
             button.setText(label)
             button.setToolTip(tooltip)
             button.setCheckable(True)
+            button.setMinimumWidth(64)
             button.clicked.connect(lambda _checked=False, value=tool: self.canvas.set_tool(value))
             self.canvas_tools.addButton(button)
             self._tool_buttons[tool] = button
         self._tool_buttons["select"].setChecked(True)
+        self.selection_filter = QComboBox(self)
+        self.selection_filter.addItem("Both", "both")
+        self.selection_filter.addItem("Nodes", "nodes")
+        self.selection_filter.addItem("Members", "members")
         self.grid_toggle = QCheckBox("Grid", self)
         self.grid_toggle.setChecked(True)
         self.snap_toggle = QCheckBox("Snap", self)
@@ -251,6 +256,7 @@ class FrameResultsPanel(QWidget):
         self.snap_toggle.toggled.connect(self.canvas.set_snap_enabled)
         self.snap_nodes_toggle.toggled.connect(self.canvas.set_snap_to_node)
         self.grid_spacing.valueChanged.connect(self.canvas.set_grid_spacing)
+        self.selection_filter.currentIndexChanged.connect(self._selection_filter_changed)
         self.active_section.currentIndexChanged.connect(self._active_section_changed)
         self.fit_button.clicked.connect(self.canvas.fit_view)
         self.canvas.model_change_requested.connect(self.model_change_requested)
@@ -314,6 +320,8 @@ class FrameResultsPanel(QWidget):
         authoring_controls.setContentsMargins(0, 0, 0, 0)
         for tool in ("select", "node", "member", "pan"):
             authoring_controls.addWidget(self._tool_buttons[tool])
+        authoring_controls.addWidget(QLabel("Pick", self))
+        authoring_controls.addWidget(self.selection_filter)
         authoring_controls.addSpacing(8)
         authoring_controls.addWidget(self.grid_toggle)
         authoring_controls.addWidget(self.snap_toggle)
@@ -351,7 +359,7 @@ class FrameResultsPanel(QWidget):
         canvas_layout.setContentsMargins(0, 0, 0, 0)
         canvas_layout.addLayout(authoring_controls)
         canvas_layout.addLayout(result_controls)
-        canvas_layout.addWidget(self.canvas)
+        canvas_layout.addWidget(self.canvas, 1)
         splitter.addWidget(canvas_host)
         splitter.addWidget(result_tabs)
         splitter.setSizes([490, 250])
@@ -379,6 +387,9 @@ class FrameResultsPanel(QWidget):
         section_id = self.active_section.currentData()
         if section_id is not None:
             self.canvas.set_active_section(int(section_id))
+
+    def _selection_filter_changed(self) -> None:
+        self.canvas.set_selection_filter(str(self.selection_filter.currentData() or "both"))
 
     def _canvas_selection_changed(self, selection: Mapping[str, list[int]]) -> None:
         nodes = selection.get("nodes", [])

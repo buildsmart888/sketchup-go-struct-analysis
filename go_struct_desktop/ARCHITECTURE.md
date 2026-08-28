@@ -24,7 +24,8 @@ as mm. The core owns validation, source units, stiffness calculations, and resul
 
 Canvas authoring emits a complete JSON-compatible model change to the main window. The main window
 updates `FrameInputPanel`, which remains the model source of truth and sends the refreshed model
-back to the canvas and results panel. This keeps mouse authoring and table editing synchronized.
+back to the canvas and results panel. The main window records compatible model snapshots for
+undo/redo. This keeps mouse authoring and table editing synchronized.
 
 The data contract mirrors `go_struct_analysis/goframe.rb` and the `collectData()` function in
 `go_struct_analysis/templates/goframe_dialog.html`.

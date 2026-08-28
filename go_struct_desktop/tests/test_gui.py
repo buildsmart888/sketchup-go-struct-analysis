@@ -8,8 +8,9 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtTest import QTest
+from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QApplication
 
 from go_struct_desktop.app import MainWindow
@@ -94,6 +95,12 @@ def test_canvas_creates_snapped_nodes_and_members(app: QApplication) -> None:
     assert len(model["elements"]) == 4
     assert any(node["x"] == 8.0 and node["y"] == 4.0 for node in model["nodes"])
     assert window.results_panel.analysis is None
+    assert window.undo_action.isEnabled()
+    window.undo()
+    assert len(window.input_panel.model_data()["elements"]) == 3
+    assert window.redo_action.isEnabled()
+    window.redo()
+    assert len(window.input_panel.model_data()["elements"]) == 4
     window.close()
 
 
@@ -111,6 +118,58 @@ def test_canvas_selects_and_deletes_members(app: QApplication) -> None:
     app.processEvents()
     assert len(window.input_panel.model_data()["elements"]) == 2
     assert window.results_panel.analysis is None
+    window.close()
+
+
+def test_canvas_selection_filter_and_crossing_window(app: QApplication) -> None:
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+    canvas = window.results_panel.canvas
+    canvas.set_tool("select")
+    canvas.set_selection_filter("nodes")
+    member_location = canvas._model_to_screen(0.0, 2.0)
+    QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=QPoint(round(member_location.x()), round(member_location.y())))
+    assert canvas.selection == {"nodes": [], "members": []}
+
+    canvas.set_selection_filter("members")
+    left_to_right_start = canvas._model_to_screen(-0.2, 3.0)
+    left_to_right_end = canvas._model_to_screen(0.2, 1.0)
+    QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=QPoint(round(left_to_right_start.x()), round(left_to_right_start.y())))
+    QTest.mouseMove(canvas, QPoint(round(left_to_right_end.x()), round(left_to_right_end.y())))
+    QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=QPoint(round(left_to_right_end.x()), round(left_to_right_end.y())))
+    assert canvas.selection == {"nodes": [], "members": []}
+
+    QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=QPoint(round(left_to_right_end.x()), round(left_to_right_end.y())))
+    QTest.mouseMove(canvas, QPoint(round(left_to_right_start.x()), round(left_to_right_start.y())))
+    QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=QPoint(round(left_to_right_start.x()), round(left_to_right_start.y())))
+    assert canvas.selection == {"nodes": [], "members": [1]}
+    window.close()
+
+
+def test_canvas_zoom_preserves_model_point_under_cursor(app: QApplication) -> None:
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+    canvas = window.results_panel.canvas
+    cursor = canvas._model_to_screen(6.0, 4.0)
+    before = canvas._screen_to_model(cursor)
+    local = QPoint(round(cursor.x()), round(cursor.y()))
+    event = QWheelEvent(
+        cursor,
+        QPointF(canvas.mapToGlobal(local)),
+        QPoint(),
+        QPoint(0, 120),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    QApplication.sendEvent(canvas, event)
+    app.processEvents()
+    after = canvas._screen_to_model(cursor)
+    assert abs(after[0] - before[0]) < 1.0e-9
+    assert abs(after[1] - before[1]) < 1.0e-9
     window.close()
 
 

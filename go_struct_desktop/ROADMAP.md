@@ -22,9 +22,12 @@ six nodal degrees of freedom and torsional member stiffness.
 ## In progress: Phase 2.2
 
 - Canvas authoring foundation: Select, Node, Member, and Pan tools; grid and node snapping; live
-  cursor coordinates; selection highlighting; box selection; and safe object deletion.
+  cursor coordinates; mouse-centred zoom; selection highlighting; box selection; safe object
+  deletion; and undo/redo history.
+- Selection filtering for nodes, members, or both; left-to-right contained selection and
+  right-to-left crossing selection.
 - Canvas changes flow back through the editable model tables and invalidate stale results.
-- Next in this phase: property inspector, undo/redo command history, and support/load authoring tools.
+- Next in this phase: property inspector and support/load authoring tools.
 
 ## Next: Phase 3
 

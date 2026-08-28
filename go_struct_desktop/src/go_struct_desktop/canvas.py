@@ -44,10 +44,12 @@ class FrameCanvas(QWidget):
         self._snap_to_node = True
         self._grid_spacing = 1.0
         self._active_section = 1
+        self._selection_filter = "both"
         self._selected_nodes: set[int] = set()
         self._selected_members: set[int] = set()
         self._selection_origin: QPointF | None = None
         self._selection_rect: QRectF | None = None
+        self._selection_crossing = False
         self._member_start: tuple[float, float] | None = None
         self._member_current: tuple[float, float] | None = None
         self._view_center = QPointF()
@@ -139,6 +141,10 @@ class FrameCanvas(QWidget):
     def set_active_section(self, section_id: int) -> None:
         self._active_section = section_id
 
+    def set_selection_filter(self, selection_filter: str) -> None:
+        self._selection_filter = selection_filter if selection_filter in {"nodes", "members", "both"} else "both"
+        self._set_selection(set(), set())
+
     def fit_view(self) -> None:
         self._zoom = 1.0
         self._pan = QPointF()
@@ -149,8 +155,18 @@ class FrameCanvas(QWidget):
         return self._hover_sample is not None
 
     def wheelEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+        model_x, model_y = self._screen_to_model(event.position())
         factor = 1.15 if event.angleDelta().y() > 0 else 1.0 / 1.15
+        old_zoom = self._zoom
         self._zoom = max(0.35, min(8.0, self._zoom * factor))
+        if not math.isclose(old_zoom, self._zoom):
+            new_scale = self._view_scale * self._zoom / old_zoom
+            default_center = QPointF(self.width() / 2.0, self.height() / 2.0)
+            desired_center = QPointF(
+                event.position().x() - (model_x - self._view_model_center.x()) * new_scale,
+                event.position().y() + (model_y - self._view_model_center.y()) * new_scale,
+            )
+            self._pan = desired_center - default_center
         self.update()
 
     def mousePressEvent(self, event) -> None:  # type: ignore[no-untyped-def]
@@ -170,6 +186,7 @@ class FrameCanvas(QWidget):
             elif self._tool == "select":
                 self._selection_origin = event.position()
                 self._selection_rect = QRectF(event.position(), event.position())
+                self._selection_crossing = False
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:  # type: ignore[no-untyped-def]
@@ -185,6 +202,7 @@ class FrameCanvas(QWidget):
                 self.update()
             elif self._tool == "select" and self._selection_origin is not None:
                 self._selection_rect = QRectF(self._selection_origin, event.position()).normalized()
+                self._selection_crossing = event.position().x() < self._selection_origin.x()
                 self.update()
             else:
                 self._show_hover_value(event.position(), event.globalPosition().toPoint())
@@ -216,6 +234,7 @@ class FrameCanvas(QWidget):
             self._member_current = None
             self._selection_origin = None
             self._selection_rect = None
+            self._selection_crossing = False
             self._set_selection(set(), set())
             self.update()
             return
@@ -592,8 +611,9 @@ class FrameCanvas(QWidget):
     def _draw_selection_rect(self, painter: QPainter) -> None:
         if self._selection_rect is None or self._selection_rect.width() < 4.0 or self._selection_rect.height() < 4.0:
             return
-        painter.setPen(QPen(QColor("#0f766e"), 1.0, Qt.PenStyle.DashLine))
-        painter.setBrush(QColor(13, 148, 136, 28))
+        color = QColor("#2563eb") if self._selection_crossing else QColor("#0f766e")
+        painter.setPen(QPen(color, 1.0, Qt.PenStyle.DashLine))
+        painter.setBrush(QColor(color.red(), color.green(), color.blue(), 28))
         painter.drawRect(self._selection_rect)
 
     def _pointer_moved(self, position: QPointF) -> None:
@@ -694,17 +714,46 @@ class FrameCanvas(QWidget):
                 int(node["id"])
                 for node in self._model.get("nodes", [])
                 if self._selection_rect.contains(self._model_to_screen(float(node["x"]), float(node["y"])))
-            }
-            selected_members = {
-                int(member["id"])
-                for member in self._model.get("elements", [])
-                if int(member["n1"]) in selected_nodes and int(member["n2"]) in selected_nodes
-            }
+            } if self._selection_filter in {"nodes", "both"} else set()
+            node_by_id = {int(node["id"]): node for node in self._model.get("nodes", [])}
+            selected_members: set[int] = set()
+            if self._selection_filter in {"members", "both"}:
+                for member in self._model.get("elements", []):
+                    first, second = node_by_id.get(int(member["n1"])), node_by_id.get(int(member["n2"]))
+                    if first is None or second is None:
+                        continue
+                    start = self._model_to_screen(float(first["x"]), float(first["y"]))
+                    end = self._model_to_screen(float(second["x"]), float(second["y"]))
+                    contains = self._selection_rect.contains(start) and self._selection_rect.contains(end)
+                    crosses = self._segment_crosses_rect(start, end, self._selection_rect)
+                    if contains or (self._selection_crossing and crosses):
+                        selected_members.add(int(member["id"]))
             self._set_selection(selected_nodes, selected_members)
             return
-        node = self._node_at(position)
-        member = None if node is not None else self._member_at(position)
+        node = self._node_at(position) if self._selection_filter in {"nodes", "both"} else None
+        member = self._member_at(position) if node is None and self._selection_filter in {"members", "both"} else None
         self._set_selection({int(node["id"])} if node else set(), {int(member["id"])} if member else set())
+
+    @staticmethod
+    def _segment_crosses_rect(start: QPointF, end: QPointF, rect: QRectF) -> bool:
+        if rect.contains(start) or rect.contains(end):
+            return True
+        corners = (rect.topLeft(), rect.topRight(), rect.bottomRight(), rect.bottomLeft())
+        return any(
+            FrameCanvas._segments_intersect(start, end, corners[index], corners[(index + 1) % len(corners)])
+            for index in range(len(corners))
+        )
+
+    @staticmethod
+    def _segments_intersect(first_start: QPointF, first_end: QPointF, second_start: QPointF, second_end: QPointF) -> bool:
+        def cross(origin: QPointF, first: QPointF, second: QPointF) -> float:
+            return (first.x() - origin.x()) * (second.y() - origin.y()) - (first.y() - origin.y()) * (second.x() - origin.x())
+
+        first_a = cross(first_start, first_end, second_start)
+        first_b = cross(first_start, first_end, second_end)
+        second_a = cross(second_start, second_end, first_start)
+        second_b = cross(second_start, second_end, first_end)
+        return first_a * first_b <= 0.0 and second_a * second_b <= 0.0
 
     def _set_selection(self, nodes: set[int], members: set[int]) -> None:
         if nodes == self._selected_nodes and members == self._selected_members:

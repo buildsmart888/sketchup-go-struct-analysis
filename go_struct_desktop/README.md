@@ -61,5 +61,8 @@ the Ruby dialog, and it writes the same input field names back to JSON.
 
 Use the canvas toolbar to switch among Select, Node, Member, and Pan. Node and Member tools use
 the configured grid step and can snap to an existing node. Select objects by click or selection
-box; press `Delete` to remove selected members or nodes when the remaining model is valid. Canvas
-edits update the same model shown in the input tables and require analysis to be run again.
+box; choose Nodes, Members, or Both before selecting. A left-to-right window selects objects fully
+inside it, while a right-to-left window selects crossing members too. Press `Delete` to remove
+selected members or nodes when the remaining model is valid. `Ctrl+Z` and `Ctrl+Y` undo and redo
+model changes. Canvas edits update the same model shown in the input tables and require analysis to
+be run again.
