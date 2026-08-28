@@ -14,9 +14,11 @@ reused by a CLI, and later called by the Ruby extension through a bridge.
 - Member diagrams for axial force (N), shear (V), moment (M), and FE deflection.
 - Canvas overlays for N, V, M, FE deflection, or all diagrams on the structural model.
 - Optional diagram value labels plus crosshair hover markers and tooltips for member force and deflection values.
-- Canvas authoring foundation: select, pan, grid/snap, box selection, create snapped nodes, and draw members with live length/angle preview.
+- Canvas model editor: select, pan, grid/snap, box selection, create snapped nodes, draw members, drag nodes with live preview, split members, duplicate, align, fit selection, and undo/redo.
+- Property inspector for node coordinates/support/nodal load, member endpoints/section/releases, and batch support/member updates.
+- Canvas support and load tools, including edit-on-click for existing nodal and member loads.
 - A Display dock for independent model, load, result-convention, and free-body layers.
-- Directionally correct nodal forces/moments and uniform or linearly varying member loads for an active input load case.
+- Directionally correct nodal forces/moments and uniform or linearly varying member loads in Local X/Y or Global X/Y for an active input load case.
 - Free-body diagrams for a single analysis case or combination, including support reactions and global equilibrium residuals.
 - Calculation details, topology screening, and load-case equilibrium checks.
 
@@ -62,17 +64,22 @@ the Ruby dialog, and it writes the same input field names back to JSON.
 
 ## Canvas authoring
 
-Use the canvas toolbar to switch among Select, Node, Member, and Pan. Node and Member tools use
-the configured grid step and can snap to an existing node. Select objects by click or selection
+Use the canvas toolbar to switch among Select, Node, Member, Split, support, load, and Pan. Node and Member tools use
+the configured grid step and can snap to endpoints, member midpoints, or member intersections. Select objects by click or selection
 box; choose Nodes, Members, or Both before selecting. A left-to-right window selects objects fully
-inside it, while a right-to-left window selects crossing members too. Press `Delete` to remove
-selected members or nodes when the remaining model is valid. `Ctrl+Z` and `Ctrl+Y` undo and redo
-model changes. Canvas edits update the same model shown in the input tables and require analysis to
-be run again.
+inside it, while a right-to-left window selects crossing members too. Drag a selected node to move,
+extend, or trim its connected members; press `Delete` and confirm to remove selected members or
+nodes. `Ctrl+D`, `Ctrl+Z`, and `Ctrl+Y` duplicate, undo, and redo model changes. Canvas edits update
+the same model shown in the input tables and require analysis to be run again.
+
+Open `View > Properties` for selection-aware editing. `Model`, `Loads`, and `Results` menus expose
+the matching canvas tools and input tables. `File > Export Analysis JSON` writes a normalized model,
+solver result, and post-processing data package for review or later reporting.
 
 ## Display and free body layers
 
 Open `View > Display` to control model labels, load values and direction labels, diagram fill, and
-visual sign conventions. These choices transform presentation only; the solver's native values and
-units are unchanged. The Free body view accepts a single Case or Combo, never an Envelope, because
+visual sign conventions. Auto/Manual diagram scale and `View > Fit Diagram` control the result
+overlay without changing result values. These choices transform presentation only; the solver's native
+values and units are unchanged. The Free body view accepts a single Case or Combo, never an Envelope, because
 an envelope can contain values governed by different combinations and is not a balanced load state.

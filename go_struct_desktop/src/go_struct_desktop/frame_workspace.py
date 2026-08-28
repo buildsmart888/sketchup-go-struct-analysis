@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -32,11 +33,12 @@ from .canvas import FrameCanvas
 from .diagrams import FrameDiagramsPanel
 from .display import DisplaySettings
 from .editors import CombinationEditor, Column, ProjectEditor, TableEditor, as_float, as_int
+from .inspector import LoadDialog
 
 
 SUPPORTS = ("Free", "Pinned", "Fixed", "RollerX", "RollerY")
 RELEASES = ("Rigid-Rigid", "Pin-Rigid", "Rigid-Pin", "Pin-Pin")
-DIRECTIONS = ("Local Y", "Global Y")
+DIRECTIONS = ("Local X", "Local Y", "Global X", "Global Y")
 MEMBER_LOAD_TYPES = ("Distributed", "Point Force", "Point Moment")
 
 
@@ -118,18 +120,23 @@ class FrameInputPanel(QWidget):
         self.load_cases.changed.connect(self._on_load_cases_changed)
 
     def _build_layout(self) -> None:
-        tabs = QTabWidget(self)
-        tabs.addTab(self._general_tab(), "Project")
-        tabs.addTab(self.nodes, "Nodes")
-        tabs.addTab(self.elements, "Members")
-        tabs.addTab(self.sections, "Sections")
-        tabs.addTab(self.load_cases, "Load Cases")
-        tabs.addTab(self.combinations, "Combinations")
-        tabs.addTab(self.nodal_loads, "Nodal Loads")
-        tabs.addTab(self.element_loads, "Member Loads")
+        self.tabs = QTabWidget(self)
+        self.tabs.addTab(self._general_tab(), "Project")
+        self.tabs.addTab(self.nodes, "Nodes")
+        self.tabs.addTab(self.elements, "Members")
+        self.tabs.addTab(self.sections, "Sections")
+        self.tabs.addTab(self.load_cases, "Load Cases")
+        self.tabs.addTab(self.combinations, "Combinations")
+        self.tabs.addTab(self.nodal_loads, "Nodal Loads")
+        self.tabs.addTab(self.element_loads, "Member Loads")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
-        layout.addWidget(tabs)
+        layout.addWidget(self.tabs)
+
+    def activate_tab(self, name: str) -> None:
+        index = next((item for item in range(self.tabs.count()) if self.tabs.tabText(item) == name), -1)
+        if index >= 0:
+            self.tabs.setCurrentIndex(index)
 
     def _general_tab(self) -> QWidget:
         tab = QWidget(self)
@@ -192,6 +199,7 @@ class FrameResultsPanel(QWidget):
 
     model_change_requested = Signal(object)
     canvas_status_changed = Signal(str)
+    delete_requested = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -206,6 +214,9 @@ class FrameResultsPanel(QWidget):
             ("select", "Select", "Select nodes or members"),
             ("node", "Node", "Create a snapped node"),
             ("member", "Member", "Draw a member between nodes"),
+            ("split", "Split", "Split a member at the clicked location"),
+            ("nodal_load", "Node load", "Add a nodal load"),
+            ("member_load", "Member load", "Add a member load"),
             ("pan", "Pan", "Pan the canvas"),
         ):
             button = QToolButton(self)
@@ -233,6 +244,12 @@ class FrameResultsPanel(QWidget):
         self.grid_spacing.setSingleStep(0.25)
         self.grid_spacing.setValue(1.0)
         self.grid_spacing.setSuffix(" m")
+        self.support_type = QComboBox(self)
+        self.support_type.addItems(SUPPORTS)
+        self.support_type.setCurrentText("Pinned")
+        self.support_button = QToolButton(self)
+        self.support_button.setText("Support")
+        self.support_button.setToolTip("Assign the selected support type by clicking a node")
         self.active_section = QComboBox(self)
         self.fit_button = QToolButton(self)
         self.fit_button.setText("Fit")
@@ -276,6 +293,12 @@ class FrameResultsPanel(QWidget):
         self.canvas.pointer_changed.connect(self._canvas_pointer_changed)
         self.canvas.tool_changed.connect(self._canvas_tool_changed)
         self.canvas.authoring_message.connect(self.canvas_status_changed)
+        self.canvas.load_requested.connect(self._request_load)
+        self.canvas.load_edit_requested.connect(self._edit_load)
+        self.canvas.delete_requested.connect(self.delete_requested)
+        self.support_button.clicked.connect(lambda: self.canvas.set_pending_support(self.support_type.currentText()))
+        self.node_results.cellClicked.connect(self._select_node_result)
+        self.member_results.cellClicked.connect(self._select_member_result)
 
     @property
     def analysis(self) -> Mapping[str, Any] | None:
@@ -336,8 +359,10 @@ class FrameResultsPanel(QWidget):
     def _build_layout(self) -> None:
         authoring_controls = QHBoxLayout()
         authoring_controls.setContentsMargins(0, 0, 0, 0)
-        for tool in ("select", "node", "member", "pan"):
+        for tool in ("select", "node", "member", "split", "nodal_load", "member_load", "pan"):
             authoring_controls.addWidget(self._tool_buttons[tool])
+        authoring_controls.addWidget(self.support_type)
+        authoring_controls.addWidget(self.support_button)
         authoring_controls.addWidget(QLabel("Pick", self))
         authoring_controls.addWidget(self.selection_filter)
         authoring_controls.addSpacing(8)
@@ -420,6 +445,28 @@ class FrameResultsPanel(QWidget):
         else:
             text = "Selection: none"
         self.selection_label.setText(text)
+        if len(nodes) == 1:
+            self._select_result_row(self.node_results, nodes[0])
+        elif len(members) == 1:
+            self._select_result_row(self.member_results, members[0])
+
+    def _select_node_result(self, row: int, _column: int) -> None:
+        item = self.node_results.item(row, 0)
+        if item is not None:
+            self.canvas._set_selection({int(item.text())}, set())
+
+    def _select_member_result(self, row: int, _column: int) -> None:
+        item = self.member_results.item(row, 0)
+        if item is not None:
+            self.canvas._set_selection(set(), {int(item.text())})
+
+    @staticmethod
+    def _select_result_row(table: QTableWidget, target_id: int) -> None:
+        for row in range(table.rowCount()):
+            item = table.item(row, 0)
+            if item is not None and item.text() == str(target_id):
+                table.selectRow(row)
+                return
 
     def _canvas_pointer_changed(self, x: float, y: float) -> None:
         self.canvas_status_changed.emit(
@@ -429,6 +476,49 @@ class FrameResultsPanel(QWidget):
 
     def _canvas_tool_changed(self, tool: str) -> None:
         self.canvas_status_changed.emit(f"Canvas tool: {tool.title()}")
+
+    def _request_load(self, kind: str, context: Mapping[str, Any]) -> None:
+        if kind == "nodal":
+            dialog = LoadDialog("nodal", list(self._model.get("loadcases", [])), parent=self)
+            if dialog.exec() == dialog.DialogCode.Accepted:
+                self.canvas.add_nodal_load(int(context["node"]), dialog.values())
+            return
+        member_id = int(context["member"])
+        member = next((item for item in self._model.get("elements", []) if int(item["id"]) == member_id), None)
+        nodes = {int(node["id"]): node for node in self._model.get("nodes", [])}
+        if member is None or int(member["n1"]) not in nodes or int(member["n2"]) not in nodes:
+            return
+        first, second = nodes[int(member["n1"])], nodes[int(member["n2"])]
+        dx, dy = float(second["x"]) - float(first["x"]), float(second["y"]) - float(first["y"])
+        length = math.hypot(dx, dy)
+        dialog = LoadDialog("member", list(self._model.get("loadcases", [])), length, self)
+        requested = context.get("position", (float(first["x"]), float(first["y"])))
+        if length > 1.0e-12:
+            at_x = max(0.0, min(length, ((float(requested[0]) - float(first["x"])) * dx + (float(requested[1]) - float(first["y"])) * dy) / length))
+            dialog.x_m.setValue(at_x)
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            self.canvas.add_member_load(member_id, dialog.values())
+
+    def _edit_load(self, kind: str, context: Mapping[str, Any]) -> None:
+        index = int(context["index"])
+        load = context["load"]
+        if kind == "nodal":
+            dialog = LoadDialog("nodal", list(self._model.get("loadcases", [])), parent=self)
+            dialog.set_values(load)
+            if dialog.exec() == dialog.DialogCode.Accepted:
+                self.canvas.update_nodal_load(index, {"node": load["node"], **dialog.values()})
+            return
+        member_id = int(context["member"])
+        member = next((item for item in self._model.get("elements", []) if int(item["id"]) == member_id), None)
+        nodes = {int(node["id"]): node for node in self._model.get("nodes", [])}
+        if member is None or int(member["n1"]) not in nodes or int(member["n2"]) not in nodes:
+            return
+        first, second = nodes[int(member["n1"])], nodes[int(member["n2"])]
+        length = math.hypot(float(second["x"]) - float(first["x"]), float(second["y"]) - float(first["y"]))
+        dialog = LoadDialog("member", list(self._model.get("loadcases", [])), length, self)
+        dialog.set_values(load)
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            self.canvas.update_member_load(index, dialog.values())
 
     def _selected_data(self, selection: str) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
         if selection.startswith("case:"):

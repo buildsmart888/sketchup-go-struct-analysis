@@ -323,9 +323,14 @@ def _analyze(model: FrameModel) -> dict[str, Any]:
                     continue
                 if load.type == "Point Force":
                     px = py = 0.0
-                    if load.direction == "Local Y":
+                    if load.direction == "Local X":
+                        px = load.p
+                    elif load.direction == "Local Y":
                         py = load.p
-                    else:
+                    elif load.direction == "Global X":
+                        px = load.p * math.cos(state.angle)
+                        py = -load.p * math.sin(state.angle)
+                    else:  # Global Y
                         px = load.p * math.sin(state.angle)
                         py = load.p * math.cos(state.angle)
                     fixed_end += _point_load_fixed_end(px, py, 0.0, load.x_m, state.section, state.length, element.release)
@@ -334,8 +339,13 @@ def _analyze(model: FrameModel) -> dict[str, Any]:
                     fixed_end += _point_load_fixed_end(0.0, 0.0, load.m, load.x_m, state.section, state.length, element.release)
                     continue
                 wx1 = wy1 = wx2 = wy2 = 0.0
-                if load.direction == "Local Y":
+                if load.direction == "Local X":
+                    wx1, wx2 = load.w1, load.w2
+                elif load.direction == "Local Y":
                     wy1, wy2 = load.w1, load.w2
+                elif load.direction == "Global X":
+                    wx1, wy1 = load.w1 * math.cos(state.angle), -load.w1 * math.sin(state.angle)
+                    wx2, wy2 = load.w2 * math.cos(state.angle), -load.w2 * math.sin(state.angle)
                 elif load.direction == "Global Y":
                     wx1, wy1 = load.w1 * math.sin(state.angle), load.w1 * math.cos(state.angle)
                     wx2, wy2 = load.w2 * math.sin(state.angle), load.w2 * math.cos(state.angle)

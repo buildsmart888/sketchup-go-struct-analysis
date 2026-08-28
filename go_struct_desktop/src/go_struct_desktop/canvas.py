@@ -21,6 +21,9 @@ class FrameCanvas(QWidget):
     pointer_changed = Signal(float, float)
     tool_changed = Signal(str)
     authoring_message = Signal(str)
+    load_requested = Signal(str, object)
+    load_edit_requested = Signal(str, object)
+    delete_requested = Signal(object)
 
     _DIAGRAMS = {
         "n_kg": ("N", QColor("#0f766e")),
@@ -58,11 +61,15 @@ class FrameCanvas(QWidget):
         self._selection_crossing = False
         self._member_start: tuple[float, float] | None = None
         self._member_current: tuple[float, float] | None = None
+        self._pending_support = "Pinned"
+        self._node_drag_id: int | None = None
+        self._node_drag_position: tuple[float, float] | None = None
         self._view_center = QPointF()
         self._view_model_center = QPointF()
         self._view_scale = 1.0
         self._zoom = 1.0
         self._pan = QPointF()
+        self._label_rects: list[QRectF] = []
         self._drag_origin: QPoint | None = None
         self.setMinimumHeight(300)
         self.setMouseTracking(True)
@@ -138,11 +145,13 @@ class FrameCanvas(QWidget):
         return {"nodes": sorted(self._selected_nodes), "members": sorted(self._selected_members)}
 
     def set_tool(self, tool: str) -> None:
-        self._tool = tool if tool in {"select", "node", "member", "pan"} else "select"
+        self._tool = tool if tool in {"select", "node", "member", "pan", "support", "nodal_load", "member_load", "split"} else "select"
         self._member_start = None
         self._member_current = None
         self._selection_origin = None
         self._selection_rect = None
+        self._node_drag_id = None
+        self._node_drag_position = None
         self.setCursor(Qt.CursorShape.OpenHandCursor if self._tool == "pan" else Qt.CursorShape.ArrowCursor)
         self.tool_changed.emit(self._tool)
         self.update()
@@ -163,6 +172,79 @@ class FrameCanvas(QWidget):
 
     def set_active_section(self, section_id: int) -> None:
         self._active_section = section_id
+
+    def set_pending_support(self, support: str) -> None:
+        self._pending_support = support if support in {"Free", "Pinned", "Fixed", "RollerX", "RollerY"} else "Pinned"
+        self.set_tool("support")
+
+    def duplicate_selection(self) -> None:
+        member_ids = set(self._selected_members)
+        node_ids = set(self._selected_nodes)
+        for member in self._model.get("elements", []):
+            if int(member["id"]) in member_ids:
+                node_ids.update((int(member["n1"]), int(member["n2"])))
+        if not node_ids:
+            self.authoring_message.emit("Select a node or member to duplicate.")
+            return
+        model = self._mutable_model()
+        node_by_id = {int(node["id"]): node for node in model["nodes"]}
+        offset = self._grid_spacing if self._snap_enabled else 1.0
+        mapping: dict[int, int] = {}
+        for node_id in sorted(node_ids):
+            source = node_by_id[node_id]
+            new_id = self._next_id(model["nodes"])
+            mapping[node_id] = new_id
+            model["nodes"].append({**source, "id": new_id, "x": float(source["x"]) + offset, "y": float(source["y"]) + offset})
+        new_members: set[int] = set()
+        for member in list(model["elements"]):
+            if int(member["id"]) not in member_ids:
+                continue
+            new_id = self._next_id(model["elements"])
+            model["elements"].append({**member, "id": new_id, "n1": mapping[int(member["n1"])], "n2": mapping[int(member["n2"])]})
+            new_members.add(new_id)
+            for load in list(model["eloads"]):
+                if int(load["elem"]) == int(member["id"]):
+                    model["eloads"].append({**load, "elem": new_id})
+        for load in list(model["nloads"]):
+            if int(load["node"]) in mapping:
+                model["nloads"].append({**load, "node": mapping[int(load["node"])]})
+        self._set_selection(set(mapping.values()), new_members)
+        self._emit_model(model)
+
+    def align_selected(self, axis: str) -> None:
+        node_ids = set(self._selected_nodes)
+        if len(node_ids) < 2:
+            self.authoring_message.emit("Select at least two nodes to align.")
+            return
+        model = self._mutable_model()
+        selected = [node for node in model["nodes"] if int(node["id"]) in node_ids]
+        coordinate = "x" if axis == "x" else "y"
+        value = sum(float(node[coordinate]) for node in selected) / len(selected)
+        for node in selected:
+            node[coordinate] = value
+        if not self._model_has_valid_member_lengths(model):
+            self.authoring_message.emit("Alignment would create a zero-length member.")
+            return
+        self._emit_model(model)
+
+    def fit_selection(self) -> None:
+        selected = [node for node in self._model.get("nodes", []) if int(node["id"]) in self._selected_nodes]
+        if not selected:
+            self.fit_view()
+            return
+        min_x, max_x = min(float(node["x"]) for node in selected), max(float(node["x"]) for node in selected)
+        min_y, max_y = min(float(node["y"]) for node in selected), max(float(node["y"]) for node in selected)
+        all_nodes = self._model.get("nodes", [])
+        all_min_x, all_max_x = min(float(node["x"]) for node in all_nodes), max(float(node["x"]) for node in all_nodes)
+        all_min_y, all_max_y = min(float(node["y"]) for node in all_nodes), max(float(node["y"]) for node in all_nodes)
+        base_scale = min(max(self.width() - 140.0, 1.0) / max(all_max_x - all_min_x, 1.0), max(self.height() - 140.0, 1.0) / max(all_max_y - all_min_y, 1.0))
+        target_scale = min(max(self.width() - 140.0, 1.0) / max(max_x - min_x, 1.0), max(self.height() - 140.0, 1.0) / max(max_y - min_y, 1.0))
+        self._zoom = max(0.35, min(8.0, target_scale / base_scale))
+        current_scale = base_scale * self._zoom
+        model_center_x, model_center_y = (all_min_x + all_max_x) / 2.0, (all_min_y + all_max_y) / 2.0
+        selection_center_x, selection_center_y = (min_x + max_x) / 2.0, (min_y + max_y) / 2.0
+        self._pan = QPointF(-(selection_center_x - model_center_x) * current_scale, (selection_center_y - model_center_y) * current_scale)
+        self.update()
 
     def set_selection_filter(self, selection_filter: str) -> None:
         self._selection_filter = selection_filter if selection_filter in {"nodes", "members", "both"} else "both"
@@ -206,10 +288,44 @@ class FrameCanvas(QWidget):
                 self._member_start = self._snap_position(event.position())
                 self._member_current = self._member_start
                 self.update()
+            elif self._tool == "support":
+                node = self._node_at(event.position())
+                if node is None:
+                    self.authoring_message.emit("Click a node to assign a support.")
+                else:
+                    self._apply_support(int(node["id"]), self._pending_support)
+            elif self._tool == "nodal_load":
+                node = self._node_at(event.position())
+                if node is None:
+                    self.authoring_message.emit("Click a node to add a nodal load.")
+                else:
+                    self.load_requested.emit("nodal", {"node": int(node["id"])})
+            elif self._tool == "member_load":
+                member = self._member_at(event.position())
+                if member is None:
+                    self.authoring_message.emit("Click a member to add a member load.")
+                else:
+                    self.load_requested.emit("member", {"member": int(member["id"]), "position": self._screen_to_model(event.position())})
+            elif self._tool == "split":
+                member = self._member_at(event.position())
+                if member is None:
+                    self.authoring_message.emit("Click a member to split it.")
+                else:
+                    self._split_member(int(member["id"]), self._screen_to_model(event.position()))
             elif self._tool == "select":
-                self._selection_origin = event.position()
-                self._selection_rect = QRectF(event.position(), event.position())
-                self._selection_crossing = False
+                load = self._load_at(event.position()) if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier) else None
+                if load is not None:
+                    self.load_edit_requested.emit(load[0], load[1])
+                    return
+                node = self._node_at(event.position()) if self._selection_filter in {"nodes", "both"} else None
+                if node is not None:
+                    self._set_selection({int(node["id"])}, set())
+                    self._node_drag_id = int(node["id"])
+                    self._node_drag_position = (float(node["x"]), float(node["y"]))
+                else:
+                    self._selection_origin = event.position()
+                    self._selection_rect = QRectF(event.position(), event.position())
+                    self._selection_crossing = False
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:  # type: ignore[no-untyped-def]
@@ -222,6 +338,9 @@ class FrameCanvas(QWidget):
             self._pointer_moved(event.position())
             if self._tool == "member" and self._member_start is not None:
                 self._member_current = self._snap_position(event.position())
+                self.update()
+            elif self._tool == "select" and self._node_drag_id is not None:
+                self._node_drag_position = self._snap_position(event.position())
                 self.update()
             elif self._tool == "select" and self._selection_origin is not None:
                 self._selection_rect = QRectF(self._selection_origin, event.position()).normalized()
@@ -241,6 +360,10 @@ class FrameCanvas(QWidget):
                 self._create_member(self._member_start, self._snap_position(event.position()))
                 self._member_start = None
                 self._member_current = None
+            elif self._tool == "select" and self._node_drag_id is not None:
+                self._move_node(self._node_drag_id, self._snap_position(event.position()))
+                self._node_drag_id = None
+                self._node_drag_position = None
             elif self._tool == "select" and self._selection_origin is not None:
                 self._apply_selection(event.position())
                 self._selection_origin = None
@@ -250,7 +373,7 @@ class FrameCanvas(QWidget):
 
     def keyPressEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         if event.key() == Qt.Key.Key_Delete:
-            self._delete_selection()
+            self._request_delete_selection()
             return
         if event.key() == Qt.Key.Key_Escape:
             self._member_start = None
@@ -258,6 +381,8 @@ class FrameCanvas(QWidget):
             self._selection_origin = None
             self._selection_rect = None
             self._selection_crossing = False
+            self._node_drag_id = None
+            self._node_drag_position = None
             self._set_selection(set(), set())
             self.update()
             return
@@ -265,6 +390,7 @@ class FrameCanvas(QWidget):
 
     def paintEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         painter = QPainter(self)
+        self._label_rects = []
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.fillRect(self.rect(), QColor("#f8fafc"))
 
@@ -316,6 +442,7 @@ class FrameCanvas(QWidget):
                 painter.setPen(member_pen)
             painter.drawLine(screen(float(first["x"]), float(first["y"])), screen(float(second["x"]), float(second["y"])))
 
+        self._draw_node_move_preview(painter, node_by_id, screen)
         self._draw_member_preview(painter, screen)
         self._draw_member_annotations(painter, node_by_id, screen)
         if self._view_mode == "fbd":
@@ -418,8 +545,12 @@ class FrameCanvas(QWidget):
                 value = (float(load.get("w1", 0.0)) + (float(load.get("w2", 0.0)) - float(load.get("w1", 0.0))) * fraction) * factor
                 if abs(value) <= 1.0e-12:
                     continue
-                if load.get("dir") == "Local Y":
+                if load.get("dir") == "Local X":
+                    direction_x, direction_y = cosine * math.copysign(1.0, value), sine * math.copysign(1.0, value)
+                elif load.get("dir") == "Local Y":
                     direction_x, direction_y = -sine * math.copysign(1.0, value), cosine * math.copysign(1.0, value)
+                elif load.get("dir") == "Global X":
+                    direction_x, direction_y = math.copysign(1.0, value), 0.0
                 else:
                     direction_x, direction_y = 0.0, math.copysign(1.0, value)
                 arrow_length = (16.0 + 28.0 * abs(value) / maximum_member) / self._view_scale if maximum_member else 24.0 / self._view_scale
@@ -455,8 +586,12 @@ class FrameCanvas(QWidget):
                 value = float(load.get("p", 0.0)) * factor
                 if abs(value) <= 1.0e-12:
                     continue
-                if load.get("dir") == "Local Y":
+                if load.get("dir") == "Local X":
+                    direction_x, direction_y = cosine * math.copysign(1.0, value), sine * math.copysign(1.0, value)
+                elif load.get("dir") == "Local Y":
                     direction_x, direction_y = -sine * math.copysign(1.0, value), cosine * math.copysign(1.0, value)
+                elif load.get("dir") == "Global X":
+                    direction_x, direction_y = math.copysign(1.0, value), 0.0
                 else:
                     direction_x, direction_y = 0.0, math.copysign(1.0, value)
                 arrow_length = (22.0 + 30.0 * abs(value) / maximum_point) / self._view_scale if maximum_point else 30.0 / self._view_scale
@@ -585,7 +720,14 @@ class FrameCanvas(QWidget):
                 value = float(load.get("p", 0.0)) * factor
                 at_x = min(length, max(0.0, float(load.get("x_m", 0.0))))
                 cosine, sine = dx / length, dy / length
-                fx, fy = (-sine * value, cosine * value) if load.get("dir") == "Local Y" else (0.0, value)
+                if load.get("dir") == "Local X":
+                    fx, fy = cosine * value, sine * value
+                elif load.get("dir") == "Local Y":
+                    fx, fy = -sine * value, cosine * value
+                elif load.get("dir") == "Global X":
+                    fx, fy = value, 0.0
+                else:
+                    fx, fy = 0.0, value
                 x = float(first["x"]) + cosine * at_x
                 y = float(first["y"]) + sine * at_x
                 total_fx += fx
@@ -599,7 +741,14 @@ class FrameCanvas(QWidget):
             resultant = length * (q1 + q2) / 2.0
             local_x = length * (q1 + 2.0 * q2) / (3.0 * (q1 + q2)) if abs(q1 + q2) > 1.0e-12 else length / 2.0
             cosine, sine = dx / length, dy / length
-            fx, fy = (-sine * resultant, cosine * resultant) if load.get("dir") == "Local Y" else (0.0, resultant)
+            if load.get("dir") == "Local X":
+                fx, fy = cosine * resultant, sine * resultant
+            elif load.get("dir") == "Local Y":
+                fx, fy = -sine * resultant, cosine * resultant
+            elif load.get("dir") == "Global X":
+                fx, fy = resultant, 0.0
+            else:
+                fx, fy = 0.0, resultant
             x = float(first["x"]) + cosine * local_x
             y = float(first["y"]) + sine * local_x
             total_fx += fx
@@ -729,6 +878,9 @@ class FrameCanvas(QWidget):
             anchor = curve[index] + QPointF(5.0, -5.0)
             metrics = painter.fontMetrics()
             rect = QRectF(anchor.x(), anchor.y() - metrics.height(), metrics.horizontalAdvance(text) + 6.0, metrics.height() + 4.0)
+            if any(rect.intersects(previous) for previous in self._label_rects):
+                continue
+            self._label_rects.append(rect)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRect(rect)
             painter.setPen(color)
@@ -831,7 +983,8 @@ class FrameCanvas(QWidget):
         if maximum <= 1.0e-12:
             return None
         # A common scale per result selection preserves visual comparisons between members.
-        return max(span_x, span_y) * (0.075 if self._diagram_mode == "all" else 0.14) / maximum
+        base = max(span_x, span_y) * (0.075 if self._diagram_mode == "all" else 0.14) / maximum
+        return base if self._display.diagram_scale_mode == "auto" else base * self._display.diagram_scale_multiplier
 
     def _display_diagram_value(self, key: str, value: float) -> float:
         if key == "n_kg" and self._display.axial_positive == "compression":
@@ -925,6 +1078,19 @@ class FrameCanvas(QWidget):
         painter.setPen(QColor("#0f766e"))
         painter.drawText((start + end) / 2.0 + QPointF(8.0, -8.0), f"L {length:.3f} m | {angle:.1f} deg")
 
+    def _draw_node_move_preview(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen) -> None:
+        if self._node_drag_id is None or self._node_drag_position is None:
+            return
+        source = node_by_id.get(self._node_drag_id)
+        if source is None:
+            return
+        start = screen(float(source["x"]), float(source["y"]))
+        end = screen(*self._node_drag_position)
+        painter.setPen(QPen(QColor("#2563eb"), 1.8, Qt.PenStyle.DashLine))
+        painter.setBrush(QColor("#dbeafe"))
+        painter.drawLine(start, end)
+        painter.drawEllipse(end, 6.0, 6.0)
+
     def _draw_selection_rect(self, painter: QPainter) -> None:
         if self._selection_rect is None or self._selection_rect.width() < 4.0 or self._selection_rect.height() < 4.0:
             return
@@ -956,7 +1122,51 @@ class FrameCanvas(QWidget):
         x, y = self._screen_to_model(position)
         if not self._snap_enabled:
             return x, y
+        if self._snap_to_node:
+            special = self._special_snap_position(position)
+            if special is not None:
+                return special
         return round(x / self._grid_spacing) * self._grid_spacing, round(y / self._grid_spacing) * self._grid_spacing
+
+    def _special_snap_position(self, position: QPointF) -> tuple[float, float] | None:
+        nodes = {int(node["id"]): node for node in self._model.get("nodes", [])}
+        candidates: list[tuple[float, tuple[float, float]]] = []
+        segments: list[tuple[tuple[float, float], tuple[float, float]]] = []
+        for member in self._model.get("elements", []):
+            first, second = nodes.get(int(member["n1"])), nodes.get(int(member["n2"]))
+            if first is None or second is None:
+                continue
+            start = (float(first["x"]), float(first["y"]))
+            end = (float(second["x"]), float(second["y"]))
+            segments.append((start, end))
+            midpoint = ((start[0] + end[0]) / 2.0, (start[1] + end[1]) / 2.0)
+            candidates.append(((self._model_to_screen(*midpoint) - position).manhattanLength(), midpoint))
+        for index, first_segment in enumerate(segments):
+            for second_segment in segments[index + 1 :]:
+                intersection = self._line_intersection(*first_segment, *second_segment)
+                if intersection is not None:
+                    candidates.append(((self._model_to_screen(*intersection) - position).manhattanLength(), intersection))
+        if not candidates:
+            return None
+        distance, candidate = min(candidates, key=lambda item: item[0])
+        return candidate if distance <= 10.0 else None
+
+    @staticmethod
+    def _line_intersection(
+        first_start: tuple[float, float], first_end: tuple[float, float], second_start: tuple[float, float], second_end: tuple[float, float]
+    ) -> tuple[float, float] | None:
+        x1, y1 = first_start
+        x2, y2 = first_end
+        x3, y3 = second_start
+        x4, y4 = second_end
+        denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+        if abs(denominator) <= 1.0e-12:
+            return None
+        first_ratio = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denominator
+        second_ratio = ((x1 - x3) * (y1 - y2) - (y1 - y3) * (x1 - x2)) / denominator
+        if not (1.0e-9 < first_ratio < 1.0 - 1.0e-9 and 1.0e-9 < second_ratio < 1.0 - 1.0e-9):
+            return None
+        return x1 + first_ratio * (x2 - x1), y1 + first_ratio * (y2 - y1)
 
     def _node_at(self, position: QPointF, threshold: float = 10.0) -> Mapping[str, Any] | None:
         candidates = self._model.get("nodes", [])
@@ -964,6 +1174,41 @@ class FrameCanvas(QWidget):
             return None
         node = min(candidates, key=lambda item: (self._model_to_screen(float(item["x"]), float(item["y"])) - position).manhattanLength())
         return node if (self._model_to_screen(float(node["x"]), float(node["y"])) - position).manhattanLength() <= threshold else None
+
+    def _load_at(self, position: QPointF) -> tuple[str, dict[str, Any]] | None:
+        nodes = {int(node["id"]): node for node in self._model.get("nodes", [])}
+        elements = {int(member["id"]): member for member in self._model.get("elements", [])}
+        candidates: list[tuple[float, str, dict[str, Any]]] = []
+        for index, load in enumerate(self._model.get("nloads", [])):
+            node = nodes.get(int(load.get("node", -1)))
+            if node is not None:
+                anchor = self._model_to_screen(float(node["x"]), float(node["y"]))
+                fx, fy, mz = float(load.get("fx", 0.0)), float(load.get("fy", 0.0)), float(load.get("mz", 0.0))
+                if abs(fx) > 1.0e-12:
+                    candidates.append(((anchor + QPointF(-math.copysign(22.0, fx), 0.0) - position).manhattanLength(), "nodal", {"index": index, "load": dict(load)}))
+                if abs(fy) > 1.0e-12:
+                    candidates.append(((anchor + QPointF(0.0, math.copysign(22.0, fy)) - position).manhattanLength(), "nodal", {"index": index, "load": dict(load)}))
+                if abs(mz) > 1.0e-12:
+                    candidates.append(((anchor + QPointF(14.0, -14.0) - position).manhattanLength(), "nodal", {"index": index, "load": dict(load)}))
+        for index, load in enumerate(self._model.get("eloads", [])):
+            member = elements.get(int(load.get("elem", -1)))
+            if member is None:
+                continue
+            first, second = nodes.get(int(member["n1"])), nodes.get(int(member["n2"]))
+            if first is None or second is None:
+                continue
+            dx, dy = float(second["x"]) - float(first["x"]), float(second["y"]) - float(first["y"])
+            length = math.hypot(dx, dy)
+            if length <= 1.0e-12:
+                continue
+            at_x = float(load.get("x_m", length / 2.0)) if load.get("type") in {"Point Force", "Point Moment"} else length / 2.0
+            at_x = min(length, max(0.0, at_x))
+            anchor = self._model_to_screen(float(first["x"]) + dx * at_x / length, float(first["y"]) + dy * at_x / length)
+            candidates.append(((anchor - position).manhattanLength(), "member", {"index": index, "load": dict(load), "member": int(member["id"])}))
+        if not candidates:
+            return None
+        distance, kind, context = min(candidates, key=lambda item: item[0])
+        return (kind, context) if distance <= 12.0 else None
 
     def _member_at(self, position: QPointF, threshold: float = 8.0) -> Mapping[str, Any] | None:
         nodes = {int(node["id"]): node for node in self._model.get("nodes", [])}
@@ -1012,6 +1257,152 @@ class FrameCanvas(QWidget):
         member_id = self._next_id(model["elements"])
         model["elements"].append({"id": member_id, "n1": n1, "n2": n2, "sec": self._active_section, "release": "Rigid-Rigid"})
         self._set_selection(set(), {member_id})
+        self._emit_model(model)
+
+    def _apply_support(self, node_id: int, support: str) -> None:
+        model = self._mutable_model()
+        node = next((item for item in model["nodes"] if int(item["id"]) == node_id), None)
+        if node is None:
+            return
+        node["support"] = support
+        self._set_selection({node_id}, set())
+        self._emit_model(model)
+
+    def _move_node(self, node_id: int, position: tuple[float, float]) -> None:
+        model = self._mutable_model()
+        node = next((item for item in model["nodes"] if int(item["id"]) == node_id), None)
+        if node is None:
+            return
+        if math.isclose(float(node["x"]), position[0], abs_tol=1.0e-9) and math.isclose(float(node["y"]), position[1], abs_tol=1.0e-9):
+            return
+        if any(
+            int(other["id"]) != node_id
+            and math.isclose(float(other["x"]), position[0], abs_tol=1.0e-9)
+            and math.isclose(float(other["y"]), position[1], abs_tol=1.0e-9)
+            for other in model["nodes"]
+        ):
+            self.authoring_message.emit("A node already exists at that location.")
+            return
+        node["x"], node["y"] = position
+        if not self._model_has_valid_member_lengths(model):
+            self.authoring_message.emit("Moving this node would create a zero-length member.")
+            return
+        self._emit_model(model)
+
+    @staticmethod
+    def _model_has_valid_member_lengths(model: Mapping[str, Any]) -> bool:
+        nodes = {int(node["id"]): node for node in model.get("nodes", [])}
+        return all(
+            first is not None
+            and second is not None
+            and math.hypot(float(second["x"]) - float(first["x"]), float(second["y"]) - float(first["y"])) > 1.0e-9
+            for member in model.get("elements", [])
+            for first, second in [(nodes.get(int(member["n1"])), nodes.get(int(member["n2"])))]
+        )
+
+    def _split_member(self, member_id: int, position: tuple[float, float]) -> None:
+        model = self._mutable_model()
+        member = next((item for item in model["elements"] if int(item["id"]) == member_id), None)
+        if member is None:
+            return
+        nodes = {int(node["id"]): node for node in model["nodes"]}
+        first, second = nodes.get(int(member["n1"])), nodes.get(int(member["n2"]))
+        if first is None or second is None:
+            return
+        dx, dy = float(second["x"]) - float(first["x"]), float(second["y"]) - float(first["y"])
+        length_sq = dx * dx + dy * dy
+        if length_sq <= 1.0e-12:
+            return
+        ratio = max(0.0, min(1.0, ((position[0] - float(first["x"])) * dx + (position[1] - float(first["y"])) * dy) / length_sq))
+        if ratio <= 1.0e-8 or ratio >= 1.0 - 1.0e-8:
+            self.authoring_message.emit("Split position must be inside the member.")
+            return
+        split_position = (float(first["x"]) + ratio * dx, float(first["y"]) + ratio * dy)
+        new_node_id = self._next_id(model["nodes"])
+        new_member_id = self._next_id(model["elements"])
+        original_length = math.sqrt(length_sq)
+        split_length = original_length * ratio
+        original_release = str(member.get("release", "Rigid-Rigid"))
+        first_release = "Pin-Rigid" if original_release in {"Pin-Rigid", "Pin-Pin"} else "Rigid-Rigid"
+        second_release = "Rigid-Pin" if original_release in {"Rigid-Pin", "Pin-Pin"} else "Rigid-Rigid"
+        model["nodes"].append({"id": new_node_id, "x": split_position[0], "y": split_position[1], "support": "Free"})
+        member.update({"n2": new_node_id, "release": first_release})
+        model["elements"].append({"id": new_member_id, "n1": new_node_id, "n2": int(second["id"]), "sec": int(member["sec"]), "release": second_release})
+        replacement_loads: list[dict[str, Any]] = []
+        retained_loads: list[dict[str, Any]] = []
+        for load in model["eloads"]:
+            if int(load["elem"]) != member_id:
+                retained_loads.append(load)
+                continue
+            if load.get("type", "Distributed") == "Distributed":
+                w1, w2 = float(load.get("w1", 0.0)), float(load.get("w2", load.get("w1", 0.0)))
+                middle = w1 + (w2 - w1) * ratio
+                retained_loads.append({**load, "elem": member_id, "w1": w1, "w2": middle})
+                replacement_loads.append({**load, "elem": new_member_id, "w1": middle, "w2": w2})
+            else:
+                at_x = float(load.get("x_m", 0.0))
+                if at_x <= split_length:
+                    retained_loads.append({**load, "elem": member_id})
+                else:
+                    replacement_loads.append({**load, "elem": new_member_id, "x_m": at_x - split_length})
+        model["eloads"] = retained_loads + replacement_loads
+        self._set_selection({new_node_id}, set())
+        self._emit_model(model)
+
+    def add_nodal_load(self, node_id: int, values: Mapping[str, Any]) -> None:
+        model = self._mutable_model()
+        load = {"node": node_id, **dict(values)}
+        model["nloads"].append(load)
+        self._set_selection({node_id}, set())
+        self._emit_model(model)
+
+    def add_member_load(self, member_id: int, values: Mapping[str, Any]) -> None:
+        model = self._mutable_model()
+        load = {"elem": member_id, **dict(values)}
+        if load.get("type") == "Distributed":
+            load.pop("type", None)
+            load.pop("x_m", None)
+            load.pop("p", None)
+            load.pop("m", None)
+        elif load.get("type") == "Point Force":
+            load.pop("w1", None)
+            load.pop("w2", None)
+            load.pop("m", None)
+        else:
+            load.pop("w1", None)
+            load.pop("w2", None)
+            load.pop("p", None)
+        model["eloads"].append(load)
+        self._set_selection(set(), {member_id})
+        self._emit_model(model)
+
+    def update_nodal_load(self, index: int, values: Mapping[str, Any]) -> None:
+        model = self._mutable_model()
+        if not 0 <= index < len(model["nloads"]):
+            return
+        model["nloads"][index].update(dict(values))
+        self._emit_model(model)
+
+    def update_member_load(self, index: int, values: Mapping[str, Any]) -> None:
+        model = self._mutable_model()
+        if not 0 <= index < len(model["eloads"]):
+            return
+        current = model["eloads"][index]
+        updated = {"elem": current["elem"], **dict(values)}
+        if updated.get("type") == "Distributed":
+            updated.pop("type", None)
+            updated.pop("x_m", None)
+            updated.pop("p", None)
+            updated.pop("m", None)
+        elif updated.get("type") == "Point Force":
+            updated.pop("w1", None)
+            updated.pop("w2", None)
+            updated.pop("m", None)
+        else:
+            updated.pop("w1", None)
+            updated.pop("w2", None)
+            updated.pop("p", None)
+        model["eloads"][index] = updated
         self._emit_model(model)
 
     def _endpoint_ids(self, model: dict[str, Any], start: tuple[float, float], end: tuple[float, float]) -> tuple[int, int] | None:
@@ -1080,7 +1471,19 @@ class FrameCanvas(QWidget):
         self.selection_changed.emit(self.selection)
         self.update()
 
-    def _delete_selection(self) -> None:
+    def _request_delete_selection(self) -> None:
+        member_ids = set(self._selected_members)
+        node_ids = set(self._selected_nodes)
+        if not member_ids and not node_ids:
+            return
+        implied_members = {
+            int(member["id"])
+            for member in self._model.get("elements", [])
+            if int(member["n1"]) in node_ids or int(member["n2"]) in node_ids
+        }
+        self.delete_requested.emit({"nodes": sorted(node_ids), "members": sorted(member_ids | implied_members)})
+
+    def confirm_delete_selection(self) -> None:
         member_ids = set(self._selected_members)
         node_ids = set(self._selected_nodes)
         if not member_ids and not node_ids:

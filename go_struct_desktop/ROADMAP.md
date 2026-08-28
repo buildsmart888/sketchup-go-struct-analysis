@@ -19,7 +19,7 @@
 The current 2D solver does not calculate torsion (T). Torsion requires a future 3D frame model with
 six nodal degrees of freedom and torsional member stiffness.
 
-## In progress: Phase 2.2
+## Completed: Phase 2.2
 
 - Canvas authoring foundation: Select, Node, Member, and Pan tools; grid and node snapping; live
   cursor coordinates; mouse-centred zoom; selection highlighting; box selection; safe object
@@ -27,7 +27,20 @@ six nodal degrees of freedom and torsional member stiffness.
 - Selection filtering for nodes, members, or both; left-to-right contained selection and
   right-to-left crossing selection.
 - Canvas changes flow back through the editable model tables and invalidate stale results.
-- Next in this phase: property inspector and support/load authoring tools.
+
+## In progress: Phase 2.3 Model editor
+
+- Selection-aware Property dock for node coordinates, support, load-case nodal loads, member
+  endpoints/section/releases, and batch edits.
+- Canvas editing: drag nodes with snap/preview, split members with load redistribution, duplicate,
+  align, fit selection, keyboard shortcuts, and confirmed deletion.
+- Canvas support, nodal-load, and member-load tools with compact dialogs; existing loads can be
+  clicked for editing, including point-load position.
+- Load directions extend to Local X/Y and Global X/Y in schema, solver, diagrams, FBD, and tables.
+- Result viewer links canvas/table selection, supports Auto/Manual diagram scale, and avoids
+  overlapping diagram value labels.
+- Diagnostics now detect duplicate nodes, duplicate members, disconnected nodes, non-nodal member
+  intersections, restraint shortages, and solver mechanisms.
 
 ## In progress: Display and FBD foundation
 

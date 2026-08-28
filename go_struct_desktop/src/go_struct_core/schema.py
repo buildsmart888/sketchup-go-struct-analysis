@@ -11,7 +11,7 @@ from .errors import ModelValidationError
 
 SUPPORT_TYPES = frozenset({"Free", "Fixed", "Pinned", "RollerX", "RollerY"})
 RELEASE_TYPES = frozenset({"Rigid-Rigid", "Pin-Rigid", "Rigid-Pin", "Pin-Pin"})
-LOAD_DIRECTIONS = frozenset({"Local Y", "Global Y"})
+LOAD_DIRECTIONS = frozenset({"Local X", "Local Y", "Global X", "Global Y"})
 
 
 def _mapping(value: Any, path: str) -> Mapping[str, Any]:

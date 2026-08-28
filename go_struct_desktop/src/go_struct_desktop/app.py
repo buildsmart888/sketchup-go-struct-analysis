@@ -16,6 +16,7 @@ from go_struct_core import FrameModel, ModelValidationError, analyze_frame_data,
 
 from .frame_workspace import FrameInputPanel, FrameResultsPanel, default_frame_model
 from .display import DisplayPanel
+from .inspector import PropertyInspector
 
 
 class MainWindow(QMainWindow):
@@ -32,10 +33,14 @@ class MainWindow(QMainWindow):
         self._suppress_model_events = False
         self.input_panel = FrameInputPanel(self)
         self.results_panel = FrameResultsPanel(self)
+        self.inspector = PropertyInspector(self)
         self._build_window()
         self.input_panel.model_changed.connect(self._model_edited)
         self.results_panel.model_change_requested.connect(self._canvas_model_edited)
         self.results_panel.canvas_status_changed.connect(self.statusBar().showMessage)
+        self.results_panel.canvas.selection_changed.connect(self.inspector.set_selection)
+        self.results_panel.delete_requested.connect(self._confirm_delete)
+        self.inspector.model_change_requested.connect(self._canvas_model_edited)
         self.display_panel.settings_changed.connect(self.results_panel.set_display_settings)
         self.display_panel.load_case_changed.connect(self.results_panel.canvas.set_load_case)
         self.display_panel.view_mode_changed.connect(self.results_panel.canvas.set_view_mode)
@@ -78,6 +83,13 @@ class MainWindow(QMainWindow):
         self.display_dock.resize(320, 700)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.display_dock)
         self.display_dock.hide()
+        self.inspector_dock = QDockWidget("Properties", self)
+        self.inspector_dock.setObjectName("propertiesDock")
+        self.inspector_dock.setWidget(self.inspector)
+        self.inspector_dock.setMinimumWidth(280)
+        self.inspector_dock.setMaximumWidth(360)
+        self.inspector_dock.resize(320, 700)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.inspector_dock)
         self._build_actions()
         self.statusBar().showMessage("Ready")
 
@@ -102,6 +114,10 @@ class MainWindow(QMainWindow):
         save_as_action.setShortcut(QKeySequence.StandardKey.SaveAs)
         save_as_action.triggered.connect(self.save_model_as)
 
+        export_action = QAction("Export Analysis JSON", self)
+        export_action.setToolTip("Export the normalized model, analysis, and diagrams")
+        export_action.triggered.connect(self.export_analysis)
+
         self.undo_action = QAction("Undo", self)
         self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
         self.undo_action.setToolTip("Undo the last model edit")
@@ -117,22 +133,93 @@ class MainWindow(QMainWindow):
         analyze_action.setToolTip("Run 2D frame analysis")
         analyze_action.triggered.connect(self.run_analysis)
 
+        delete_action = QAction("Delete", self)
+        delete_action.setShortcut(QKeySequence.StandardKey.Delete)
+        delete_action.triggered.connect(self.results_panel.canvas._request_delete_selection)
+        duplicate_action = QAction("Duplicate", self)
+        duplicate_action.setShortcut(QKeySequence("Ctrl+D"))
+        duplicate_action.triggered.connect(self.results_panel.canvas.duplicate_selection)
+        select_all_action = QAction("Select All", self)
+        select_all_action.setShortcut(QKeySequence.StandardKey.SelectAll)
+        select_all_action.triggered.connect(self._select_all)
+        fit_selection_action = QAction("Fit Selection", self)
+        fit_selection_action.setShortcut(QKeySequence("F"))
+        fit_selection_action.triggered.connect(self.results_panel.canvas.fit_selection)
+        fit_diagram_action = QAction("Fit Diagram", self)
+        fit_diagram_action.triggered.connect(self.display_panel.reset_diagram_scale)
+
+        def tool_action(text: str, tool: str, shortcut: str | None = None) -> QAction:
+            action = QAction(text, self)
+            if shortcut:
+                action.setShortcut(QKeySequence(shortcut))
+            action.triggered.connect(lambda: self.results_panel.canvas.set_tool(tool))
+            return action
+
+        node_tool_action = tool_action("Create Node", "node", "N")
+        member_tool_action = tool_action("Draw Member", "member", "M")
+        split_tool_action = tool_action("Split Member", "split")
+        nodal_load_action = tool_action("Nodal Load", "nodal_load")
+        member_load_action = tool_action("Member Load", "member_load")
+
         file_menu = self.menuBar().addMenu("File")
         file_menu.addAction(new_action)
         file_menu.addAction(open_action)
         file_menu.addAction(save_action)
         file_menu.addAction(save_as_action)
+        file_menu.addSeparator()
+        file_menu.addAction(export_action)
         edit_menu = self.menuBar().addMenu("Edit")
         edit_menu.addAction(self.undo_action)
         edit_menu.addAction(self.redo_action)
+        edit_menu.addSeparator()
+        edit_menu.addAction(delete_action)
+        edit_menu.addAction(duplicate_action)
+        edit_menu.addAction(select_all_action)
+        model_menu = self.menuBar().addMenu("Model")
+        model_menu.addAction(node_tool_action)
+        model_menu.addAction(member_tool_action)
+        model_menu.addAction(split_tool_action)
+        support_menu = model_menu.addMenu("Support")
+        for support in ("Free", "Pinned", "Fixed", "RollerX", "RollerY"):
+            action = QAction(support, self)
+            action.triggered.connect(lambda _checked=False, value=support: self.results_panel.canvas.set_pending_support(value))
+            support_menu.addAction(action)
+        model_menu.addSeparator()
+        align_menu = model_menu.addMenu("Align selected nodes")
+        align_x = QAction("X", self)
+        align_x.triggered.connect(lambda: self.results_panel.canvas.align_selected("x"))
+        align_y = QAction("Y", self)
+        align_y.triggered.connect(lambda: self.results_panel.canvas.align_selected("y"))
+        align_menu.addAction(align_x)
+        align_menu.addAction(align_y)
+        for title in ("Nodes", "Members", "Sections"):
+            action = QAction(f"Open {title} table", self)
+            action.triggered.connect(lambda _checked=False, value=title: self.input_panel.activate_tab(value))
+            model_menu.addAction(action)
+        loads_menu = self.menuBar().addMenu("Loads")
+        loads_menu.addAction(nodal_load_action)
+        loads_menu.addAction(member_load_action)
+        loads_menu.addSeparator()
+        for title in ("Load Cases", "Nodal Loads", "Member Loads", "Combinations"):
+            action = QAction(f"Open {title}", self)
+            action.triggered.connect(lambda _checked=False, value=title: self.input_panel.activate_tab(value))
+            loads_menu.addAction(action)
         analysis_menu = self.menuBar().addMenu("Analysis")
         analysis_menu.addAction(analyze_action)
         view_menu = self.menuBar().addMenu("View")
         view_menu.addAction(self.display_dock.toggleViewAction())
+        view_menu.addAction(self.inspector_dock.toggleViewAction())
+        view_menu.addAction(fit_selection_action)
+        view_menu.addAction(fit_diagram_action)
         results_menu = self.menuBar().addMenu("Results")
         results_menu.addAction(analyze_action)
-        self.menuBar().addMenu("Model")
-        self.menuBar().addMenu("Loads")
+        for label, mode in (("Axial N", "n_kg"), ("Shear V", "v_kg"), ("Moment M", "m_kg_m"), ("FE Deflection", "v_mm"), ("All Diagrams", "all")):
+            action = QAction(label, self)
+            action.triggered.connect(lambda _checked=False, value=mode: self._set_canvas_diagram(value))
+            results_menu.addAction(action)
+        fbd_action = QAction("Free Body Diagram", self)
+        fbd_action.triggered.connect(lambda: self.display_panel.view_mode.setCurrentIndex(self.display_panel.view_mode.findData("fbd")))
+        results_menu.addAction(fbd_action)
         self.menuBar().addMenu("Report")
         toolbar = self.addToolBar("Frame")
         toolbar.setMovable(False)
@@ -149,6 +236,7 @@ class MainWindow(QMainWindow):
     def set_model(self, model: Mapping[str, Any]) -> None:
         self._set_input_model(model)
         current_model = self.input_panel.model_data()
+        self.inspector.set_model(current_model)
         self.display_panel.set_load_cases(list(current_model.get("loadcases", [])))
         self.results_panel.set_model(current_model)
         self.results_panel.clear_analysis()
@@ -189,6 +277,23 @@ class MainWindow(QMainWindow):
             self._current_path = Path(path)
             self._write_model(self._current_path)
 
+    def export_analysis(self) -> None:
+        if self.results_panel.analysis is None:
+            self._show_error("No analysis to export", "Run analysis before exporting results.")
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Export Analysis", str(self._current_path or Path.home() / "FrameAnalysis.json"), "Analysis JSON (*.json)")
+        if not path:
+            return
+        try:
+            model = FrameModel.from_dict(self.input_panel.model_data()).to_dict()
+            result = self.results_panel.analysis
+            postprocess = build_frame_postprocess(model, result)
+            Path(path).write_text(json.dumps({"model": model, "analysis": result, "postprocess": postprocess}, indent=2), encoding="utf-8")
+        except (OSError, ModelValidationError, ValueError) as exc:
+            self._show_error("Unable to export analysis", str(exc))
+            return
+        self.statusBar().showMessage(f"Exported {Path(path).name}")
+
     def run_analysis(self) -> None:
         try:
             model = FrameModel.from_dict(self.input_panel.model_data()).to_dict()
@@ -211,6 +316,7 @@ class MainWindow(QMainWindow):
             model = self.input_panel.model_data()
             self.display_panel.set_load_cases(list(model.get("loadcases", [])))
             self.results_panel.set_model(model)
+            self.inspector.set_model(model)
         except (TypeError, ValueError):
             return
         self._record_history(model)
@@ -220,6 +326,24 @@ class MainWindow(QMainWindow):
     def _canvas_model_edited(self, model: Mapping[str, Any]) -> None:
         self._set_input_model(model)
         self._model_edited()
+
+    def _select_all(self) -> None:
+        self.results_panel.canvas._set_selection(
+            {int(node["id"]) for node in self.results_panel.canvas._model.get("nodes", [])},
+            {int(member["id"]) for member in self.results_panel.canvas._model.get("elements", [])},
+        )
+
+    def _set_canvas_diagram(self, mode: str) -> None:
+        selector = self.results_panel.canvas_diagram_selector
+        selector.setCurrentIndex(selector.findData(mode))
+
+    def _confirm_delete(self, impact: Mapping[str, Any]) -> None:
+        nodes = impact.get("nodes", [])
+        members = impact.get("members", [])
+        detail = f"Delete {len(nodes)} node(s) and {len(members)} member(s)? Associated loads will also be removed."
+        answer = QMessageBox.question(self, "Delete selected objects", detail, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if answer == QMessageBox.StandardButton.Yes:
+            self.results_panel.canvas.confirm_delete_selection()
 
     def _set_input_model(self, model: Mapping[str, Any]) -> None:
         self._suppress_model_events = True

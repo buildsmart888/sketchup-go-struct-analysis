@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Mapping
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QGroupBox, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QTabWidget, QVBoxLayout, QWidget
 
 
 @dataclass(frozen=True)
@@ -29,6 +29,8 @@ class DisplaySettings:
     axial_positive: str = "tension"
     shear_positive: str = "clockwise"
     moment_positive: str = "bottom_tension"
+    diagram_scale_mode: str = "auto"
+    diagram_scale_multiplier: float = 1.0
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | None) -> "DisplaySettings":
@@ -81,6 +83,13 @@ class DisplayPanel(QWidget):
         self.moment_positive = QComboBox(self)
         self.moment_positive.addItem("Bottom fibre tension", "bottom_tension")
         self.moment_positive.addItem("Top fibre tension", "top_tension")
+        self.diagram_scale_mode = QComboBox(self)
+        self.diagram_scale_mode.addItem("Auto", "auto")
+        self.diagram_scale_mode.addItem("Manual", "manual")
+        self.diagram_scale_multiplier = QDoubleSpinBox(self)
+        self.diagram_scale_multiplier.setRange(0.1, 10.0)
+        self.diagram_scale_multiplier.setSingleStep(0.1)
+        self.diagram_scale_multiplier.setValue(1.0)
         self._build_layout()
         self._apply_settings(self._settings)
         for control in (
@@ -89,8 +98,9 @@ class DisplayPanel(QWidget):
             self.diagram_fill,
         ):
             control.toggled.connect(self._emit_settings)
-        for control in (self.diagram_placement, self.axial_positive, self.shear_positive, self.moment_positive):
+        for control in (self.diagram_placement, self.axial_positive, self.shear_positive, self.moment_positive, self.diagram_scale_mode):
             control.currentIndexChanged.connect(self._emit_settings)
+        self.diagram_scale_multiplier.valueChanged.connect(self._emit_settings)
         self.load_case.currentIndexChanged.connect(lambda: self.load_case_changed.emit(str(self.load_case.currentData() or "")))
         self.view_mode.currentIndexChanged.connect(lambda: self.view_mode_changed.emit(str(self.view_mode.currentData() or "model")))
 
@@ -143,7 +153,13 @@ class DisplayPanel(QWidget):
         layout.addRow("Axial N", self.axial_positive)
         layout.addRow("Shear V", self.shear_positive)
         layout.addRow("Moment M", self.moment_positive)
+        layout.addRow("Diagram scale", self.diagram_scale_mode)
+        layout.addRow("Scale factor", self.diagram_scale_multiplier)
         return tab
+
+    def reset_diagram_scale(self) -> None:
+        self.diagram_scale_mode.setCurrentIndex(self.diagram_scale_mode.findData("auto"))
+        self.diagram_scale_multiplier.setValue(1.0)
 
     def _fbd_tab(self) -> QWidget:
         tab = QWidget(self)
@@ -171,6 +187,8 @@ class DisplayPanel(QWidget):
             axial_positive=str(self.axial_positive.currentData()),
             shear_positive=str(self.shear_positive.currentData()),
             moment_positive=str(self.moment_positive.currentData()),
+            diagram_scale_mode=str(self.diagram_scale_mode.currentData()),
+            diagram_scale_multiplier=self.diagram_scale_multiplier.value(),
         )
         self._settings = settings
         self.settings_changed.emit(settings)
@@ -192,3 +210,5 @@ class DisplayPanel(QWidget):
         self.axial_positive.setCurrentIndex(self.axial_positive.findData(settings.axial_positive))
         self.shear_positive.setCurrentIndex(self.shear_positive.findData(settings.shear_positive))
         self.moment_positive.setCurrentIndex(self.moment_positive.findData(settings.moment_positive))
+        self.diagram_scale_mode.setCurrentIndex(self.diagram_scale_mode.findData(settings.diagram_scale_mode))
+        self.diagram_scale_multiplier.setValue(settings.diagram_scale_multiplier)

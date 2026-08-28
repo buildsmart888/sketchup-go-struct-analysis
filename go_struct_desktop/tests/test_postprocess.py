@@ -55,3 +55,27 @@ def test_postprocess_envelope_records_governing_combination_and_equilibrium() ->
     assert point["deformation_combo"] in {"Service", "ULS"}
     assert postprocess["envelope"]["members"][0]["extrema"]["m_kg_m"]["abs"]["combo"] in {"Service", "ULS"}
     assert all(check["ok"] for check in postprocess["diagnostics"]["equilibrium"])
+
+
+def test_diagnostics_warn_about_duplicate_and_crossing_geometry() -> None:
+    model = portal_model()
+    model["nodes"].extend(
+        [
+            {"id": 5, "x": 0.0, "y": 0.0, "support": "Free"},
+            {"id": 6, "x": 3.0, "y": -1.0, "support": "Free"},
+            {"id": 7, "x": 3.0, "y": 5.0, "support": "Free"},
+        ]
+    )
+    model["elements"].extend(
+        [
+            {"id": 4, "n1": 1, "n2": 3, "sec": 1, "release": "Rigid-Rigid"},
+            {"id": 5, "n1": 6, "n2": 7, "sec": 1, "release": "Rigid-Rigid"},
+        ]
+    )
+
+    items = build_frame_postprocess(model, analyze_frame_data(model))["diagnostics"]["items"]
+    messages = "\n".join(item["message"] for item in items)
+
+    assert "share coordinates" in messages
+    assert "duplicate" in messages
+    assert "intersect" in messages

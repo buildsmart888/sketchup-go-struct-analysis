@@ -159,3 +159,18 @@ def test_envelope_keeps_point_load_sampling_positions_for_zero_factor_combinatio
 
     for selection in (*postprocess["combos"].values(), postprocess["envelope"]):
         assert any(point["x_m"] == pytest.approx(1.5) for point in selection["members"][0]["points"])
+
+
+def test_global_x_member_point_force_is_transformed_to_local_axial_load() -> None:
+    model = cantilever_model()
+    model["nodes"][1] = {"id": 2, "x": 3.0, "y": 0.0, "support": "Free"}
+    model["elements"][0] = {"id": 1, "n1": 1, "n2": 2, "sec": 1, "release": "Rigid-Rigid"}
+    model["nloads"] = []
+    model["eloads"] = [{"elem": 1, "lcase": "DL", "type": "Point Force", "dir": "Global X", "x_m": 1.5, "p": 10.0}]
+
+    result = analyze_frame_data(model)
+
+    expected_dx = 10.0 * 1.5 / (2.0e9 * (1000.0 * 1.0e-4))
+    assert result["ok"] is True
+    assert result["cases"]["DL"]["nodes"][1]["dx"] == pytest.approx(expected_dx, rel=1e-10)
+    assert result["cases"]["DL"]["nodes"][0]["fx"] == pytest.approx(-10.0)

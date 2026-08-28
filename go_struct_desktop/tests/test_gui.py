@@ -115,7 +115,7 @@ def test_canvas_selects_and_deletes_members(app: QApplication) -> None:
     QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=QPoint(round(member_location.x()), round(member_location.y())))
     app.processEvents()
     assert canvas.selection == {"nodes": [], "members": [1]}
-    QTest.keyClick(canvas, Qt.Key.Key_Delete)
+    canvas.confirm_delete_selection()
     app.processEvents()
     assert len(window.input_panel.model_data()["elements"]) == 2
     assert window.results_panel.analysis is None
@@ -171,6 +171,73 @@ def test_canvas_zoom_preserves_model_point_under_cursor(app: QApplication) -> No
     after = canvas._screen_to_model(cursor)
     assert abs(after[0] - before[0]) < 1.0e-9
     assert abs(after[1] - before[1]) < 1.0e-9
+    window.close()
+
+
+def test_canvas_moves_nodes_and_splits_members(app: QApplication) -> None:
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+    canvas = window.results_panel.canvas
+    canvas.set_tool("select")
+    start = canvas._model_to_screen(6.0, 4.0)
+    end = canvas._model_to_screen(7.0, 5.0)
+    QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=QPoint(round(start.x()), round(start.y())))
+    QTest.mouseMove(canvas, QPoint(round(end.x()), round(end.y())))
+    QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=QPoint(round(end.x()), round(end.y())))
+    app.processEvents()
+    moved = next(node for node in window.input_panel.model_data()["nodes"] if node["id"] == 4)
+    assert (moved["x"], moved["y"]) == (7.0, 5.0)
+
+    canvas.set_tool("split")
+    middle = canvas._model_to_screen(3.5, 4.5)
+    QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=QPoint(round(middle.x()), round(middle.y())))
+    app.processEvents()
+    model = window.input_panel.model_data()
+    assert len(model["nodes"]) == 5
+    assert len(model["elements"]) == 4
+    assert len(model["eloads"]) == 2
+    window.close()
+
+
+def test_property_inspector_updates_selected_node_and_member(app: QApplication) -> None:
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+    canvas = window.results_panel.canvas
+    canvas._set_selection({1}, set())
+    window.inspector.node_support.setCurrentText("Pinned")
+    window.inspector.node_fx.setValue(12.0)
+    window.inspector.node_apply.click()
+    app.processEvents()
+    model = window.input_panel.model_data()
+    assert model["nodes"][0]["support"] == "Pinned"
+    assert model["nloads"][-1]["fx"] == 12.0
+
+    canvas._set_selection(set(), {3})
+    window.inspector.member_release.setCurrentText("Rigid-Pin")
+    window.inspector.member_apply.click()
+    app.processEvents()
+    assert next(member for member in window.input_panel.model_data()["elements"] if member["id"] == 3)["release"] == "Rigid-Pin"
+    window.close()
+
+
+def test_canvas_finds_and_updates_member_loads(app: QApplication) -> None:
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+    canvas = window.results_panel.canvas
+    location = canvas._model_to_screen(3.0, 4.0)
+    target = canvas._load_at(location)
+
+    assert target is not None
+    assert target[0] == "member"
+    canvas.update_member_load(target[1]["index"], {"lcase": "DL", "type": "Point Force", "dir": "Global X", "x_m": 2.0, "p": 14.0, "m": 0.0, "w1": 0.0, "w2": 0.0})
+    app.processEvents()
+    load = window.input_panel.model_data()["eloads"][0]
+    assert load["type"] == "Point Force"
+    assert load["dir"] == "Global X"
+    assert load["x_m"] == 2.0
     window.close()
 
 

@@ -181,8 +181,20 @@ def _distributed_loads(model: FrameModel, element: FrameElement, factors: Mappin
         factor = float(factors.get(load.lcase, 0.0))
         if load.type != "Distributed" or load.elem != element.id or not factor:
             continue
-        if load.direction == "Local Y":
+        if load.direction == "Local X":
+            loads.append({"case": load.lcase, "qx1": load.w1 * factor, "qx2": load.w2 * factor, "qy1": 0.0, "qy2": 0.0})
+        elif load.direction == "Local Y":
             loads.append({"case": load.lcase, "qx1": 0.0, "qx2": 0.0, "qy1": load.w1 * factor, "qy2": load.w2 * factor})
+        elif load.direction == "Global X":
+            loads.append(
+                {
+                    "case": load.lcase,
+                    "qx1": load.w1 * factor * math.cos(angle),
+                    "qx2": load.w2 * factor * math.cos(angle),
+                    "qy1": -load.w1 * factor * math.sin(angle),
+                    "qy2": -load.w2 * factor * math.sin(angle),
+                }
+            )
         else:
             loads.append(
                 {
@@ -207,8 +219,13 @@ def _point_loads(model: FrameModel, element: FrameElement, factors: Mapping[str,
             continue
         px = py = mz = 0.0
         if load.type == "Point Force":
-            if load.direction == "Local Y":
+            if load.direction == "Local X":
+                px = load.p * factor
+            elif load.direction == "Local Y":
                 py = load.p * factor
+            elif load.direction == "Global X":
+                px = load.p * factor * math.cos(angle)
+                py = -load.p * factor * math.sin(angle)
             else:
                 px = load.p * factor * math.sin(angle)
                 py = load.p * factor * math.cos(angle)
@@ -300,15 +317,53 @@ def _model_diagnostics(model: FrameModel, analysis: Mapping[str, Any]) -> dict[s
     for node in model.nodes:
         if incidences[node.id] == 0:
             items.append({"severity": "warning", "message": f"Node {node.id} is not connected to a member."})
+    coordinates: dict[tuple[float, float], list[int]] = defaultdict(list)
+    for node in model.nodes:
+        coordinates[(node.x, node.y)].append(node.id)
+    for coordinate, node_ids in coordinates.items():
+        if len(node_ids) > 1:
+            items.append({"severity": "warning", "message": f"Nodes {', '.join(str(node_id) for node_id in node_ids)} share coordinates ({coordinate[0]:g}, {coordinate[1]:g})."})
+    member_pairs: dict[tuple[int, int], list[int]] = defaultdict(list)
+    for element in model.elements:
+        member_pairs[tuple(sorted((element.n1, element.n2)))].append(element.id)
+    for pair, member_ids in member_pairs.items():
+        if len(member_ids) > 1:
+            items.append({"severity": "warning", "message": f"Members {', '.join(str(member_id) for member_id in member_ids)} duplicate the N{pair[0]}-N{pair[1]} connection."})
+    node_by_id = {node.id: node for node in model.nodes}
+    for index, first in enumerate(model.elements):
+        for second in model.elements[index + 1 :]:
+            if {first.n1, first.n2} & {second.n1, second.n2}:
+                continue
+            if _segments_cross(
+                (node_by_id[first.n1].x, node_by_id[first.n1].y),
+                (node_by_id[first.n2].x, node_by_id[first.n2].y),
+                (node_by_id[second.n1].x, node_by_id[second.n1].y),
+                (node_by_id[second.n2].x, node_by_id[second.n2].y),
+            ):
+                items.append({"severity": "warning", "message": f"Members {first.id} and {second.id} intersect without a shared node. Split/connect them before analysis."})
     restraints = sum(3 if node.support == "Fixed" else 2 if node.support == "Pinned" else 1 if node.support in {"RollerX", "RollerY"} else 0 for node in model.nodes)
     if restraints < 3:
         items.append({"severity": "warning", "message": "Fewer than three translational restraints are defined; the frame may be unstable."})
     if not analysis.get("ok"):
         items.append({"severity": "error", "message": str(analysis.get("error", "Analysis did not complete."))})
+        items.append({"severity": "warning", "message": "Mechanism check: review free translations/rotations, member releases, and support directions near the unstable region."})
     elif not items:
         items.append({"severity": "info", "message": "Topology and restraint screening completed."})
     equilibrium = [_equilibrium_for_case(model, name, result) for name, result in analysis.get("cases", {}).items()]
     return {"items": items, "restraint_count": restraints, "equilibrium": equilibrium}
+
+
+def _segments_cross(
+    first_start: tuple[float, float], first_end: tuple[float, float], second_start: tuple[float, float], second_end: tuple[float, float]
+) -> bool:
+    def cross(origin: tuple[float, float], first: tuple[float, float], second: tuple[float, float]) -> float:
+        return (first[0] - origin[0]) * (second[1] - origin[1]) - (first[1] - origin[1]) * (second[0] - origin[0])
+
+    first_a = cross(first_start, first_end, second_start)
+    first_b = cross(first_start, first_end, second_end)
+    second_a = cross(second_start, second_end, first_start)
+    second_b = cross(second_start, second_end, first_end)
+    return first_a * first_b < 0.0 and second_a * second_b < 0.0
 
 
 def _equilibrium_for_case(model: FrameModel, case_name: str, result: Mapping[str, Any]) -> dict[str, Any]:
