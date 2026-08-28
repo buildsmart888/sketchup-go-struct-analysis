@@ -74,7 +74,7 @@ the Ruby dialog, and it writes the same input field names back to JSON.
 ```powershell
 cd go_struct_desktop
 py -m pip install -e ".[dev,gui]"
-go-struct-beam
+.\.venv\Scripts\go-struct-beam.exe
 ```
 
 The Beam workspace opens with a two-span beam and writes `.gobeam.json` files. It accepts horizontal
@@ -91,8 +91,11 @@ Selected` for a fast uniform load, or open the Template Catalog to inspect the s
 ```powershell
 cd go_struct_desktop
 py -m pip install -e ".[dev,gui]"
-go-struct-truss
+.\.venv\Scripts\go-struct-truss.exe
 ```
+
+Alternatively, activate the virtual environment once with `.\.venv\Scripts\Activate.ps1`, then
+run `go-struct-beam` or `go-struct-truss` without the path prefix.
 
 The Truss workspace writes `.gotruss.json` files and uses a dedicated planar pin-jointed solver.
 Members report tension-positive axial `N`; green members are in tension and red members are in
