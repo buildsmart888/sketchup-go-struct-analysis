@@ -28,6 +28,8 @@ class MainWindow(QMainWindow):
         self.results_panel = FrameResultsPanel(self)
         self._build_window()
         self.input_panel.model_changed.connect(self._model_edited)
+        self.results_panel.model_change_requested.connect(self._canvas_model_edited)
+        self.results_panel.canvas_status_changed.connect(self.statusBar().showMessage)
         self.set_model(default_frame_model())
         self.run_analysis()
 
@@ -161,6 +163,9 @@ class MainWindow(QMainWindow):
             return
         self.results_panel.clear_analysis()
         self.statusBar().showMessage("Model changed. Run analysis to refresh results.")
+
+    def _canvas_model_edited(self, model: Mapping[str, Any]) -> None:
+        self.input_panel.set_model(model)
 
     def _write_model(self, path: Path) -> None:
         try:

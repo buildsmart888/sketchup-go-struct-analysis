@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -66,6 +66,50 @@ def test_frame_workspace_marks_results_stale_after_input_change(app: QApplicatio
     item.setText("0.5")
     app.processEvents()
 
+    assert window.results_panel.analysis is None
+    window.close()
+
+
+def test_canvas_creates_snapped_nodes_and_members(app: QApplication) -> None:
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+    canvas = window.results_panel.canvas
+
+    canvas.set_tool("node")
+    node_location = canvas._model_to_screen(8.26, 0.74)
+    QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=QPoint(round(node_location.x()), round(node_location.y())))
+    app.processEvents()
+    model = window.input_panel.model_data()
+    assert any(node["x"] == 8.0 and node["y"] == 1.0 for node in model["nodes"])
+
+    canvas.set_tool("member")
+    start = canvas._model_to_screen(6.0, 4.0)
+    end = canvas._model_to_screen(8.0, 4.0)
+    QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=QPoint(round(start.x()), round(start.y())))
+    QTest.mouseMove(canvas, QPoint(round(end.x()), round(end.y())))
+    QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=QPoint(round(end.x()), round(end.y())))
+    app.processEvents()
+    model = window.input_panel.model_data()
+    assert len(model["elements"]) == 4
+    assert any(node["x"] == 8.0 and node["y"] == 4.0 for node in model["nodes"])
+    assert window.results_panel.analysis is None
+    window.close()
+
+
+def test_canvas_selects_and_deletes_members(app: QApplication) -> None:
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+    canvas = window.results_panel.canvas
+    canvas.set_tool("select")
+    member_location = canvas._model_to_screen(0.0, 2.0)
+    QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=QPoint(round(member_location.x()), round(member_location.y())))
+    app.processEvents()
+    assert canvas.selection == {"nodes": [], "members": [1]}
+    QTest.keyClick(canvas, Qt.Key.Key_Delete)
+    app.processEvents()
+    assert len(window.input_panel.model_data()["elements"]) == 2
     assert window.results_panel.analysis is None
     window.close()
 

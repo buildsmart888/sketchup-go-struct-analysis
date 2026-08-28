@@ -8,8 +8,10 @@ from typing import Any, Mapping
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -19,6 +21,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -175,12 +178,49 @@ class FrameInputPanel(QWidget):
 class FrameResultsPanel(QWidget):
     """Visual and tabular output for an already-computed frame analysis."""
 
+    model_change_requested = Signal(object)
+    canvas_status_changed = Signal(str)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._model: Mapping[str, Any] = {}
         self._analysis: Mapping[str, Any] | None = None
         self._postprocess: Mapping[str, Any] | None = None
         self.canvas = FrameCanvas(self)
+        self.canvas_tools = QButtonGroup(self)
+        self.canvas_tools.setExclusive(True)
+        self._tool_buttons: dict[str, QToolButton] = {}
+        for tool, label, tooltip in (
+            ("select", "Select", "Select nodes or members"),
+            ("node", "Node", "Create a snapped node"),
+            ("member", "Member", "Draw a member between nodes"),
+            ("pan", "Pan", "Pan the canvas"),
+        ):
+            button = QToolButton(self)
+            button.setText(label)
+            button.setToolTip(tooltip)
+            button.setCheckable(True)
+            button.clicked.connect(lambda _checked=False, value=tool: self.canvas.set_tool(value))
+            self.canvas_tools.addButton(button)
+            self._tool_buttons[tool] = button
+        self._tool_buttons["select"].setChecked(True)
+        self.grid_toggle = QCheckBox("Grid", self)
+        self.grid_toggle.setChecked(True)
+        self.snap_toggle = QCheckBox("Snap", self)
+        self.snap_toggle.setChecked(True)
+        self.snap_nodes_toggle = QCheckBox("Nodes", self)
+        self.snap_nodes_toggle.setChecked(True)
+        self.grid_spacing = QDoubleSpinBox(self)
+        self.grid_spacing.setRange(0.05, 100.0)
+        self.grid_spacing.setDecimals(3)
+        self.grid_spacing.setSingleStep(0.25)
+        self.grid_spacing.setValue(1.0)
+        self.grid_spacing.setSuffix(" m")
+        self.active_section = QComboBox(self)
+        self.fit_button = QToolButton(self)
+        self.fit_button.setText("Fit")
+        self.fit_button.setToolTip("Fit model to canvas")
+        self.selection_label = QLabel("Selection: none", self)
         self.result_selector = QComboBox(self)
         self.canvas_diagram_selector = QComboBox(self)
         self.canvas_diagram_selector.addItem("No diagrams", "none")
@@ -207,6 +247,17 @@ class FrameResultsPanel(QWidget):
         self.canvas_diagram_selector.currentIndexChanged.connect(self._canvas_diagram_changed)
         self.diagram_values_toggle.toggled.connect(self.canvas.set_show_diagram_values)
         self.deformed_toggle.toggled.connect(self.canvas.set_show_deformed)
+        self.grid_toggle.toggled.connect(self.canvas.set_grid_visible)
+        self.snap_toggle.toggled.connect(self.canvas.set_snap_enabled)
+        self.snap_nodes_toggle.toggled.connect(self.canvas.set_snap_to_node)
+        self.grid_spacing.valueChanged.connect(self.canvas.set_grid_spacing)
+        self.active_section.currentIndexChanged.connect(self._active_section_changed)
+        self.fit_button.clicked.connect(self.canvas.fit_view)
+        self.canvas.model_change_requested.connect(self.model_change_requested)
+        self.canvas.selection_changed.connect(self._canvas_selection_changed)
+        self.canvas.pointer_changed.connect(self._canvas_pointer_changed)
+        self.canvas.tool_changed.connect(self._canvas_tool_changed)
+        self.canvas.authoring_message.connect(self.canvas_status_changed)
 
     @property
     def analysis(self) -> Mapping[str, Any] | None:
@@ -214,6 +265,17 @@ class FrameResultsPanel(QWidget):
 
     def set_model(self, model: Mapping[str, Any]) -> None:
         self._model = model
+        sections = model.get("sections", [])
+        current_section = self.active_section.currentData()
+        self.active_section.blockSignals(True)
+        self.active_section.clear()
+        for section in sections:
+            self.active_section.addItem(f"Section {section['id']}", int(section["id"]))
+        selected_index = self.active_section.findData(current_section)
+        self.active_section.setCurrentIndex(selected_index if selected_index >= 0 else 0)
+        self.active_section.blockSignals(False)
+        if self.active_section.currentData() is not None:
+            self.canvas.set_active_section(int(self.active_section.currentData()))
         self.canvas.set_model(model)
 
     def clear_analysis(self) -> None:
@@ -248,15 +310,31 @@ class FrameResultsPanel(QWidget):
         self._selection_changed()
 
     def _build_layout(self) -> None:
-        controls = QHBoxLayout()
-        controls.setContentsMargins(0, 0, 0, 0)
-        controls.addWidget(QLabel("Result", self))
-        controls.addWidget(self.result_selector)
-        controls.addWidget(QLabel("Canvas", self))
-        controls.addWidget(self.canvas_diagram_selector)
-        controls.addWidget(self.diagram_values_toggle)
-        controls.addStretch()
-        controls.addWidget(self.deformed_toggle)
+        authoring_controls = QHBoxLayout()
+        authoring_controls.setContentsMargins(0, 0, 0, 0)
+        for tool in ("select", "node", "member", "pan"):
+            authoring_controls.addWidget(self._tool_buttons[tool])
+        authoring_controls.addSpacing(8)
+        authoring_controls.addWidget(self.grid_toggle)
+        authoring_controls.addWidget(self.snap_toggle)
+        authoring_controls.addWidget(self.snap_nodes_toggle)
+        authoring_controls.addWidget(QLabel("Step", self))
+        authoring_controls.addWidget(self.grid_spacing)
+        authoring_controls.addWidget(self.fit_button)
+        authoring_controls.addWidget(QLabel("New member", self))
+        authoring_controls.addWidget(self.active_section)
+        authoring_controls.addStretch()
+        authoring_controls.addWidget(self.selection_label)
+
+        result_controls = QHBoxLayout()
+        result_controls.setContentsMargins(0, 0, 0, 0)
+        result_controls.addWidget(QLabel("Result", self))
+        result_controls.addWidget(self.result_selector)
+        result_controls.addWidget(QLabel("Canvas", self))
+        result_controls.addWidget(self.canvas_diagram_selector)
+        result_controls.addWidget(self.diagram_values_toggle)
+        result_controls.addStretch()
+        result_controls.addWidget(self.deformed_toggle)
 
         result_tabs = QTabWidget(self)
         result_tabs.addTab(self.summary, "Summary")
@@ -271,7 +349,8 @@ class FrameResultsPanel(QWidget):
         canvas_host = QWidget(self)
         canvas_layout = QVBoxLayout(canvas_host)
         canvas_layout.setContentsMargins(0, 0, 0, 0)
-        canvas_layout.addLayout(controls)
+        canvas_layout.addLayout(authoring_controls)
+        canvas_layout.addLayout(result_controls)
         canvas_layout.addWidget(self.canvas)
         splitter.addWidget(canvas_host)
         splitter.addWidget(result_tabs)
@@ -295,6 +374,31 @@ class FrameResultsPanel(QWidget):
 
     def _canvas_diagram_changed(self) -> None:
         self.canvas.set_diagram_mode(str(self.canvas_diagram_selector.currentData() or "none"))
+
+    def _active_section_changed(self) -> None:
+        section_id = self.active_section.currentData()
+        if section_id is not None:
+            self.canvas.set_active_section(int(section_id))
+
+    def _canvas_selection_changed(self, selection: Mapping[str, list[int]]) -> None:
+        nodes = selection.get("nodes", [])
+        members = selection.get("members", [])
+        if nodes:
+            text = f"Node{'s' if len(nodes) > 1 else ''}: {', '.join(str(node) for node in nodes)}"
+        elif members:
+            text = f"Member{'s' if len(members) > 1 else ''}: {', '.join(str(member) for member in members)}"
+        else:
+            text = "Selection: none"
+        self.selection_label.setText(text)
+
+    def _canvas_pointer_changed(self, x: float, y: float) -> None:
+        self.canvas_status_changed.emit(
+            f"X: {x:.3f} m | Y: {y:.3f} m | {self.canvas.tool.title()} | Grid {self.grid_spacing.value():.3f} m | "
+            f"{'Snap' if self.snap_toggle.isChecked() else 'Free'}"
+        )
+
+    def _canvas_tool_changed(self, tool: str) -> None:
+        self.canvas_status_changed.emit(f"Canvas tool: {tool.title()}")
 
     def _selected_data(self, selection: str) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
         if selection.startswith("case:"):

@@ -14,6 +14,7 @@ reused by a CLI, and later called by the Ruby extension through a bridge.
 - Member diagrams for axial force (N), shear (V), moment (M), and FE deflection.
 - Canvas overlays for N, V, M, FE deflection, or all diagrams on the structural model.
 - Optional diagram value labels plus crosshair hover markers and tooltips for member force and deflection values.
+- Canvas authoring foundation: select, pan, grid/snap, box selection, create snapped nodes, and draw members with live length/angle preview.
 - Calculation details, topology screening, and load-case equilibrium checks.
 
 GOBeam, GOTruss, reports, and the SketchUp bridge remain outside the current increment. The existing
@@ -55,3 +56,10 @@ go-struct-desktop
 
 The desktop app opens with an editable portal-frame model. It supports `.goframe.json` files from
 the Ruby dialog, and it writes the same input field names back to JSON.
+
+## Canvas authoring
+
+Use the canvas toolbar to switch among Select, Node, Member, and Pan. Node and Member tools use
+the configured grid step and can snap to an existing node. Select objects by click or selection
+box; press `Delete` to remove selected members or nodes when the remaining model is valid. Canvas
+edits update the same model shown in the input tables and require analysis to be run again.

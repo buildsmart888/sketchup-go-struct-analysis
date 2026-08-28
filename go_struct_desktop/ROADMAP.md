@@ -19,6 +19,13 @@
 The current 2D solver does not calculate torsion (T). Torsion requires a future 3D frame model with
 six nodal degrees of freedom and torsional member stiffness.
 
+## In progress: Phase 2.2
+
+- Canvas authoring foundation: Select, Node, Member, and Pan tools; grid and node snapping; live
+  cursor coordinates; selection highlighting; box selection; and safe object deletion.
+- Canvas changes flow back through the editable model tables and invalidate stale results.
+- Next in this phase: property inspector, undo/redo command history, and support/load authoring tools.
+
 ## Next: Phase 3
 
 - Beam and Truss workspaces using the same editor, result, diagram, and diagnostic conventions.

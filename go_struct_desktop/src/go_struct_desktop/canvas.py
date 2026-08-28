@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+import copy
 import math
 from typing import Any, Mapping
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QToolTip, QWidget
 
 
 class FrameCanvas(QWidget):
     """Draws the structural model, deformation, and selected member diagrams."""
+
+    model_change_requested = Signal(object)
+    selection_changed = Signal(object)
+    pointer_changed = Signal(float, float)
+    tool_changed = Signal(str)
+    authoring_message = Signal(str)
 
     _DIAGRAMS = {
         "n_kg": ("N", QColor("#0f766e")),
@@ -31,14 +38,33 @@ class FrameCanvas(QWidget):
         self._hover_points: list[tuple[QPointF, Mapping[str, Any], Mapping[str, Any]]] = []
         self._hover_sample: tuple[QPointF, Mapping[str, Any], Mapping[str, Any]] | None = None
         self._show_deformed = True
+        self._tool = "select"
+        self._grid_visible = True
+        self._snap_enabled = True
+        self._snap_to_node = True
+        self._grid_spacing = 1.0
+        self._active_section = 1
+        self._selected_nodes: set[int] = set()
+        self._selected_members: set[int] = set()
+        self._selection_origin: QPointF | None = None
+        self._selection_rect: QRectF | None = None
+        self._member_start: tuple[float, float] | None = None
+        self._member_current: tuple[float, float] | None = None
+        self._view_center = QPointF()
+        self._view_model_center = QPointF()
+        self._view_scale = 1.0
         self._zoom = 1.0
         self._pan = QPointF()
         self._drag_origin: QPoint | None = None
         self.setMinimumHeight(300)
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def set_model(self, model: Mapping[str, Any]) -> None:
         self._model = model
+        sections = model.get("sections", [])
+        if sections and self._active_section not in {int(section["id"]) for section in sections}:
+            self._active_section = int(sections[0]["id"])
         self._zoom = 1.0
         self._pan = QPointF()
         self._clear_hover()
@@ -79,6 +105,46 @@ class FrameCanvas(QWidget):
         self.update()
 
     @property
+    def tool(self) -> str:
+        return self._tool
+
+    @property
+    def selection(self) -> dict[str, list[int]]:
+        return {"nodes": sorted(self._selected_nodes), "members": sorted(self._selected_members)}
+
+    def set_tool(self, tool: str) -> None:
+        self._tool = tool if tool in {"select", "node", "member", "pan"} else "select"
+        self._member_start = None
+        self._member_current = None
+        self._selection_origin = None
+        self._selection_rect = None
+        self.setCursor(Qt.CursorShape.OpenHandCursor if self._tool == "pan" else Qt.CursorShape.ArrowCursor)
+        self.tool_changed.emit(self._tool)
+        self.update()
+
+    def set_grid_visible(self, visible: bool) -> None:
+        self._grid_visible = visible
+        self.update()
+
+    def set_snap_enabled(self, enabled: bool) -> None:
+        self._snap_enabled = enabled
+
+    def set_snap_to_node(self, enabled: bool) -> None:
+        self._snap_to_node = enabled
+
+    def set_grid_spacing(self, spacing: float) -> None:
+        self._grid_spacing = max(float(spacing), 0.001)
+        self.update()
+
+    def set_active_section(self, section_id: int) -> None:
+        self._active_section = section_id
+
+    def fit_view(self) -> None:
+        self._zoom = 1.0
+        self._pan = QPointF()
+        self.update()
+
+    @property
     def has_hover_value(self) -> bool:
         return self._hover_sample is not None
 
@@ -88,9 +154,22 @@ class FrameCanvas(QWidget):
         self.update()
 
     def mousePressEvent(self, event) -> None:  # type: ignore[no-untyped-def]
-        if event.button() == Qt.MouseButton.LeftButton:
+        self.setFocus()
+        if event.button() == Qt.MouseButton.MiddleButton or (event.button() == Qt.MouseButton.LeftButton and self._tool == "pan"):
             self._drag_origin = event.position().toPoint()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            return
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._pointer_moved(event.position())
+            if self._tool == "node":
+                self._create_node(self._snap_position(event.position()))
+            elif self._tool == "member":
+                self._member_start = self._snap_position(event.position())
+                self._member_current = self._member_start
+                self.update()
+            elif self._tool == "select":
+                self._selection_origin = event.position()
+                self._selection_rect = QRectF(event.position(), event.position())
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:  # type: ignore[no-untyped-def]
@@ -100,14 +179,47 @@ class FrameCanvas(QWidget):
             self._drag_origin = current
             self.update()
         else:
-            self._show_hover_value(event.position(), event.globalPosition().toPoint())
+            self._pointer_moved(event.position())
+            if self._tool == "member" and self._member_start is not None:
+                self._member_current = self._snap_position(event.position())
+                self.update()
+            elif self._tool == "select" and self._selection_origin is not None:
+                self._selection_rect = QRectF(self._selection_origin, event.position()).normalized()
+                self.update()
+            else:
+                self._show_hover_value(event.position(), event.globalPosition().toPoint())
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # type: ignore[no-untyped-def]
-        if event.button() == Qt.MouseButton.LeftButton:
+        if event.button() == Qt.MouseButton.MiddleButton or (event.button() == Qt.MouseButton.LeftButton and self._drag_origin is not None):
             self._drag_origin = None
-            self.setCursor(Qt.CursorShape.ArrowCursor)
+            self.setCursor(Qt.CursorShape.OpenHandCursor if self._tool == "pan" else Qt.CursorShape.ArrowCursor)
+            return
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self._tool == "member" and self._member_start is not None:
+                self._create_member(self._member_start, self._snap_position(event.position()))
+                self._member_start = None
+                self._member_current = None
+            elif self._tool == "select" and self._selection_origin is not None:
+                self._apply_selection(event.position())
+                self._selection_origin = None
+                self._selection_rect = None
+                self.update()
         super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+        if event.key() == Qt.Key.Key_Delete:
+            self._delete_selection()
+            return
+        if event.key() == Qt.Key.Key_Escape:
+            self._member_start = None
+            self._member_current = None
+            self._selection_origin = None
+            self._selection_rect = None
+            self._set_selection(set(), set())
+            self.update()
+            return
+        super().keyPressEvent(event)
 
     def paintEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         painter = QPainter(self)
@@ -133,12 +245,16 @@ class FrameCanvas(QWidget):
         center_x = (min_x + max_x) / 2.0
         center_y = (min_y + max_y) / 2.0
         viewport_center = QPointF(self.width() / 2.0, self.height() / 2.0) + self._pan
+        self._view_center = viewport_center
+        self._view_model_center = QPointF(center_x, center_y)
+        self._view_scale = scale
 
         def screen(x: float, y: float) -> QPointF:
             return QPointF(viewport_center.x() + (x - center_x) * scale, viewport_center.y() - (y - center_y) * scale)
 
         self._update_hover_points(node_by_id, screen, span_x, span_y)
-        self._draw_grid(painter, screen, min_x, max_x, min_y, max_y)
+        if self._grid_visible:
+            self._draw_grid(painter, screen, min_x, max_x, min_y, max_y)
         self._draw_loads(painter, node_by_id, screen)
 
         member_pen = QPen(QColor("#1e293b"), 3.0)
@@ -149,12 +265,20 @@ class FrameCanvas(QWidget):
             second = node_by_id.get(element.get("n2"))
             if first is None or second is None:
                 continue
+            if int(element["id"]) in self._selected_members:
+                selected_pen = QPen(QColor("#0f766e"), 5.0)
+                selected_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                painter.setPen(selected_pen)
+                painter.drawLine(screen(float(first["x"]), float(first["y"])), screen(float(second["x"]), float(second["y"])))
+                painter.setPen(member_pen)
             painter.drawLine(screen(float(first["x"]), float(first["y"])), screen(float(second["x"]), float(second["y"])))
 
+        self._draw_member_preview(painter, screen)
         self._draw_diagram_overlays(painter, node_by_id, screen, span_x, span_y)
         self._draw_deformed_shape(painter, node_by_id, screen, span_x, span_y)
         self._draw_hover_crosshair(painter, node_by_id, screen, span_x, span_y)
         self._draw_nodes_and_supports(painter, nodes, screen)
+        self._draw_selection_rect(painter)
         self._draw_legend(painter)
 
     def _draw_grid(self, painter: QPainter, screen, min_x: float, max_x: float, min_y: float, max_y: float) -> None:
@@ -440,11 +564,188 @@ class FrameCanvas(QWidget):
                 painter.drawPolygon(triangle)
                 if support == "Fixed":
                     painter.drawLine(point + QPointF(-15, 21), point + QPointF(15, 21))
-            painter.setPen(QPen(QColor("#0f172a"), 1.2))
-            painter.setBrush(QColor("#ffffff"))
-            painter.drawEllipse(point, 4.2, 4.2)
+            selected = int(node["id"]) in self._selected_nodes
+            painter.setPen(QPen(QColor("#0f766e") if selected else QColor("#0f172a"), 2.2 if selected else 1.2))
+            painter.setBrush(QColor("#ccfbf1") if selected else QColor("#ffffff"))
+            painter.drawEllipse(point, 6.0 if selected else 4.2, 6.0 if selected else 4.2)
             painter.setPen(QColor("#334155"))
             painter.drawText(point + QPointF(7, -8), f"N{node['id']}")
+
+    def _draw_member_preview(self, painter: QPainter, screen) -> None:
+        if self._member_start is None or self._member_current is None:
+            return
+        start = screen(*self._member_start)
+        end = screen(*self._member_current)
+        pen = QPen(QColor("#0f766e"), 2.0, Qt.PenStyle.DashLine)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(QColor("#ffffff"))
+        painter.drawLine(start, end)
+        painter.drawEllipse(end, 4.5, 4.5)
+        dx = self._member_current[0] - self._member_start[0]
+        dy = self._member_current[1] - self._member_start[1]
+        length = math.hypot(dx, dy)
+        angle = math.degrees(math.atan2(dy, dx))
+        painter.setPen(QColor("#0f766e"))
+        painter.drawText((start + end) / 2.0 + QPointF(8.0, -8.0), f"L {length:.3f} m | {angle:.1f} deg")
+
+    def _draw_selection_rect(self, painter: QPainter) -> None:
+        if self._selection_rect is None or self._selection_rect.width() < 4.0 or self._selection_rect.height() < 4.0:
+            return
+        painter.setPen(QPen(QColor("#0f766e"), 1.0, Qt.PenStyle.DashLine))
+        painter.setBrush(QColor(13, 148, 136, 28))
+        painter.drawRect(self._selection_rect)
+
+    def _pointer_moved(self, position: QPointF) -> None:
+        x, y = self._screen_to_model(position)
+        self.pointer_changed.emit(x, y)
+
+    def _screen_to_model(self, position: QPointF) -> tuple[float, float]:
+        return (
+            self._view_model_center.x() + (position.x() - self._view_center.x()) / self._view_scale,
+            self._view_model_center.y() - (position.y() - self._view_center.y()) / self._view_scale,
+        )
+
+    def _model_to_screen(self, x: float, y: float) -> QPointF:
+        return QPointF(
+            self._view_center.x() + (x - self._view_model_center.x()) * self._view_scale,
+            self._view_center.y() - (y - self._view_model_center.y()) * self._view_scale,
+        )
+
+    def _snap_position(self, position: QPointF) -> tuple[float, float]:
+        node = self._node_at(position)
+        if self._snap_enabled and self._snap_to_node and node is not None:
+            return float(node["x"]), float(node["y"])
+        x, y = self._screen_to_model(position)
+        if not self._snap_enabled:
+            return x, y
+        return round(x / self._grid_spacing) * self._grid_spacing, round(y / self._grid_spacing) * self._grid_spacing
+
+    def _node_at(self, position: QPointF, threshold: float = 10.0) -> Mapping[str, Any] | None:
+        candidates = self._model.get("nodes", [])
+        if not candidates:
+            return None
+        node = min(candidates, key=lambda item: (self._model_to_screen(float(item["x"]), float(item["y"])) - position).manhattanLength())
+        return node if (self._model_to_screen(float(node["x"]), float(node["y"])) - position).manhattanLength() <= threshold else None
+
+    def _member_at(self, position: QPointF, threshold: float = 8.0) -> Mapping[str, Any] | None:
+        nodes = {int(node["id"]): node for node in self._model.get("nodes", [])}
+        candidates: list[tuple[float, Mapping[str, Any]]] = []
+        for member in self._model.get("elements", []):
+            first, second = nodes.get(int(member["n1"])), nodes.get(int(member["n2"]))
+            if first is None or second is None:
+                continue
+            start = self._model_to_screen(float(first["x"]), float(first["y"]))
+            end = self._model_to_screen(float(second["x"]), float(second["y"]))
+            direction = end - start
+            length_sq = direction.x() ** 2 + direction.y() ** 2
+            if length_sq <= 1.0e-12:
+                continue
+            ratio = max(0.0, min(1.0, ((position - start).x() * direction.x() + (position - start).y() * direction.y()) / length_sq))
+            closest = start + direction * ratio
+            candidates.append(((closest - position).manhattanLength(), member))
+        if not candidates:
+            return None
+        distance, member = min(candidates, key=lambda item: item[0])
+        return member if distance <= threshold else None
+
+    def _create_node(self, position: tuple[float, float]) -> int | None:
+        if self._node_at(self._model_to_screen(*position)) is not None:
+            self.authoring_message.emit("A node already exists at this location.")
+            return None
+        model = self._mutable_model()
+        node_id = self._next_id(model["nodes"])
+        model["nodes"].append({"id": node_id, "x": position[0], "y": position[1], "support": "Free"})
+        self._set_selection({node_id}, set())
+        self._emit_model(model)
+        return node_id
+
+    def _create_member(self, start: tuple[float, float], end: tuple[float, float]) -> None:
+        if math.hypot(end[0] - start[0], end[1] - start[1]) <= 1.0e-9:
+            self.authoring_message.emit("Member endpoints must be different.")
+            return
+        model = self._mutable_model()
+        node_ids = self._endpoint_ids(model, start, end)
+        if node_ids is None:
+            return
+        n1, n2 = node_ids
+        if any({int(member["n1"]), int(member["n2"])} == {n1, n2} for member in model["elements"]):
+            self.authoring_message.emit("A member already connects these nodes.")
+            return
+        member_id = self._next_id(model["elements"])
+        model["elements"].append({"id": member_id, "n1": n1, "n2": n2, "sec": self._active_section, "release": "Rigid-Rigid"})
+        self._set_selection(set(), {member_id})
+        self._emit_model(model)
+
+    def _endpoint_ids(self, model: dict[str, Any], start: tuple[float, float], end: tuple[float, float]) -> tuple[int, int] | None:
+        def find_or_create(position: tuple[float, float]) -> int:
+            for node in model["nodes"]:
+                if math.isclose(float(node["x"]), position[0], abs_tol=1.0e-9) and math.isclose(float(node["y"]), position[1], abs_tol=1.0e-9):
+                    return int(node["id"])
+            node_id = self._next_id(model["nodes"])
+            model["nodes"].append({"id": node_id, "x": position[0], "y": position[1], "support": "Free"})
+            return node_id
+
+        return find_or_create(start), find_or_create(end)
+
+    def _apply_selection(self, position: QPointF) -> None:
+        if self._selection_rect is not None and self._selection_rect.width() >= 4.0 and self._selection_rect.height() >= 4.0:
+            selected_nodes = {
+                int(node["id"])
+                for node in self._model.get("nodes", [])
+                if self._selection_rect.contains(self._model_to_screen(float(node["x"]), float(node["y"])))
+            }
+            selected_members = {
+                int(member["id"])
+                for member in self._model.get("elements", [])
+                if int(member["n1"]) in selected_nodes and int(member["n2"]) in selected_nodes
+            }
+            self._set_selection(selected_nodes, selected_members)
+            return
+        node = self._node_at(position)
+        member = None if node is not None else self._member_at(position)
+        self._set_selection({int(node["id"])} if node else set(), {int(member["id"])} if member else set())
+
+    def _set_selection(self, nodes: set[int], members: set[int]) -> None:
+        if nodes == self._selected_nodes and members == self._selected_members:
+            return
+        self._selected_nodes = nodes
+        self._selected_members = members
+        self.selection_changed.emit(self.selection)
+        self.update()
+
+    def _delete_selection(self) -> None:
+        member_ids = set(self._selected_members)
+        node_ids = set(self._selected_nodes)
+        if not member_ids and not node_ids:
+            return
+        model = self._mutable_model()
+        member_ids.update(
+            int(member["id"])
+            for member in model["elements"]
+            if int(member["n1"]) in node_ids or int(member["n2"]) in node_ids
+        )
+        elements = [member for member in model["elements"] if int(member["id"]) not in member_ids]
+        nodes = [node for node in model["nodes"] if int(node["id"]) not in node_ids]
+        if not nodes or not elements:
+            self.authoring_message.emit("The current model must keep at least one node and one member.")
+            return
+        model["nodes"] = nodes
+        model["elements"] = elements
+        model["nloads"] = [load for load in model["nloads"] if int(load["node"]) not in node_ids]
+        model["eloads"] = [load for load in model["eloads"] if int(load["elem"]) not in member_ids]
+        self._set_selection(set(), set())
+        self._emit_model(model)
+
+    def _mutable_model(self) -> dict[str, Any]:
+        return copy.deepcopy(dict(self._model))
+
+    @staticmethod
+    def _next_id(items: list[Mapping[str, Any]]) -> int:
+        return max((int(item["id"]) for item in items), default=0) + 1
+
+    def _emit_model(self, model: dict[str, Any]) -> None:
+        self.model_change_requested.emit(model)
 
     def _draw_legend(self, painter: QPainter) -> None:
         painter.setPen(QPen(QColor("#1e293b"), 3.0))
