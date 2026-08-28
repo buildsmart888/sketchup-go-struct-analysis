@@ -39,6 +39,9 @@ def test_frame_workspace_analyzes_default_model(app: QApplication) -> None:
     window.results_panel.canvas_diagram_selector.setCurrentIndex(window.results_panel.canvas_diagram_selector.findData("all"))
     app.processEvents()
     assert window.results_panel.canvas.diagram_mode == "all"
+    window.results_panel.diagram_values_toggle.setChecked(True)
+    app.processEvents()
+    assert not window.results_panel.canvas.grab().isNull()
     assert "Member calculations" in window.results_panel.calculation_details.toPlainText()
     assert not window.results_panel.diagrams.canvas.grab().isNull()
     assert not window.results_panel.canvas.grab().isNull()

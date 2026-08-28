@@ -5,9 +5,9 @@ from __future__ import annotations
 import math
 from typing import Any, Mapping
 
-from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QToolTip, QWidget
 
 
 class FrameCanvas(QWidget):
@@ -27,6 +27,8 @@ class FrameCanvas(QWidget):
         self._deformed_members: list[Mapping[str, Any]] = []
         self._diagram_members: list[Mapping[str, Any]] = []
         self._diagram_mode = "none"
+        self._show_diagram_values = False
+        self._hover_points: list[tuple[QPointF, Mapping[str, Any], Mapping[str, Any]]] = []
         self._show_deformed = True
         self._zoom = 1.0
         self._pan = QPointF()
@@ -63,6 +65,10 @@ class FrameCanvas(QWidget):
         self._diagram_mode = mode if mode in {*self._DIAGRAMS, "all"} else "none"
         self.update()
 
+    def set_show_diagram_values(self, show: bool) -> None:
+        self._show_diagram_values = show
+        self.update()
+
     def set_show_deformed(self, show: bool) -> None:
         self._show_deformed = show
         self.update()
@@ -84,6 +90,8 @@ class FrameCanvas(QWidget):
             self._pan += QPointF(current - self._drag_origin)
             self._drag_origin = current
             self.update()
+        else:
+            self._show_hover_value(event.position(), event.globalPosition().toPoint())
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # type: ignore[no-untyped-def]
@@ -120,6 +128,7 @@ class FrameCanvas(QWidget):
         def screen(x: float, y: float) -> QPointF:
             return QPointF(viewport_center.x() + (x - center_x) * scale, viewport_center.y() - (y - center_y) * scale)
 
+        self._update_hover_points(node_by_id, screen)
         self._draw_grid(painter, screen, min_x, max_x, min_y, max_y)
         self._draw_loads(painter, node_by_id, screen)
 
@@ -249,7 +258,7 @@ class FrameCanvas(QWidget):
                 continue
             # A common scale per result selection preserves visual comparisons between members.
             amplitude = max(span_x, span_y) * (0.075 if self._diagram_mode == "all" else 0.14) / maximum
-            label, color = self._DIAGRAMS[key]
+            _, color = self._DIAGRAMS[key]
             self._draw_member_diagram(painter, node_by_id, screen, key, amplitude, color, self._diagram_mode == "all")
 
     def _draw_member_diagram(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, key: str, amplitude: float, color: QColor, compact: bool) -> None:
@@ -283,6 +292,60 @@ class FrameCanvas(QWidget):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setPen(pen)
             painter.drawPolyline(curve)
+            if self._show_diagram_values:
+                self._draw_diagram_value_labels(painter, curve, points, key, color)
+
+    def _draw_diagram_value_labels(self, painter: QPainter, curve: QPolygonF, points: list[Mapping[str, Any]], key: str, color: QColor) -> None:
+        indices = {0, len(points) - 1, max(range(len(points)), key=lambda index: abs(float(points[index].get(key, 0.0))))}
+        font = QFont(painter.font())
+        font.setPointSize(8)
+        painter.setFont(font)
+        painter.setPen(color)
+        painter.setBrush(QColor(255, 255, 255, 220))
+        for index in sorted(indices):
+            text = self._format_diagram_value(key, float(points[index].get(key, 0.0)))
+            anchor = curve[index] + QPointF(5.0, -5.0)
+            metrics = painter.fontMetrics()
+            rect = QRectF(anchor.x(), anchor.y() - metrics.height(), metrics.horizontalAdvance(text) + 6.0, metrics.height() + 4.0)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRect(rect)
+            painter.setPen(color)
+            painter.drawText(rect.adjusted(3.0, 0.0, 0.0, 0.0), Qt.AlignmentFlag.AlignVCenter, text)
+
+    def _update_hover_points(self, node_by_id: Mapping[int, Mapping[str, Any]], screen) -> None:
+        self._hover_points = []
+        for member in self._diagram_members:
+            node = node_by_id.get(member.get("n1"))
+            if node is None:
+                continue
+            angle = float(member.get("angle_rad", 0.0))
+            for point in member.get("points", []):
+                x = float(point.get("x_m", 0.0))
+                location = screen(float(node["x"]) + math.cos(angle) * x, float(node["y"]) + math.sin(angle) * x)
+                self._hover_points.append((location, member, point))
+
+    def _show_hover_value(self, position: QPointF, global_position: QPoint) -> None:
+        if not self._hover_points:
+            QToolTip.hideText()
+            return
+        location, member, point = min(self._hover_points, key=lambda item: (item[0] - position).manhattanLength())
+        if (location - position).manhattanLength() > 16.0:
+            QToolTip.hideText()
+            return
+        lines = [
+            f"E{member['id']} | N{member['n1']} - N{member['n2']} | x = {float(point['x_m']):.3f} m",
+            f"N = {float(point.get('n_kg', 0.0)):,.3f} kg",
+            f"V = {float(point.get('v_kg', 0.0)):,.3f} kg",
+            f"M = {float(point.get('m_kg_m', 0.0)):,.3f} kg-m",
+            f"FE deflection = {float(point.get('v_mm', 0.0)):,.4f} mm",
+        ]
+        QToolTip.showText(global_position, "\n".join(lines), self)
+
+    @staticmethod
+    def _format_diagram_value(key: str, value: float) -> str:
+        label = {"n_kg": "N", "v_kg": "V", "m_kg_m": "M", "v_mm": "v"}[key]
+        unit = "mm" if key == "v_mm" else "kg-m" if key == "m_kg_m" else "kg"
+        return f"{label} {value:,.2f} {unit}"
 
     def _draw_nodes_and_supports(self, painter: QPainter, nodes: list[Mapping[str, Any]], screen) -> None:
         font = QFont(painter.font())

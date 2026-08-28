@@ -189,6 +189,7 @@ class FrameResultsPanel(QWidget):
         self.canvas_diagram_selector.addItem("Moment M", "m_kg_m")
         self.canvas_diagram_selector.addItem("FE deflection", "v_mm")
         self.canvas_diagram_selector.addItem("All diagrams", "all")
+        self.diagram_values_toggle = QCheckBox("Values", self)
         self.deformed_toggle = QCheckBox("Deformed", self)
         self.deformed_toggle.setChecked(True)
         self.summary = self._result_table(["Max displacement (mm)", "Max axial (kg)", "Max moment (kg-m)"], 1)
@@ -204,6 +205,7 @@ class FrameResultsPanel(QWidget):
         self._build_layout()
         self.result_selector.currentIndexChanged.connect(self._selection_changed)
         self.canvas_diagram_selector.currentIndexChanged.connect(self._canvas_diagram_changed)
+        self.diagram_values_toggle.toggled.connect(self.canvas.set_show_diagram_values)
         self.deformed_toggle.toggled.connect(self.canvas.set_show_deformed)
 
     @property
@@ -252,6 +254,7 @@ class FrameResultsPanel(QWidget):
         controls.addWidget(self.result_selector)
         controls.addWidget(QLabel("Canvas", self))
         controls.addWidget(self.canvas_diagram_selector)
+        controls.addWidget(self.diagram_values_toggle)
         controls.addStretch()
         controls.addWidget(self.deformed_toggle)
 
