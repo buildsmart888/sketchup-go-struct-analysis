@@ -24,6 +24,7 @@ reused by a CLI, and later called by the Ruby extension through a bridge.
 - Project display units for legacy kg-m, kN-m, N-mm, and tf-m; values are converted at the UI boundary while JSON and solver inputs remain legacy-compatible.
 - Workspace persistence for docks, display settings, grid/snap state, plus autosave/recovery for unsaved model changes.
 - Productivity tools for mirrored/array copies, move-by-delta, zoom window, and selecting members by section.
+- Five built-in, analysis-ready examples covering point actions, triangular loads, portal combinations, member releases, and reaction checks.
 
 GOBeam, GOTruss, reports, and the SketchUp bridge remain outside the current increment. The existing
 Ruby extension remains the production SketchUp integration.
@@ -67,13 +68,20 @@ the Ruby dialog, and it writes the same input field names back to JSON.
 
 ## Canvas authoring
 
-The workspace uses two stable toolbar rows: Modeling and Loading beside the file commands, then Analysis and Results below it. The result diagram selector is a direct `Model`/`N`/`V`/`M`/`D`/`All` mode-button group, rather than a dropdown. Use the modeling tools to switch among Select, Node, Member, Split, support, load, and Pan. Node and Member tools use
+The workspace uses two stable toolbar rows: Modeling and Loading beside the file commands, then Analysis and Results below it. The result diagram selector is a direct `Model`/`N`/`V`/`M`/`D`/`All`/`FBD` mode-button group, rather than a dropdown. Use the modeling tools to switch among Select, Node, Member, Split, support, load, and Pan. Node and Member tools use
 the configured grid step and can snap to endpoints, member midpoints, or member intersections. Select objects by click or selection
 box; choose Nodes, Members, or Both before selecting. A left-to-right window selects objects fully
 inside it, while a right-to-left window selects crossing members too. Drag a selected node to move,
 extend, or trim its connected members; press `Delete` and confirm to remove selected members or
 nodes. `Ctrl+D`, `Ctrl+Z`, and `Ctrl+Y` duplicate, undo, and redo model changes. Canvas edits update
 the same model shown in the input tables and require analysis to be run again.
+
+## Built-in examples
+
+Use `File > Examples` to load five editable examples. They are not saved files, so save one under a
+new `.goframe.json` name before keeping your own changes. The set includes a cantilever with member
+point force/moment, a simply supported triangular load, a portal frame with combinations, a released
+beam, and a two-span reaction/equilibrium check that opens in FBD view.
 
 `Model Input` and `Analysis Results` are movable, floatable, and closable docks. Reopen them from
 `View > Model Input` and `View > Analysis Results`. Analysis Results starts in a compact height and can be dragged down to

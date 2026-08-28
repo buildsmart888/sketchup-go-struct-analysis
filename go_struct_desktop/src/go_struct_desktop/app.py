@@ -17,6 +17,7 @@ from go_struct_core import FrameModel, ModelValidationError, analyze_frame_data,
 
 from .frame_workspace import FrameInputPanel, FrameResultsPanel, default_frame_model
 from .display import DisplayPanel, DisplaySettings
+from .examples import FRAME_EXAMPLES, FrameExample
 from .inspector import PropertyInspector
 
 
@@ -187,6 +188,13 @@ class MainWindow(QMainWindow):
         file_menu.addAction(open_action)
         file_menu.addAction(save_action)
         file_menu.addAction(save_as_action)
+        file_menu.addSeparator()
+        examples_menu = file_menu.addMenu("Examples")
+        for example in FRAME_EXAMPLES:
+            action = QAction(example.title, self)
+            action.setToolTip(example.description)
+            action.triggered.connect(lambda _checked=False, value=example: self.load_example(value))
+            examples_menu.addAction(action)
         file_menu.addSeparator()
         file_menu.addAction(export_action)
         file_menu.addAction(recover_action)
@@ -415,6 +423,17 @@ class MainWindow(QMainWindow):
         self.set_model(default_frame_model())
         self.run_analysis()
         self.statusBar().showMessage("New portal frame")
+
+    def load_example(self, example: FrameExample) -> None:
+        """Load an analysis-ready teaching model without treating it as a saved project."""
+        self._current_path = None
+        self._clear_autosave()
+        self.set_model(example.model())
+        self.run_analysis()
+        self.results_panel.result_selector.setCurrentIndex(self.results_panel.result_selector.findData(example.result_selection))
+        self._set_canvas_diagram(example.diagram_mode)
+        self.display_panel.view_mode.setCurrentIndex(self.display_panel.view_mode.findData(example.view_mode))
+        self.statusBar().showMessage(f"Loaded example: {example.title}. {example.description}")
 
     def open_model(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Open Frame", str(self._current_path.parent if self._current_path else Path.home()), "GOFrame Files (*.goframe.json *.json)")

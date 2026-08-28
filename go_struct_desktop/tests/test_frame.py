@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from go_struct_core import FrameModel, analyze_frame_data, build_frame_postprocess
+from go_struct_desktop.examples import FRAME_EXAMPLES
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "portal_frame.json"
@@ -38,6 +39,17 @@ def test_cantilever_displacement_matches_closed_form() -> None:
     expected_dx = 10.0 * 3.0**3 / (3.0 * 2.0e9 * (1000000.0 * 1.0e-8))
     assert result["combos"]["Service"]["nodes"][1]["dx"] == pytest.approx(expected_dx, rel=1e-10)
     assert result["combos"]["Service"]["nodes"][1]["dy"] == pytest.approx(0.0, abs=1e-12)
+
+
+def test_all_builtin_examples_are_valid_and_analysis_ready() -> None:
+    assert len(FRAME_EXAMPLES) == 5
+    titles = " ".join(example.title for example in FRAME_EXAMPLES).lower()
+    for keyword in ("cantilever", "simply supported", "portal", "released", "reaction"):
+        assert keyword in titles
+    for example in FRAME_EXAMPLES:
+        model = example.model()
+        assert FrameModel.from_dict(model).to_dict()["projectInfo"]["name"]
+        assert analyze_frame_data(model)["ok"] is True, example.title
 
 
 def test_simply_supported_uniform_load_reactions_and_fe_deflection_are_stable() -> None:

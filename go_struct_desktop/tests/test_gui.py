@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication, QDockWidget
 
 from go_struct_desktop.app import MainWindow
 from go_struct_desktop.display import DisplaySettings
+from go_struct_desktop.examples import FRAME_EXAMPLES
 from go_struct_desktop.frame_workspace import FrameInputPanel, default_frame_model
 from go_struct_desktop.units import get_unit_system
 
@@ -71,6 +72,19 @@ def test_manual_analysis_reports_completion(app: QApplication, monkeypatch: pyte
 
     assert shown and shown[0][:2] == (4, 3)
     assert shown[0][2] >= 0.0
+    window.close()
+
+
+def test_loading_builtin_example_applies_its_result_view(app: QApplication) -> None:
+    window = MainWindow()
+    reaction_example = next(example for example in FRAME_EXAMPLES if example.key == "reaction_check")
+
+    window.load_example(reaction_example)
+
+    assert window.results_panel.analysis is not None
+    assert window.input_panel.model_data()["projectInfo"]["name"] == "Reaction Check | Two-span Beam"
+    assert window.results_panel.canvas._view_mode == "fbd"
+    assert window.results_panel.result_selector.currentData() == "combo:Service"
     window.close()
 
 
