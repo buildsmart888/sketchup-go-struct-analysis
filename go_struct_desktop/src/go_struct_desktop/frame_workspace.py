@@ -1,0 +1,289 @@
+"""The first reusable PySide workspace: 2D rigid-frame analysis."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Mapping
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPlainTextEdit,
+    QSplitter,
+    QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from go_struct_core import FrameModel
+
+from .canvas import FrameCanvas
+from .editors import CombinationEditor, Column, ProjectEditor, TableEditor, as_float, as_int
+
+
+SUPPORTS = ("Free", "Pinned", "Fixed", "RollerX", "RollerY")
+RELEASES = ("Rigid-Rigid", "Pin-Rigid", "Rigid-Pin", "Pin-Pin")
+DIRECTIONS = ("Local Y", "Global Y")
+
+
+def default_frame_model() -> dict[str, Any]:
+    return {
+        "projectInfo": {"name": "Portal Frame", "project": "", "company": "", "engineer": "", "location": ""},
+        "settings": {"include_self_weight": False},
+        "nodes": [
+            {"id": 1, "x": 0.0, "y": 0.0, "support": "Fixed"},
+            {"id": 2, "x": 6.0, "y": 0.0, "support": "Fixed"},
+            {"id": 3, "x": 0.0, "y": 4.0, "support": "Free"},
+            {"id": 4, "x": 6.0, "y": 4.0, "support": "Free"},
+        ],
+        "sections": [
+            {"id": 1, "e": 2000000000.0, "a": 900.0, "i": 67500.0, "density": 2400.0},
+            {"id": 2, "e": 2000000000.0, "a": 1500.0, "i": 312500.0, "density": 2400.0},
+        ],
+        "elements": [
+            {"id": 1, "n1": 1, "n2": 3, "sec": 1, "release": "Rigid-Rigid"},
+            {"id": 2, "n1": 2, "n2": 4, "sec": 1, "release": "Rigid-Rigid"},
+            {"id": 3, "n1": 3, "n2": 4, "sec": 2, "release": "Rigid-Rigid"},
+        ],
+        "loadcases": ["DL", "LL"],
+        "loadcombos": [
+            {"name": "Service", "factors": {"DL": 1.0, "LL": 1.0}},
+            {"name": "ULS", "factors": {"DL": 1.2, "LL": 1.6}},
+        ],
+        "nloads": [{"node": 3, "lcase": "LL", "fx": 10.0, "fy": 0.0, "mz": 0.0}],
+        "eloads": [{"elem": 3, "lcase": "DL", "dir": "Global Y", "w1": -20.0, "w2": -20.0}],
+    }
+
+
+class FrameInputPanel(QWidget):
+    """Model input tabs. This class has no solver or file-system knowledge."""
+
+    model_changed = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._synchronizing_cases = False
+        self.project = ProjectEditor(self)
+        self.self_weight = QCheckBox("Include self weight", self)
+        self.nodes = TableEditor(
+            [Column("ID", "id", 1, as_int), Column("X (m)", "x", 0.0, as_float), Column("Y (m)", "y", 0.0, as_float), Column("Support", "support", "Free", choices=SUPPORTS)],
+            self,
+        )
+        self.elements = TableEditor(
+            [Column("ID", "id", 1, as_int), Column("Node I", "n1", 1, as_int), Column("Node J", "n2", 2, as_int), Column("Section", "sec", 1, as_int), Column("Release", "release", "Rigid-Rigid", choices=RELEASES)],
+            self,
+        )
+        self.sections = TableEditor(
+            [Column("ID", "id", 1, as_int), Column("E (kg/m2)", "e", 2.0e9, as_float), Column("A (cm2)", "a", 900.0, as_float), Column("I (cm4)", "i", 67500.0, as_float), Column("Density (kg/m3)", "density", 0.0, as_float)],
+            self,
+        )
+        self.load_cases = TableEditor([Column("Load case", "name", "DL")], self)
+        self.combinations = CombinationEditor(self)
+        self.nodal_loads = TableEditor(
+            [Column("Node", "node", 1, as_int), Column("Load case", "lcase", "DL", choices=("DL",)), Column("Fx (kg)", "fx", 0.0, as_float), Column("Fy (kg)", "fy", 0.0, as_float), Column("Mz (kg-m)", "mz", 0.0, as_float)],
+            self,
+        )
+        self.element_loads = TableEditor(
+            [Column("Element", "elem", 1, as_int), Column("Load case", "lcase", "DL", choices=("DL",)), Column("Direction", "dir", "Local Y", choices=DIRECTIONS), Column("W1 (kg/m)", "w1", 0.0, as_float), Column("W2 (kg/m)", "w2", 0.0, as_float)],
+            self,
+        )
+        self._build_layout()
+        for editor in (self.project, self.nodes, self.elements, self.sections, self.nodal_loads, self.element_loads, self.combinations):
+            editor.changed.connect(self.model_changed)
+        self.self_weight.toggled.connect(self.model_changed)
+        self.load_cases.changed.connect(self._on_load_cases_changed)
+
+    def _build_layout(self) -> None:
+        tabs = QTabWidget(self)
+        tabs.addTab(self._general_tab(), "Project")
+        tabs.addTab(self.nodes, "Nodes")
+        tabs.addTab(self.elements, "Members")
+        tabs.addTab(self.sections, "Sections")
+        tabs.addTab(self.load_cases, "Load Cases")
+        tabs.addTab(self.combinations, "Combinations")
+        tabs.addTab(self.nodal_loads, "Nodal Loads")
+        tabs.addTab(self.element_loads, "Member Loads")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.addWidget(tabs)
+
+    def _general_tab(self) -> QWidget:
+        tab = QWidget(self)
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.project)
+        layout.addWidget(self.self_weight)
+        layout.addStretch()
+        return tab
+
+    def set_model(self, model: Mapping[str, Any]) -> None:
+        parsed = FrameModel.from_dict(model).to_dict()
+        self.project.set_values(parsed.get("projectInfo", {}))
+        self.self_weight.blockSignals(True)
+        self.self_weight.setChecked(parsed.get("settings", {}).get("include_self_weight") is True)
+        self.self_weight.blockSignals(False)
+        self.nodes.set_rows(parsed["nodes"])
+        self.elements.set_rows(parsed["elements"])
+        self.sections.set_rows(parsed["sections"])
+        self.load_cases.set_rows([{"name": value} for value in parsed["loadcases"]])
+        self._synchronize_load_cases()
+        self.combinations.set_rows(parsed["loadcombos"])
+        self.nodal_loads.set_rows(parsed["nloads"])
+        self.element_loads.set_rows(parsed["eloads"])
+        self.model_changed.emit()
+
+    def model_data(self) -> dict[str, Any]:
+        return {
+            "projectInfo": self.project.values(),
+            "settings": {"include_self_weight": self.self_weight.isChecked()},
+            "nodes": self.nodes.values(),
+            "elements": self.elements.values(),
+            "sections": self.sections.values(),
+            "loadcases": self._load_case_names(),
+            "loadcombos": self.combinations.values(),
+            "nloads": self.nodal_loads.values(),
+            "eloads": self.element_loads.values(),
+        }
+
+    def _load_case_names(self) -> list[str]:
+        return [row["name"] for row in self.load_cases.values() if row["name"]] or ["DL"]
+
+    def _on_load_cases_changed(self) -> None:
+        self._synchronize_load_cases()
+        self.model_changed.emit()
+
+    def _synchronize_load_cases(self) -> None:
+        if self._synchronizing_cases:
+            return
+        self._synchronizing_cases = True
+        load_cases = self._load_case_names()
+        self.nodal_loads.set_choices("lcase", load_cases)
+        self.element_loads.set_choices("lcase", load_cases)
+        self.combinations.set_load_cases(load_cases)
+        self._synchronizing_cases = False
+
+
+class FrameResultsPanel(QWidget):
+    """Visual and tabular output for an already-computed frame analysis."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._model: Mapping[str, Any] = {}
+        self._analysis: Mapping[str, Any] | None = None
+        self.canvas = FrameCanvas(self)
+        self.result_selector = QComboBox(self)
+        self.deformed_toggle = QCheckBox("Deformed", self)
+        self.deformed_toggle.setChecked(True)
+        self.summary = self._result_table(["Max displacement (mm)", "Max axial (kg)", "Max moment (kg-m)"], 1)
+        self.node_results = self._result_table(["Node", "dx (mm)", "dy (mm)", "Rz (rad)", "Rx (kg)", "Ry (kg)", "Mz (kg-m)"], 0)
+        self.member_results = self._result_table(["Member", "N1 axial", "N1 shear", "N1 moment", "N2 axial", "N2 shear", "N2 moment"], 0)
+        self.steps = QPlainTextEdit(self)
+        self.steps.setReadOnly(True)
+        self._build_layout()
+        self.result_selector.currentIndexChanged.connect(self._selection_changed)
+        self.deformed_toggle.toggled.connect(self.canvas.set_show_deformed)
+
+    @property
+    def analysis(self) -> Mapping[str, Any] | None:
+        return self._analysis
+
+    def set_model(self, model: Mapping[str, Any]) -> None:
+        self._model = model
+        self.canvas.set_model(model)
+
+    def clear_analysis(self) -> None:
+        self._analysis = None
+        self.result_selector.blockSignals(True)
+        self.result_selector.clear()
+        self.result_selector.blockSignals(False)
+        self.canvas.set_result(None)
+        self.summary.setRowCount(0)
+        self.node_results.setRowCount(0)
+        self.member_results.setRowCount(0)
+        self.steps.clear()
+
+    def set_analysis(self, analysis: Mapping[str, Any]) -> None:
+        self._analysis = analysis
+        self.result_selector.blockSignals(True)
+        self.result_selector.clear()
+        self.result_selector.addItem("Envelope", "Envelope")
+        for name in analysis.get("combos", {}):
+            self.result_selector.addItem(name, name)
+        self.result_selector.blockSignals(False)
+        self._selection_changed()
+
+    def _build_layout(self) -> None:
+        controls = QHBoxLayout()
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.addWidget(QLabel("Result", self))
+        controls.addWidget(self.result_selector)
+        controls.addStretch()
+        controls.addWidget(self.deformed_toggle)
+
+        result_tabs = QTabWidget(self)
+        result_tabs.addTab(self.summary, "Summary")
+        result_tabs.addTab(self.node_results, "Node Results")
+        result_tabs.addTab(self.member_results, "Member Forces")
+        result_tabs.addTab(self.steps, "Solver Log")
+        splitter = QSplitter(Qt.Orientation.Vertical, self)
+        canvas_host = QWidget(self)
+        canvas_layout = QVBoxLayout(canvas_host)
+        canvas_layout.setContentsMargins(0, 0, 0, 0)
+        canvas_layout.addLayout(controls)
+        canvas_layout.addWidget(self.canvas)
+        splitter.addWidget(canvas_host)
+        splitter.addWidget(result_tabs)
+        splitter.setSizes([490, 250])
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.addWidget(splitter)
+
+    def _selection_changed(self) -> None:
+        if not self._analysis:
+            return
+        selection = self.result_selector.currentData()
+        selected = self._analysis if selection in (None, "Envelope") else self._analysis.get("combos", {}).get(selection, self._analysis)
+        self.canvas.set_result(selected)
+        self._populate_tables(selected)
+        self.steps.setPlainText("\n".join(self._analysis.get("steps", [])))
+
+    def _populate_tables(self, result: Mapping[str, Any]) -> None:
+        nodes = result.get("nodes", [])
+        elements = result.get("elements", [])
+        maximum_displacement = max((float(node.get("dx", 0.0)) ** 2 + float(node.get("dy", 0.0)) ** 2 for node in nodes), default=0.0) ** 0.5 * 1000.0
+        maximum_axial = max((abs(float(member[side]["axial"])) for member in elements for side in ("n1_forces", "n2_forces")), default=0.0)
+        maximum_moment = max((abs(float(member[side]["moment"])) for member in elements for side in ("n1_forces", "n2_forces")), default=0.0)
+        self.summary.setRowCount(1)
+        for column, value in enumerate((maximum_displacement, maximum_axial, maximum_moment)):
+            self.summary.setItem(0, column, QTableWidgetItem(f"{value:,.4f}"))
+
+        self.node_results.setRowCount(len(nodes))
+        for row, node in enumerate(nodes):
+            values = (node["id"], float(node["dx"]) * 1000.0, float(node["dy"]) * 1000.0, node["rz"], node["fx"], node["fy"], node["mz"])
+            for column, value in enumerate(values):
+                self.node_results.setItem(row, column, QTableWidgetItem(str(value) if column == 0 else f"{float(value):,.5f}"))
+
+        self.member_results.setRowCount(len(elements))
+        for row, member in enumerate(elements):
+            first, second = member["n1_forces"], member["n2_forces"]
+            values = (member["id"], first["axial"], first["shear"], first["moment"], second["axial"], second["shear"], second["moment"])
+            for column, value in enumerate(values):
+                self.member_results.setItem(row, column, QTableWidgetItem(str(value) if column == 0 else f"{float(value):,.4f}"))
+
+    @staticmethod
+    def _result_table(headers: list[str], rows: int) -> QTableWidget:
+        table = QTableWidget(rows, len(headers))
+        table.setHorizontalHeaderLabels(headers)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setAlternatingRowColors(True)
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setStretchLastSection(True)
+        return table

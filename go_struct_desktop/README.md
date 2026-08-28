@@ -4,15 +4,16 @@ This directory is the Python foundation for the future GO Struct Analysis deskto
 It is deliberately independent from SketchUp and PySide so the numerical engine can be tested,
 reused by a CLI, and later called by the Ruby extension through a bridge.
 
-## Phase 1 scope
+## Current scope
 
 - A JSON-compatible schema for the current GOFrame model.
 - A NumPy implementation of the 2D frame direct-stiffness solver.
 - Load cases, linear load combinations, and maximum-absolute envelopes.
 - Regression, equilibrium, and validation tests.
+- A PySide 2D Frame workspace with editable model tables, model/deformed-shape views, and results.
 
-GOBeam, GOTruss, reports, the PySide interface, and the SketchUp bridge are intentionally outside
-this first increment. The existing Ruby extension remains the production SketchUp integration.
+GOBeam, GOTruss, reports, and the SketchUp bridge remain outside the current increment. The existing
+Ruby extension remains the production SketchUp integration.
 
 ## Units and compatibility
 
@@ -37,4 +38,13 @@ py -m pip install -e ".[dev]"
 py -m pytest
 ```
 
-For the future desktop UI, install the optional GUI dependency with `.[dev,gui]`.
+## Run the Frame workspace
+
+```powershell
+cd go_struct_desktop
+py -m pip install -e ".[dev,gui]"
+go-struct-desktop
+```
+
+The desktop app opens with an editable portal-frame model. It supports `.goframe.json` files from
+the Ruby dialog, and it writes the same input field names back to JSON.

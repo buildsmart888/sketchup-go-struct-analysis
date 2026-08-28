@@ -3,14 +3,17 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "go-struct-core"
-version = "0.1.0"
-description = "GUI-independent structural analysis core for GO Struct Analysis"
+name = "go-struct-desktop"
+version = "0.2.0"
+description = "Desktop structural analysis workspace for GO Struct Analysis"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "numpy>=1.26",
 ]
+
+[project.scripts]
+go-struct-desktop = "go_struct_desktop.app:main"
 
 [project.optional-dependencies]
 dev = [

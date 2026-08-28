@@ -1,6 +1,6 @@
 # Architecture
 
-## Current boundary
+## Current boundaries
 
 `src/go_struct_core` owns validated input models and numerical analysis only. It must not import
 PySide, SketchUp, reporting, or file-dialog APIs. The public boundary for the current phase is:
@@ -9,12 +9,20 @@ PySide, SketchUp, reporting, or file-dialog APIs. The public boundary for the cu
 legacy GOFrame JSON -> FrameModel -> frame solver -> JSON-compatible result
 ```
 
+The PySide workspace is a separate consumer of that boundary:
+
+```text
+FrameInputPanel -> FrameModel -> frame solver -> FrameResultsPanel
+```
+
+The UI owns editable tables, file dialogs, rendering, and presentation units such as mm. The core
+owns validation, source units, stiffness calculations, and result semantics.
+
 The data contract mirrors `go_struct_analysis/goframe.rb` and the `collectData()` function in
 `go_struct_analysis/templates/goframe_dialog.html`.
 
 ## Planned consumers
 
-- Phase 2: PySide Frame workspace calls the solver directly.
 - Phase 3: Beam and Truss solvers use the same model/result and validation conventions.
 - Phase 4: report and export services consume JSON-compatible analysis results.
 - Phase 5: a Ruby bridge sends model JSON to a Python process and stores its result in existing
