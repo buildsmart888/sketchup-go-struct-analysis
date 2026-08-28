@@ -83,3 +83,55 @@ class BeamCanvas(FrameCanvas):
         self._set_selection({node_id}, {member_id})
         self._emit_model(model)
         self.authoring_message.emit(f"Added span {member_id}: {length:g} m.")
+
+    def resize_selected_span(self, length: float) -> None:
+        """Change a selected span and translate every following beam node by the same delta."""
+        if length <= 0.0:
+            self.authoring_message.emit("Span length must be greater than zero.")
+            return
+        if len(self._selected_members) != 1:
+            self.authoring_message.emit("Select exactly one beam span to edit its length.")
+            return
+        model = self._mutable_model()
+        member_id = next(iter(self._selected_members))
+        member = next((item for item in model["elements"] if int(item["id"]) == member_id), None)
+        nodes = {int(node["id"]): node for node in model["nodes"]}
+        if member is None or int(member["n1"]) not in nodes or int(member["n2"]) not in nodes:
+            return
+        first, second = nodes[int(member["n1"])], nodes[int(member["n2"])]
+        current = float(second["x"]) - float(first["x"])
+        delta = float(length) - current
+        if abs(delta) <= 1.0e-12:
+            return
+        endpoint = float(second["x"])
+        for node in model["nodes"]:
+            if float(node["x"]) >= endpoint - 1.0e-9:
+                node["x"] = float(node["x"]) + delta
+        coordinates = sorted(float(node["x"]) for node in model["nodes"])
+        if any(math.isclose(left, right, abs_tol=1.0e-9) for left, right in zip(coordinates, coordinates[1:])):
+            self.authoring_message.emit("That span length would merge beam nodes.")
+            return
+        self._emit_model(model)
+        self.authoring_message.emit(f"Span {member_id} set to {length:g} m; following stations moved by {delta:+g} m.")
+
+    def insert_support(self, x: float, support: str = "RollerX") -> None:
+        """Split the span containing x, then place a support at the new beam station."""
+        nodes = {int(node["id"]): node for node in self._model.get("nodes", [])}
+        target = next(
+            (
+                member
+                for member in self._model.get("elements", [])
+                if int(member["n1"]) in nodes
+                and int(member["n2"]) in nodes
+                and float(nodes[int(member["n1"])]["x"]) + 1.0e-9 < x < float(nodes[int(member["n2"])]["x"]) - 1.0e-9
+            ),
+            None,
+        )
+        if target is None:
+            self.authoring_message.emit("Choose a location strictly inside an existing beam span.")
+            return
+        self._split_member(int(target["id"]), (float(x), self._beam_y()))
+        inserted = next((node for node in self._model.get("nodes", []) if math.isclose(float(node["x"]), float(x), abs_tol=1.0e-9)), None)
+        if inserted is not None:
+            self._apply_support(int(inserted["id"]), support)
+            self.authoring_message.emit(f"Inserted {support} support at x = {x:g} m.")

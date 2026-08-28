@@ -85,18 +85,19 @@ six nodal degrees of freedom and torsional member stiffness.
 Phase 2 is complete: GO Struct Desktop has a production-ready 2D Frame modeling and analysis
 workspace. Beam and Truss remain separate workspaces, not incomplete Frame features.
 
-## In progress: Phase 3.1 Beam workspace foundation
+## Completed: Phase 3.1 Beam workspace
 
 - Standalone 1D Euler-Bernoulli Beam solver with support reactions, V/M, slope, FE deflection,
   point force/moment, uniform/triangular loading, load cases, combinations, and envelopes.
 - Dedicated `go-struct-beam` desktop entry point with independent files/autosave and four editable
   Beam examples. It reuses the established editor, canvas, units, result diagrams, FBD, and docks.
-- Beam authoring locks node/member editing to one horizontal baseline, offers `Add Span`, direct
-  fixed/pinned/roller support placement, and cantilever/simply-supported/continuous templates.
+- Beam authoring locks node/member editing to one horizontal baseline, offers `Add Span`, selected-span
+  resizing, support insertion, direct fixed/pinned/roller support placement, full-span UDL helpers, and
+  cantilever/simply-supported/continuous templates.
 - Beam input rejects non-horizontal members and axial loads instead of treating them as a 2D frame.
   More specialised layout helpers can follow from actual project workflows.
 
-## In progress: Phase 3.2 Truss workspace foundation
+## Completed: Phase 3.2 Truss workspace
 
 - Planar pin-jointed Truss solver with nodal `Fx/Fy`, reactions, tension/compression member forces,
   load cases, combinations, envelopes, and mechanism detection.
@@ -105,6 +106,15 @@ workspace. Beam and Truss remain separate workspaces, not incomplete Frame featu
 - Triangle, Warren, Pratt, Howe, and pitched Roof templates/examples, with span or panel-width and
   height inputs at creation time. Truss authoring hides frame-only inertia/density, member loads,
   releases, `V`, `M`, and bending-deflection result modes.
+- Truss tools assign sections to a selected group, mirror selected geometry, adjust roof height, and
+  regenerate Warren/Pratt/Howe/Roof template panel counts. A selected roof chord can convert a vertical
+  line load by horizontal projection into equivalent nodal loads with a reported resultant.
+
+## Phase 3 exit status
+
+Beam and Truss now have dedicated authoring workflows rather than only specialised solvers. Both provide
+a template catalog, editable templates, workspace-specific result summaries, and regression coverage.
+The next planned deliverable is Phase 4 report, PDF, and data-export packages.
 
 ## Later: Phase 4
 

@@ -432,7 +432,7 @@ class FrameResultsPanel(QWidget):
         self.canvas.set_grid_spacing(canonical_grid)
         self.canvas.set_unit_system(new_units.key)
         self.diagrams.set_unit_system(new_units.key)
-        self.summary.setHorizontalHeaderLabels([f"Max displacement ({new_units.length_unit})", f"Max axial ({new_units.force_unit})", f"Max moment ({new_units.moment_label()})"])
+        self.summary.setHorizontalHeaderLabels(self._summary_headers(new_units))
         self.node_results.setHorizontalHeaderLabels(["Node", f"dx ({new_units.length_unit})", f"dy ({new_units.length_unit})", "Rz (rad)", f"Rx ({new_units.force_unit})", f"Ry ({new_units.force_unit})", f"Mz ({new_units.moment_label()})"])
         self.member_results.setHorizontalHeaderLabels(["Member", f"N1 axial ({new_units.force_unit})", f"N1 shear ({new_units.force_unit})", f"N1 moment ({new_units.moment_label()})", f"N2 axial ({new_units.force_unit})", f"N2 shear ({new_units.force_unit})", f"N2 moment ({new_units.moment_label()})"])
         self.equilibrium.setHorizontalHeaderLabels(["Load Case", f"Residual Fx ({new_units.force_unit})", f"Residual Fy ({new_units.force_unit})", f"Residual Mz ({new_units.moment_label()})", "Pass"])
@@ -624,9 +624,18 @@ class FrameResultsPanel(QWidget):
         elements = result.get("elements", [])
         maximum_displacement_m = max((float(node.get("dx", 0.0)) ** 2 + float(node.get("dy", 0.0)) ** 2 for node in nodes), default=0.0) ** 0.5
         maximum_axial = max((abs(float(member[side]["axial"])) for member in elements for side in ("n1_forces", "n2_forces")), default=0.0)
+        maximum_tension = max((float(member["n1_forces"]["axial"]) for member in elements), default=0.0)
+        maximum_compression = min((float(member["n1_forces"]["axial"]) for member in elements), default=0.0)
+        maximum_shear = max((abs(float(member[side]["shear"])) for member in elements for side in ("n1_forces", "n2_forces")), default=0.0)
         maximum_moment = max((abs(float(member[side]["moment"])) for member in elements for side in ("n1_forces", "n2_forces")), default=0.0)
         self.summary.setRowCount(1)
-        values = (self._units.format_displacement(maximum_displacement_m), f"{self._units.force(maximum_axial):,.4f}", f"{self._units.moment(maximum_moment):,.4f}")
+        analysis_type = str(self._model.get("projectInfo", {}).get("analysisType", "Frame")).lower()
+        if analysis_type == "beam":
+            values = (self._units.format_displacement(maximum_displacement_m), f"{self._units.force(maximum_shear):,.4f}", f"{self._units.moment(maximum_moment):,.4f}")
+        elif analysis_type == "truss":
+            values = (self._units.format_displacement(maximum_displacement_m), f"{self._units.force(maximum_tension):,.4f}", f"{self._units.force(maximum_compression):,.4f}")
+        else:
+            values = (self._units.format_displacement(maximum_displacement_m), f"{self._units.force(maximum_axial):,.4f}", f"{self._units.moment(maximum_moment):,.4f}")
         for column, value in enumerate(values):
             self.summary.setItem(0, column, QTableWidgetItem(value))
 
@@ -646,6 +655,14 @@ class FrameResultsPanel(QWidget):
             values = (member["id"], self._units.force(float(first["axial"])), self._units.force(float(first["shear"])), self._units.moment(float(first["moment"])), self._units.force(float(second["axial"])), self._units.force(float(second["shear"])), self._units.moment(float(second["moment"])))
             for column, value in enumerate(values):
                 self.member_results.setItem(row, column, QTableWidgetItem(str(value) if column == 0 else f"{float(value):,.4f}"))
+
+    def _summary_headers(self, units: UnitSystem) -> list[str]:
+        analysis_type = str(self._model.get("projectInfo", {}).get("analysisType", "Frame")).lower()
+        if analysis_type == "beam":
+            return [f"Max deflection ({units.length_unit})", f"Max shear ({units.force_unit})", f"Max moment ({units.moment_label()})"]
+        if analysis_type == "truss":
+            return [f"Max displacement ({units.length_unit})", f"Max tension ({units.force_unit})", f"Max compression ({units.force_unit})"]
+        return [f"Max displacement ({units.length_unit})", f"Max axial ({units.force_unit})", f"Max moment ({units.moment_label()})"]
 
     def _populate_calculation_details(self, selection: str, postprocess: Mapping[str, Any]) -> None:
         convention = self._postprocess.get("conventions", {}) if self._postprocess else {}

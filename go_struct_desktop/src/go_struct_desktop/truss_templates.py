@@ -26,9 +26,15 @@ def _positive(value: float, label: str) -> float:
     return value
 
 
+def _tag_template(model: dict[str, Any], kind: str, **parameters: float | int) -> dict[str, Any]:
+    project_info = model["projectInfo"]
+    project_info["trussTemplate"] = {"kind": kind, **parameters}
+    return model
+
+
 def triangle_truss_template(width_m: float = 6.0, height_m: float = 3.0) -> dict[str, Any]:
     width_m, height_m = _positive(width_m, "Triangle width"), _positive(height_m, "Triangle height")
-    return _base(
+    return _tag_template(_base(
         "Triangle Truss",
         [{"id": 1, "x": 0.0, "y": 0.0, "support": "Pinned"}, {"id": 2, "x": width_m, "y": 0.0, "support": "RollerX"}, {"id": 3, "x": width_m / 2.0, "y": height_m, "support": "Free"}],
         [
@@ -36,7 +42,7 @@ def triangle_truss_template(width_m: float = 6.0, height_m: float = 3.0) -> dict
             {"id": 2, "n1": 1, "n2": 3, "sec": 1, "release": "Rigid-Rigid"},
             {"id": 3, "n1": 2, "n2": 3, "sec": 1, "release": "Rigid-Rigid"},
         ],
-    )
+    ), "triangle", width_m=width_m, height_m=height_m)
 
 
 def warren_truss_template(panel_count: int = 4, panel_m: float = 3.0, height_m: float = 2.0) -> dict[str, Any]:
@@ -60,7 +66,7 @@ def warren_truss_template(panel_count: int = 4, panel_m: float = 3.0, height_m: 
         add(top, index + 2)
         if index:
             add(top - 1, top)
-    return _base(f"Warren Truss | {panel_count} panels", nodes, elements)
+    return _tag_template(_base(f"Warren Truss | {panel_count} panels", nodes, elements), "warren", panel_count=panel_count, panel_m=panel_m, height_m=height_m)
 
 
 def pratt_truss_template(panel_count: int = 4, panel_m: float = 3.0, height_m: float = 2.5) -> dict[str, Any]:
@@ -89,7 +95,7 @@ def pratt_truss_template(panel_count: int = 4, panel_m: float = 3.0, height_m: f
             add(index + 1, top_offset + index + 1)
         else:
             add(index + 2, top_offset + index)
-    return _base(f"Pratt Truss | {panel_count} panels", nodes, elements)
+    return _tag_template(_base(f"Pratt Truss | {panel_count} panels", nodes, elements), "pratt", panel_count=panel_count, panel_m=panel_m, height_m=height_m)
 
 
 def howe_truss_template(panel_count: int = 4, panel_m: float = 3.0, height_m: float = 2.5) -> dict[str, Any]:
@@ -119,7 +125,7 @@ def howe_truss_template(panel_count: int = 4, panel_m: float = 3.0, height_m: fl
             add(index + 2, top_offset + index)
         else:
             add(index + 1, top_offset + index + 1)
-    return _base(f"Howe Truss | {panel_count} panels", nodes, elements)
+    return _tag_template(_base(f"Howe Truss | {panel_count} panels", nodes, elements), "howe", panel_count=panel_count, panel_m=panel_m, height_m=height_m)
 
 
 def roof_truss_template(panel_count: int = 4, panel_m: float = 3.0, height_m: float = 3.0) -> dict[str, Any]:
@@ -156,4 +162,4 @@ def roof_truss_template(panel_count: int = 4, panel_m: float = 3.0, height_m: fl
         add(index + 1, top_node(index + 1))
     for index in range(midpoint, panel_count - 1):
         add(index + 2, top_node(index))
-    return _base(f"Roof Truss | {panel_count} panels", nodes, elements)
+    return _tag_template(_base(f"Roof Truss | {panel_count} panels", nodes, elements), "roof", panel_count=panel_count, panel_m=panel_m, height_m=height_m)

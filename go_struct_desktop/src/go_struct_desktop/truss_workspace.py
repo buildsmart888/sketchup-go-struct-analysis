@@ -6,7 +6,7 @@ import sys
 from typing import Any
 
 from PySide6.QtGui import QAction, QFont
-from PySide6.QtWidgets import QApplication, QInputDialog
+from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox
 
 from go_struct_core import TrussModel, analyze_truss_data, build_frame_postprocess
 
@@ -14,6 +14,7 @@ from .app import MainWindow, WorkspaceDefinition
 from .examples import FrameExample
 from .truss_canvas import TrussCanvas
 from .truss_templates import howe_truss_template, pratt_truss_template, roof_truss_template, triangle_truss_template, warren_truss_template
+from .template_browser import TemplateBrowserDialog, TemplateOption
 
 
 def _loaded_triangle() -> dict[str, Any]:
@@ -121,6 +122,28 @@ class TrussMainWindow(MainWindow):
             item = QAction(title, self)
             item.triggered.connect(action)
             templates.addAction(item)
+        catalog = QAction("Template Catalog", self)
+        catalog.setToolTip("Browse truss starters with their intended force path")
+        catalog.triggered.connect(self._show_template_catalog)
+        menu.addAction(catalog)
+        authoring = menu.addMenu("Authoring")
+        assign_section = QAction("Assign Active Section to Selected", self)
+        assign_section.triggered.connect(self.results_panel.canvas.assign_active_section_to_selection)
+        mirror_vertical = QAction("Mirror Selection Vertically", self)
+        mirror_vertical.triggered.connect(lambda: self.results_panel.canvas.mirror_selection("vertical"))
+        roof_height = QAction("Set Roof Height", self)
+        roof_height.triggered.connect(self._set_roof_height)
+        roof_load = QAction("Convert Selected Chord Load to Nodes", self)
+        roof_load.setToolTip("Convert a vertical line load over selected roof-chord members into equivalent nodal loads")
+        roof_load.triggered.connect(self._convert_roof_load)
+        panels = QAction("Regenerate Template Panels", self)
+        panels.setToolTip("Rebuild a template with more or fewer panels; existing nodal loads are cleared")
+        panels.triggered.connect(self._regenerate_template_panels)
+        authoring.addAction(assign_section)
+        authoring.addAction(mirror_vertical)
+        authoring.addAction(roof_height)
+        authoring.addAction(roof_load)
+        authoring.addAction(panels)
         menu.addSeparator()
         for support in ("Pinned", "RollerX", "RollerY", "Fixed"):
             item = QAction(f"Place {support} support", self)
@@ -155,6 +178,74 @@ class TrussMainWindow(MainWindow):
         if dimensions:
             panels, panel_m, height_m = dimensions
             self._load_template(roof_truss_template(panels, panel_m, height_m), f"Roof truss: {panels} panels")
+
+    def _set_roof_height(self) -> None:
+        unit = self.input_panel.unit_system
+        height, accepted = QInputDialog.getDouble(self, "Set roof height", f"Roof height ({unit.length_unit})", 3.0, 0.001, 10000.0, 3)
+        if accepted:
+            self.results_panel.canvas.set_roof_height(height / unit.length_factor)
+
+    def _convert_roof_load(self) -> None:
+        cases = list(self.input_panel.model_data().get("loadcases", [])) or ["DL"]
+        load_case, accepted = QInputDialog.getItem(self, "Roof chord load", "Load case", cases, 0, False)
+        if not accepted:
+            return
+        unit = self.input_panel.unit_system
+        intensity, accepted = QInputDialog.getDouble(
+            self,
+            "Roof chord load",
+            f"Vertical line load ({unit.distributed_label()}, negative is downward)",
+            -10.0,
+            -1.0e9,
+            1.0e9,
+            4,
+        )
+        if accepted:
+            self.results_panel.canvas.distribute_roof_load(intensity / unit.distributed_factor, load_case)
+
+    def _show_template_catalog(self) -> None:
+        options = (
+            TemplateOption("triangle", "Triangle Truss", "Three-bar truss for a compact, determinate system.", "      /\\\n[Pin]------[Roller]"),
+            TemplateOption("warren", "Warren Truss", "Alternating triangular web system for uniform panel spacing.", " /\\/\\/\\/\\\n------------"),
+            TemplateOption("pratt", "Pratt Truss", "Verticals and inward diagonals toward the centre.", "|\\ |\\ /| /|\n------------"),
+            TemplateOption("howe", "Howe Truss", "Verticals and reversed diagonal direction from Pratt.", "|/ |/ \\| \\|\n------------"),
+            TemplateOption("roof", "Pitched Roof Truss", "Pitched top chord with bottom chord and web bracing.", "    /\\\n  /    \\\n------------"),
+        )
+        dialog = TemplateBrowserDialog("Truss Template Catalog", options, self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        handlers = {"triangle": self._new_triangle, "warren": self._new_warren, "pratt": self._new_pratt, "howe": self._new_howe, "roof": self._new_roof}
+        if handler := handlers.get(dialog.selected_key() or ""):
+            handler()
+
+    def _regenerate_template_panels(self) -> None:
+        model = self.input_panel.model_data()
+        template = model.get("projectInfo", {}).get("trussTemplate", {})
+        kind = str(template.get("kind", ""))
+        factories = {"warren": warren_truss_template, "pratt": pratt_truss_template, "howe": howe_truss_template, "roof": roof_truss_template}
+        factory = factories.get(kind)
+        if factory is None:
+            self.statusBar().showMessage("Panel regeneration is available for Warren, Pratt, Howe, and Roof templates.", 4500)
+            return
+        current_panels = int(template.get("panel_count", 4))
+        panels, accepted = QInputDialog.getInt(self, "Regenerate truss panels", "Number of panels", current_panels, 2, 50)
+        if not accepted:
+            return
+        if kind == "roof" and panels % 2:
+            self.statusBar().showMessage("Roof truss requires an even number of panels.", 4000)
+            return
+        question = "Regenerate the template geometry? Existing nodal loads are cleared because their old node IDs may not exist."
+        if QMessageBox.question(self, "Regenerate truss panels", question, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
+        panel_m, height_m = float(template.get("panel_m", 3.0)), float(template.get("height_m", 2.5))
+        rebuilt = factory(panels, panel_m, height_m)
+        rebuilt["sections"] = model.get("sections", rebuilt["sections"])
+        rebuilt["loadcases"] = model.get("loadcases", rebuilt["loadcases"])
+        rebuilt["loadcombos"] = model.get("loadcombos", rebuilt["loadcombos"])
+        rebuilt["settings"] = model.get("settings", rebuilt["settings"])
+        for key in ("project", "company", "engineer", "location", "units"):
+            rebuilt["projectInfo"][key] = model.get("projectInfo", {}).get(key, rebuilt["projectInfo"].get(key, ""))
+        self._load_template(rebuilt, f"{kind.title()} truss: {panels} panels")
 
     def _dimensions(self, title: str, default_width: float, default_height: float) -> tuple[float, float] | None:
         width, accepted = QInputDialog.getDouble(self, title, "Span (m)", default_width, 0.1, 10000.0, 3)

@@ -6,6 +6,7 @@ import pytest
 
 from go_struct_core import TrussModel, analyze_truss_data, build_frame_postprocess
 from go_struct_desktop.truss_templates import howe_truss_template, pratt_truss_template, roof_truss_template, triangle_truss_template, warren_truss_template
+from go_struct_desktop.truss_tools import distribute_vertical_line_load
 
 
 def triangle_truss() -> dict:
@@ -84,6 +85,7 @@ def test_truss_templates_are_stable_and_ready_for_nodal_loads() -> None:
     for model in (triangle_truss_template(), warren_truss_template(4), pratt_truss_template(4), howe_truss_template(4), roof_truss_template(4)):
         assert TrussModel.from_dict(model).to_dict()["projectInfo"]["analysisType"] == "Truss"
         assert analyze_truss_data(model)["ok"] is True
+        assert model["projectInfo"]["trussTemplate"]["kind"]
 
     with pytest.raises(ValueError, match="at least two"):
         warren_truss_template(1)
@@ -93,3 +95,27 @@ def test_truss_templates_are_stable_and_ready_for_nodal_loads() -> None:
         howe_truss_template(1)
     with pytest.raises(ValueError, match="even number"):
         roof_truss_template(3)
+
+
+def test_selected_roof_chord_load_converts_to_balanced_nodal_forces() -> None:
+    model = triangle_truss_template(6.0, 3.0)
+
+    loaded, summary = distribute_vertical_line_load(model, [1], -10.0, "DL")
+
+    assert model["nloads"] == []
+    assert summary["projected_length_m"] == pytest.approx(6.0)
+    assert summary["resultant_fy"] == pytest.approx(-60.0)
+    assert sum(load["fy"] for load in loaded["nloads"]) == pytest.approx(-60.0)
+    assert {load["node"] for load in loaded["nloads"]} == {1, 2}
+
+
+def test_truss_mechanism_identifies_likely_free_node_directions() -> None:
+    model = triangle_truss()
+    model["nodes"][1]["support"] = "Free"
+
+    result = analyze_truss_data(model)
+    diagnostics = build_frame_postprocess(model, result)["diagnostics"]["items"]
+
+    assert result["ok"] is False
+    assert result["mechanism"]
+    assert any("Likely mechanism displacement" in item["message"] for item in diagnostics)

@@ -8,6 +8,8 @@ from .canvas import FrameCanvas
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPen
 
+from .truss_tools import distribute_vertical_line_load
+
 
 class TrussCanvas(FrameCanvas):
     """Allow bar authoring while preventing frame-only result and load tools."""
@@ -41,3 +43,42 @@ class TrussCanvas(FrameCanvas):
         pen = QPen(color, 3.4)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         return pen
+
+    def assign_active_section_to_selection(self) -> None:
+        if not self._selected_members:
+            self.authoring_message.emit("Select one or more truss members first.")
+            return
+        model = self._mutable_model()
+        for member in model["elements"]:
+            if int(member["id"]) in self._selected_members:
+                member["sec"] = self._active_section
+        self._emit_model(model)
+        self.authoring_message.emit(f"Assigned Section {self._active_section} to {len(self._selected_members)} truss member(s).")
+
+    def set_roof_height(self, height_m: float) -> None:
+        if height_m <= 0.0:
+            self.authoring_message.emit("Roof height must be greater than zero.")
+            return
+        model = self._mutable_model()
+        positive_nodes = [node for node in model.get("nodes", []) if float(node["y"]) > 1.0e-9]
+        current_height = max((float(node["y"]) for node in positive_nodes), default=0.0)
+        if current_height <= 1.0e-12:
+            self.authoring_message.emit("The current truss has no roof profile to resize.")
+            return
+        factor = float(height_m) / current_height
+        for node in positive_nodes:
+            node["y"] = float(node["y"]) * factor
+        self._emit_model(model)
+        self.authoring_message.emit(f"Roof height set to {height_m:g} m.")
+
+    def distribute_roof_load(self, intensity: float, load_case: str) -> None:
+        try:
+            model, summary = distribute_vertical_line_load(self._model, self._selected_members, intensity, load_case)
+        except ValueError as exc:
+            self.authoring_message.emit(str(exc))
+            return
+        self._emit_model(model)
+        self.authoring_message.emit(
+            f"Applied {intensity:g} per projected m to {len(summary['member_ids'])} member(s): "
+            f"total Fy = {summary['resultant_fy']:.4g}."
+        )

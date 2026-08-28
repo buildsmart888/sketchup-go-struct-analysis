@@ -47,6 +47,10 @@ The data contract mirrors `go_struct_analysis/goframe.rb` and the `collectData()
   and `Uy` per node. It shares the editor, units, results, and validation contract, but rejects
   member loads, nodal moments, self weight, and frame end releases. `I` remains an internal frame-schema
   compatibility field only; Truss files and UI need only material `E` and area `A`.
+- Phase 3 authoring helpers remain at the workspace boundary: `BeamCanvas` resizes/splits horizontal
+  spans, while `TrussCanvas` handles section grouping, roof geometry, and selected-member operations.
+  `truss_tools.distribute_vertical_line_load()` is intentionally a pure transform that converts a
+  selected-chord line load to equivalent node loads before it reaches the truss solver.
 - Phase 4: report and export services consume JSON-compatible analysis results.
 - Phase 5: a Ruby bridge sends model JSON to a Python process and stores its result in existing
   `GOStructAnalysis` BIM attributes.

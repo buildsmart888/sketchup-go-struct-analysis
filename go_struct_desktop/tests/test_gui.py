@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QApplication, QDockWidget
 from go_struct_desktop.app import MainWindow
 from go_struct_desktop.beam_workspace import BeamMainWindow
 from go_struct_desktop.beam_canvas import BeamCanvas
+from go_struct_desktop.beam_templates import simply_supported_template
 from go_struct_desktop.truss_canvas import TrussCanvas
 from go_struct_desktop.truss_workspace import TrussMainWindow
 from go_struct_desktop.display import DisplaySettings
@@ -99,8 +100,29 @@ def test_beam_canvas_locks_vertical_authoring_and_appends_spans(app: QApplicatio
     member = max(model["elements"], key=lambda item: item["id"])
     assert (added["x"], added["y"], added["support"]) == (11.0, 0.0, "RollerX")
     assert member["n2"] == added["id"]
+    canvas._set_selection(set(), {1})
+    canvas.resize_selected_span(4.0)
+    app.processEvents()
+    resized = window.input_panel.model_data()
+    first_member = next(item for item in resized["elements"] if item["id"] == 1)
+    nodes = {node["id"]: node for node in resized["nodes"]}
+    assert nodes[first_member["n2"]]["x"] - nodes[first_member["n1"]]["x"] == pytest.approx(4.0)
     window.run_analysis()
     assert window.results_panel.analysis and window.results_panel.analysis["ok"] is True
+    window.close()
+
+
+def test_beam_canvas_inserts_supported_station_by_splitting_a_span(app: QApplication) -> None:
+    window = BeamMainWindow()
+    window.set_model(simply_supported_template(6.0))
+
+    window.results_panel.canvas.insert_support(3.0, "RollerX")
+    app.processEvents()
+    model = window.input_panel.model_data()
+    inserted = next(node for node in model["nodes"] if node["id"] == 3)
+
+    assert (inserted["x"], inserted["support"]) == (3.0, "RollerX")
+    assert {(member["n1"], member["n2"]) for member in model["elements"]} == {(1, 3), (3, 2)}
     window.close()
 
 
@@ -116,6 +138,7 @@ def test_truss_workspace_uses_axial_only_authoring_and_results(app: QApplication
     assert not window.diagram_buttons["v_kg"].isVisible()
     assert window.results_panel.diagrams.quantity_selector.count() == 1
     assert window.results_panel.diagrams.quantity_selector.currentData() == "n_kg"
+    assert "Max tension" in window.results_panel.summary.horizontalHeaderItem(1).text()
     member_load_tab = window.input_panel.tabs.indexOf(window.input_panel.element_loads)
     assert not window.input_panel.tabs.isTabVisible(member_load_tab)
     assert window.input_panel.sections.table.isColumnHidden(3)

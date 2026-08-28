@@ -94,7 +94,25 @@ def _apply_envelope(target: dict[str, Any], candidate: Mapping[str, Any]) -> Non
     for target_member, source_member in zip(target["elements"], candidate["elements"], strict=True):
         for end in ("n1_forces", "n2_forces"):
             if abs(float(source_member[end]["axial"])) > abs(float(target_member[end]["axial"])):
-                target_member[end]["axial"] = source_member[end]["axial"]
+                    target_member[end]["axial"] = source_member[end]["axial"]
+
+
+def _mechanism_hints(model: FrameModel, free: tuple[int, ...], reduced: np.ndarray) -> list[dict[str, Any]]:
+    """Return the dominant unrestrained displacement components for a singular truss."""
+    _left, singular_values, right = np.linalg.svd(reduced)
+    if not len(singular_values):
+        return []
+    vector = right[-1]
+    peak = max(abs(float(value)) for value in vector)
+    if peak <= 1.0e-12:
+        return []
+    hints: list[dict[str, Any]] = []
+    for reduced_index, value in enumerate(vector):
+        if abs(float(value)) < peak * 0.45:
+            continue
+        dof = free[reduced_index]
+        hints.append({"node": model.nodes[dof // 2].id, "dof": "Ux" if dof % 2 == 0 else "Uy", "relative": abs(float(value)) / peak})
+    return hints
 
 
 def _analyze(model: FrameModel) -> dict[str, Any]:
@@ -143,7 +161,11 @@ def _analyze(model: FrameModel) -> dict[str, Any]:
         if free:
             reduced = stiffness[np.ix_(free, free)]
             if np.linalg.matrix_rank(reduced) < len(free):
-                return {"ok": False, "error": "Matrix singular. Truss may be unstable or missing a restraint."}
+                return {
+                    "ok": False,
+                    "error": "Matrix singular. Truss may be unstable or missing a restraint.",
+                    "mechanism": _mechanism_hints(model, free, reduced),
+                }
             try:
                 displacements[list(free)] = np.linalg.solve(reduced, force[list(free)])
             except np.linalg.LinAlgError as exc:

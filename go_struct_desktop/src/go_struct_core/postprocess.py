@@ -310,6 +310,7 @@ def _envelope_postprocess(combos: Mapping[str, Mapping[str, Any]], model: FrameM
 
 def _model_diagnostics(model: FrameModel, analysis: Mapping[str, Any]) -> dict[str, Any]:
     items: list[dict[str, Any]] = []
+    is_truss = str(model.project_info.get("analysisType", "Frame")).lower() in {"truss", "2d truss"}
     incidences: dict[int, int] = defaultdict(int)
     for element in model.elements:
         incidences[element.n1] += 1
@@ -341,13 +342,30 @@ def _model_diagnostics(model: FrameModel, analysis: Mapping[str, Any]) -> dict[s
                 (node_by_id[second.n2].x, node_by_id[second.n2].y),
             ):
                 items.append({"severity": "warning", "message": f"Members {first.id} and {second.id} intersect without a shared node. Split/connect them before analysis.", "members": [first.id, second.id]})
-    restraints = sum(3 if node.support == "Fixed" else 2 if node.support == "Pinned" else 1 if node.support in {"RollerX", "RollerY"} else 0 for node in model.nodes)
+    restraints = sum(
+        (2 if node.support in {"Fixed", "Pinned"} else 1 if node.support in {"RollerX", "RollerY"} else 0)
+        if is_truss
+        else (3 if node.support == "Fixed" else 2 if node.support == "Pinned" else 1 if node.support in {"RollerX", "RollerY"} else 0)
+        for node in model.nodes
+    )
     if restraints < 3:
         items.append({"severity": "warning", "message": "Fewer than three translational restraints are defined; the frame may be unstable.", "nodes": [node.id for node in model.nodes if node.support == "Free"]})
     if not analysis.get("ok"):
         items.append({"severity": "error", "message": str(analysis.get("error", "Analysis did not complete."))})
-        items.append({"severity": "warning", "message": "Mechanism check: review free translations/rotations, member releases, and support directions near the unstable region."})
-    elif not items:
+        mechanism = list(analysis.get("mechanism", []))
+        if mechanism:
+            node_ids = sorted({int(item["node"]) for item in mechanism})
+            directions = ", ".join(f"N{item['node']} {item['dof']}" for item in mechanism)
+            items.append({"severity": "warning", "message": f"Likely mechanism displacement: {directions}.", "nodes": node_ids})
+        else:
+            items.append({"severity": "warning", "message": "Mechanism check: review free translations/rotations, member releases, and support directions near the unstable region."})
+    elif is_truss:
+        axial_values = {int(member["id"]): float(member["n1_forces"]["axial"]) for member in analysis.get("elements", [])}
+        scale = max((abs(value) for value in axial_values.values()), default=0.0)
+        near_zero = [member_id for member_id, value in axial_values.items() if scale > 0.0 and abs(value) <= scale * 1.0e-8]
+        if near_zero:
+            items.append({"severity": "info", "message": f"Members {', '.join(str(member_id) for member_id in near_zero)} carry near-zero axial force for this envelope.", "members": near_zero})
+    if analysis.get("ok") and not items:
         items.append({"severity": "info", "message": "Topology and restraint screening completed."})
     equilibrium = [_equilibrium_for_case(model, name, result) for name, result in analysis.get("cases", {}).items()]
     return {"items": items, "restraint_count": restraints, "equilibrium": equilibrium}
