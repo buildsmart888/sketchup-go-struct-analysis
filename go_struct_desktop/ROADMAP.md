@@ -85,9 +85,19 @@ six nodal degrees of freedom and torsional member stiffness.
 Phase 2 is complete: GO Struct Desktop has a production-ready 2D Frame modeling and analysis
 workspace. Beam and Truss remain separate workspaces, not incomplete Frame features.
 
-## Next: Phase 3
+## In progress: Phase 3.1 Beam workspace foundation
 
-- Beam and Truss workspaces using the same editor, result, diagram, and diagnostic conventions.
+- Standalone 1D Euler-Bernoulli Beam solver with support reactions, V/M, slope, FE deflection,
+  point force/moment, uniform/triangular loading, load cases, combinations, and envelopes.
+- Dedicated `go-struct-beam` desktop entry point with independent files/autosave and four editable
+  Beam examples. It reuses the established editor, canvas, units, result diagrams, FBD, and docks.
+- Beam input intentionally rejects non-horizontal members and axial loads instead of treating them
+  as a 2D frame. Beam-specific authoring constraints and templates are the remaining Beam work.
+
+## Next: Phase 3.2 Truss workspace
+
+- Axial-only 2D Truss solver and workspace using the same editor, result, diagram, and diagnostic
+  conventions.
 
 ## Later: Phase 4
 

@@ -14,6 +14,7 @@ from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QApplication, QDockWidget
 
 from go_struct_desktop.app import MainWindow
+from go_struct_desktop.beam_workspace import BeamMainWindow
 from go_struct_desktop.display import DisplaySettings
 from go_struct_desktop.examples import FRAME_EXAMPLES
 from go_struct_desktop.frame_workspace import FrameInputPanel, default_frame_model
@@ -56,6 +57,20 @@ def test_frame_workspace_analyzes_default_model(app: QApplication) -> None:
     assert not window.results_panel.diagrams.canvas.grab().isNull()
     assert not window.results_panel.canvas.grab().isNull()
 
+    window.close()
+
+
+def test_beam_workspace_opens_with_its_own_solver_and_examples(app: QApplication) -> None:
+    window = BeamMainWindow()
+    window.show()
+    app.processEvents()
+
+    assert "1D Beam" in window.windowTitle()
+    assert window.results_panel.analysis is not None
+    assert window.results_panel.analysis["ok"] is True
+    assert window.results_panel.analysis["analysisType"] == "Beam"
+    assert window._workspace.normalize_model(window.input_panel.model_data())["projectInfo"]["analysisType"] == "Beam"
+    assert len(window._workspace.examples) == 4
     window.close()
 
 

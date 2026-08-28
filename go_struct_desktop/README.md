@@ -26,9 +26,11 @@ reused by a CLI, and later called by the Ruby extension through a bridge.
 - Productivity tools for mirrored/array copies, move-by-delta, zoom window, and selecting members by section.
 - Five built-in, analysis-ready examples covering point actions, triangular loads, portal combinations, member releases, and reaction checks.
 - An EngiLab Frame.2D `.fr2d` importer plus automatic access to every locally installed sample.
+- An initial 1D Beam workspace with a standalone Euler-Bernoulli solver, its own files/autosave,
+  and editable cantilever, simply supported, continuous, and released-beam examples.
 
-GOBeam, GOTruss, reports, and the SketchUp bridge remain outside the current increment. The existing
-Ruby extension remains the production SketchUp integration.
+The Beam workspace foundation is in progress. GOTruss, reports, and the SketchUp bridge remain
+outside the current increment. The existing Ruby extension remains the production SketchUp integration.
 
 ## Units and compatibility
 
@@ -66,6 +68,19 @@ go-struct-desktop
 
 The desktop app opens with an editable portal-frame model. It supports `.goframe.json` files from
 the Ruby dialog, and it writes the same input field names back to JSON.
+
+## Run the Beam workspace
+
+```powershell
+cd go_struct_desktop
+py -m pip install -e ".[dev,gui]"
+go-struct-beam
+```
+
+The Beam workspace opens with a two-span beam and writes `.gobeam.json` files. It accepts horizontal
+members and transverse `Fy`/`Mz`, Local Y, or Global Y loads. This is a separate 1D solver, not a
+restricted visual mode of the Frame solver; axial loads and non-horizontal members are reported as
+invalid input.
 
 ## Canvas authoring
 

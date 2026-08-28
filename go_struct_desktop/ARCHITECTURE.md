@@ -36,9 +36,14 @@ they do not represent one equilibrated load state.
 The data contract mirrors `go_struct_analysis/goframe.rb` and the `collectData()` function in
 `go_struct_analysis/templates/goframe_dialog.html`.
 
-## Planned consumers
+## Current and planned consumers
 
-- Phase 3: Beam and Truss solvers use the same model/result and validation conventions.
+- Phase 3.1: the Beam workspace uses `BeamModel` and a standalone 1D Euler-Bernoulli solver while
+  retaining the shared JSON field names and result/post-processing contract. It deliberately accepts
+  horizontal members with transverse loads only; axial beam actions and non-horizontal geometry are
+  rejected rather than silently analysed as a frame.
+- Phase 3.2: the Truss solver and workspace use the same editor, units, result, and validation
+  conventions, with an axial-only solver contract.
 - Phase 4: report and export services consume JSON-compatible analysis results.
 - Phase 5: a Ruby bridge sends model JSON to a Python process and stores its result in existing
   `GOStructAnalysis` BIM attributes.
@@ -52,6 +57,8 @@ The data contract mirrors `go_struct_analysis/goframe.rb` and the `collectData()
 - Project unit metadata lives in `projectInfo.units`; unknown or absent values default to `legacy_kg_m`.
 - The result envelope stores the signed value with greatest absolute magnitude, matching Ruby.
 - Member diagrams use tension-positive axial force and the legacy GOFrame local V/M display signs.
+- Beam results keep the same node/element shape as Frame results: axial values are zero, while shear,
+  moment, slope, transverse deflection, and reactions are populated by the beam solver.
 - Torsion is outside the 2D solver scope and must not be represented by `Rz`.
 
 ## Validation command

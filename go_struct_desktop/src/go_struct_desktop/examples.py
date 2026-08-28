@@ -347,3 +347,20 @@ ENGILAB_REFERENCE_EXAMPLES: tuple[FrameExample, ...] = (
 )
 
 FRAME_EXAMPLES = BUILT_IN_FRAME_EXAMPLES + ENGILAB_REFERENCE_EXAMPLES
+
+
+def _beam_example(factory: Callable[[], dict[str, Any]]) -> Callable[[], dict[str, Any]]:
+    def build() -> dict[str, Any]:
+        model = factory()
+        model["projectInfo"]["analysisType"] = "Beam"
+        return model
+
+    return build
+
+
+BUILT_IN_BEAM_EXAMPLES: tuple[FrameExample, ...] = (
+    FrameExample("beam_cantilever", "1. Cantilever Beam", "Point force and point moment on a fixed Euler-Bernoulli beam.", _beam_example(_cantilever_point_actions), "case:DL", "all"),
+    FrameExample("beam_simply_supported", "2. Simply Supported Beam", "Triangular distributed load with pinned and roller reactions.", _beam_example(_simply_supported_triangular_load), "case:DL", "m_kg_m"),
+    FrameExample("beam_continuous", "3. Continuous Beam", "Two-span beam for reactions, shear, moment, and deflection.", _beam_example(_reaction_check), "combo:Service", "none", "fbd"),
+    FrameExample("beam_released", "4. Released Beam", "Fixed-to-pin member release under a distributed load.", _beam_example(_released_beam), "case:DL", "m_kg_m"),
+)

@@ -5,9 +5,10 @@ from __future__ import annotations
 import copy
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from PySide6.QtCore import QSettings, QStandardPaths, Qt
 from PySide6.QtGui import QAction, QFont, QKeySequence
@@ -22,11 +23,42 @@ from .examples import BUILT_IN_FRAME_EXAMPLES, ENGILAB_REFERENCE_EXAMPLES, Frame
 from .inspector import PropertyInspector
 
 
-class MainWindow(QMainWindow):
-    """A practical desktop shell for authoring and analysing one 2D frame model."""
+@dataclass(frozen=True)
+class WorkspaceDefinition:
+    """Solver and file metadata for a desktop workspace sharing the common editor shell."""
 
-    def __init__(self) -> None:
+    key: str
+    title: str
+    model_name: str
+    default_model: Callable[[], dict[str, Any]]
+    normalize_model: Callable[[Mapping[str, Any]], dict[str, Any]]
+    analyze: Callable[[Mapping[str, Any]], dict[str, Any]]
+    postprocess: Callable[[Mapping[str, Any], Mapping[str, Any]], dict[str, Any]]
+    examples: tuple[FrameExample, ...]
+    file_extension: str
+    engilab_import: bool = False
+
+
+FRAME_WORKSPACE = WorkspaceDefinition(
+    key="frame",
+    title="GO Struct Desktop | 2D Frame",
+    model_name="frame",
+    default_model=default_frame_model,
+    normalize_model=lambda model: FrameModel.from_dict(model).to_dict(),
+    analyze=analyze_frame_data,
+    postprocess=build_frame_postprocess,
+    examples=BUILT_IN_FRAME_EXAMPLES,
+    file_extension=".goframe.json",
+    engilab_import=True,
+)
+
+
+class MainWindow(QMainWindow):
+    """Dockable authoring shell shared by Frame and Beam workspaces."""
+
+    def __init__(self, workspace: WorkspaceDefinition | None = None) -> None:
         super().__init__()
+        self._workspace = workspace or FRAME_WORKSPACE
         application = QApplication.instance()
         if application is not None:
             application.setFont(QFont("Segoe UI", 10))
@@ -35,7 +67,7 @@ class MainWindow(QMainWindow):
         self._history_index = -1
         self._suppress_model_events = False
         self._dirty = False
-        self._settings = QSettings("BuildSmart888", "GOStructDesktop")
+        self._settings = QSettings("BuildSmart888", f"GOStructDesktop{self._workspace.key.title()}")
         self.input_panel = FrameInputPanel(self)
         self.results_panel = FrameResultsPanel(self)
         self.inspector = PropertyInspector(self)
@@ -53,11 +85,11 @@ class MainWindow(QMainWindow):
         self.display_panel.view_mode_changed.connect(self._sync_result_view_buttons)
         self.results_panel.set_display_settings(self.display_panel.settings)
         self._restore_display_settings()
-        self.set_model(default_frame_model())
+        self.set_model(self._workspace.default_model())
         self.run_analysis()
 
     def _build_window(self) -> None:
-        self.setWindowTitle("GO Struct Desktop | 2D Frame")
+        self.setWindowTitle(self._workspace.title)
         self.setMinimumSize(1100, 720)
         self.resize(1440, 900)
         self.setStyleSheet(
@@ -115,7 +147,7 @@ class MainWindow(QMainWindow):
         style = self.style()
         new_action = QAction(style.standardIcon(QStyle.StandardPixmap.SP_FileIcon), "New", self)
         new_action.setShortcut(QKeySequence.StandardKey.New)
-        new_action.setToolTip("New frame model")
+        new_action.setToolTip(f"New {self._workspace.model_name} model")
         new_action.triggered.connect(self.new_model)
 
         open_action = QAction(style.standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton), "Open", self)
@@ -156,7 +188,7 @@ class MainWindow(QMainWindow):
 
         analyze_action = QAction(style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay), "Analyze", self)
         analyze_action.setShortcut(QKeySequence("F5"))
-        analyze_action.setToolTip("Run 2D frame analysis")
+        analyze_action.setToolTip(f"Run 2D {self._workspace.model_name} analysis")
         analyze_action.triggered.connect(lambda: self.run_analysis(show_completion=True))
 
         delete_action = QAction("Delete", self)
@@ -191,32 +223,34 @@ class MainWindow(QMainWindow):
         file_menu = self.menuBar().addMenu("File")
         file_menu.addAction(new_action)
         file_menu.addAction(open_action)
-        file_menu.addAction(import_engilab_action)
+        if self._workspace.engilab_import:
+            file_menu.addAction(import_engilab_action)
         file_menu.addAction(save_action)
         file_menu.addAction(save_as_action)
         file_menu.addSeparator()
         examples_menu = file_menu.addMenu("Examples")
-        for example in BUILT_IN_FRAME_EXAMPLES:
+        for example in self._workspace.examples:
             action = QAction(example.title, self)
             action.setToolTip(example.description)
             action.triggered.connect(lambda _checked=False, value=example: self.load_example(value))
             examples_menu.addAction(action)
-        examples_menu.addSeparator()
-        installed_files = installed_example_files()
-        if installed_files:
-            engilab_menu = examples_menu.addMenu(f"EngiLab Installed Examples ({len(installed_files)})")
-            for path in installed_files:
-                action = QAction(path.stem, self)
-                action.setToolTip(f"Import {path.name} from the installed EngiLab examples folder")
-                action.triggered.connect(lambda _checked=False, value=path: self.load_engilab_file(value))
-                engilab_menu.addAction(action)
-        else:
-            engilab_menu = examples_menu.addMenu("EngiLab Frame.2D References (Metric)")
-            for example in ENGILAB_REFERENCE_EXAMPLES:
-                action = QAction(example.title, self)
-                action.setToolTip(example.description)
-                action.triggered.connect(lambda _checked=False, value=example: self.load_example(value))
-                engilab_menu.addAction(action)
+        if self._workspace.engilab_import:
+            examples_menu.addSeparator()
+            installed_files = installed_example_files()
+            if installed_files:
+                engilab_menu = examples_menu.addMenu(f"EngiLab Installed Examples ({len(installed_files)})")
+                for path in installed_files:
+                    action = QAction(path.stem, self)
+                    action.setToolTip(f"Import {path.name} from the installed EngiLab examples folder")
+                    action.triggered.connect(lambda _checked=False, value=path: self.load_engilab_file(value))
+                    engilab_menu.addAction(action)
+            else:
+                engilab_menu = examples_menu.addMenu("EngiLab Frame.2D References (Metric)")
+                for example in ENGILAB_REFERENCE_EXAMPLES:
+                    action = QAction(example.title, self)
+                    action.setToolTip(example.description)
+                    action.triggered.connect(lambda _checked=False, value=example: self.load_example(value))
+                    engilab_menu.addAction(action)
         file_menu.addSeparator()
         file_menu.addAction(export_action)
         file_menu.addAction(recover_action)
@@ -442,9 +476,9 @@ class MainWindow(QMainWindow):
     def new_model(self) -> None:
         self._current_path = None
         self._clear_autosave()
-        self.set_model(default_frame_model())
+        self.set_model(self._workspace.default_model())
         self.run_analysis()
-        self.statusBar().showMessage("New portal frame")
+        self.statusBar().showMessage(f"New {self._workspace.model_name} model")
 
     def load_example(self, example: FrameExample) -> None:
         """Load an analysis-ready teaching model without treating it as a saved project."""
@@ -485,12 +519,13 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(message)
 
     def open_model(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Open Frame", str(self._current_path.parent if self._current_path else Path.home()), "GOFrame Files (*.goframe.json *.json)")
+        extension = self._workspace.file_extension
+        path, _ = QFileDialog.getOpenFileName(self, f"Open {self._workspace.model_name.title()}", str(self._current_path.parent if self._current_path else Path.home()), f"GO Struct Files (*{extension} *.json)")
         if not path:
             return
         try:
             data = json.loads(Path(path).read_text(encoding="utf-8"))
-            model = FrameModel.from_dict(data).to_dict()
+            model = self._workspace.normalize_model(data)
         except (OSError, json.JSONDecodeError, ModelValidationError) as exc:
             self._show_error("Unable to open model", str(exc))
             return
@@ -507,7 +542,8 @@ class MainWindow(QMainWindow):
         self._write_model(self._current_path)
 
     def save_model_as(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(self, "Save Frame", str(self._current_path or Path.home() / "Frame1.goframe.json"), "GOFrame Files (*.goframe.json)")
+        extension = self._workspace.file_extension
+        path, _ = QFileDialog.getSaveFileName(self, f"Save {self._workspace.model_name.title()}", str(self._current_path or Path.home() / f"{self._workspace.model_name.title()}1{extension}"), f"GO Struct Files (*{extension})")
         if path:
             self._current_path = Path(path)
             self._write_model(self._current_path)
@@ -520,9 +556,9 @@ class MainWindow(QMainWindow):
         if not path:
             return
         try:
-            model = FrameModel.from_dict(self.input_panel.model_data()).to_dict()
+            model = self._workspace.normalize_model(self.input_panel.model_data())
             result = self.results_panel.analysis
-            postprocess = build_frame_postprocess(model, result)
+            postprocess = self._workspace.postprocess(model, result)
             Path(path).write_text(json.dumps({"model": model, "analysis": result, "postprocess": postprocess}, indent=2), encoding="utf-8")
         except (OSError, ModelValidationError, ValueError) as exc:
             self._show_error("Unable to export analysis", str(exc))
@@ -532,17 +568,17 @@ class MainWindow(QMainWindow):
     def run_analysis(self, show_completion: bool = False) -> None:
         started_at = perf_counter()
         try:
-            model = FrameModel.from_dict(self.input_panel.model_data()).to_dict()
+            model = self._workspace.normalize_model(self.input_panel.model_data())
         except (ModelValidationError, ValueError) as exc:
             self._show_error("Model needs attention", str(exc))
             return
-        result = analyze_frame_data(model)
+        result = self._workspace.analyze(model)
         self.results_panel.set_model(model)
         if not result.get("ok"):
             self.results_panel.clear_analysis()
             self._show_error("Analysis failed", str(result.get("error", "Unknown error")))
             return
-        self.results_panel.set_analysis(result, build_frame_postprocess(model, result))
+        self.results_panel.set_analysis(result, self._workspace.postprocess(model, result))
         elapsed_seconds = perf_counter() - started_at
         self.statusBar().showMessage(
             f"Analysis complete: {len(model['nodes'])} nodes, {len(model['elements'])} members ({elapsed_seconds:.2f} s)"
@@ -554,7 +590,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "Analysis complete",
-            "The 2D frame analysis finished successfully.\n\n"
+            f"The 2D {self._workspace.model_name} analysis finished successfully.\n\n"
             f"Nodes: {len(model['nodes'])}\n"
             f"Members: {len(model['elements'])}\n"
             f"Elapsed time: {elapsed_seconds:.2f} s",
@@ -673,7 +709,7 @@ class MainWindow(QMainWindow):
 
     def _write_model(self, path: Path) -> None:
         try:
-            model = FrameModel.from_dict(self.input_panel.model_data()).to_dict()
+            model = self._workspace.normalize_model(self.input_panel.model_data())
             path.write_text(json.dumps(model, indent=2), encoding="utf-8")
         except (OSError, ModelValidationError, ValueError) as exc:
             self._show_error("Unable to save model", str(exc))
@@ -684,19 +720,19 @@ class MainWindow(QMainWindow):
 
     def _set_dirty(self, dirty: bool) -> None:
         self._dirty = dirty
-        title = "GO Struct Desktop | 2D Frame"
+        title = self._workspace.title
         self.setWindowTitle(f"* {title}" if dirty else title)
 
     @property
     def _autosave_path(self) -> Path:
         root = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation))
-        return root / "recovery.goframe.json"
+        return root / f"recovery.{self._workspace.key}.json"
 
     def _autosave_model(self, model: Mapping[str, Any]) -> None:
         try:
             path = self._autosave_path
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(FrameModel.from_dict(model).to_dict(), indent=2), encoding="utf-8")
+            path.write_text(json.dumps(self._workspace.normalize_model(model), indent=2), encoding="utf-8")
         except (OSError, ModelValidationError, ValueError):
             self.statusBar().showMessage("Model changed. Autosave could not be written.")
 
