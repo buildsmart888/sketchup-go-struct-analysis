@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from go_struct_core import FrameModel, analyze_frame_data, build_frame_postprocess
-from go_struct_desktop.examples import FRAME_EXAMPLES
+from go_struct_desktop.examples import BUILT_IN_FRAME_EXAMPLES, ENGILAB_REFERENCE_EXAMPLES, FRAME_EXAMPLES
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "portal_frame.json"
@@ -42,8 +42,10 @@ def test_cantilever_displacement_matches_closed_form() -> None:
 
 
 def test_all_builtin_examples_are_valid_and_analysis_ready() -> None:
-    assert len(FRAME_EXAMPLES) == 5
-    titles = " ".join(example.title for example in FRAME_EXAMPLES).lower()
+    assert len(BUILT_IN_FRAME_EXAMPLES) == 5
+    assert len(ENGILAB_REFERENCE_EXAMPLES) == 5
+    assert len(FRAME_EXAMPLES) == 10
+    titles = " ".join(example.title for example in BUILT_IN_FRAME_EXAMPLES).lower()
     for keyword in ("cantilever", "simply supported", "portal", "released", "reaction"):
         assert keyword in titles
     for example in FRAME_EXAMPLES:

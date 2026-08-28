@@ -17,7 +17,7 @@ from go_struct_core import FrameModel, ModelValidationError, analyze_frame_data,
 
 from .frame_workspace import FrameInputPanel, FrameResultsPanel, default_frame_model
 from .display import DisplayPanel, DisplaySettings
-from .examples import FRAME_EXAMPLES, FrameExample
+from .examples import BUILT_IN_FRAME_EXAMPLES, ENGILAB_REFERENCE_EXAMPLES, FrameExample
 from .inspector import PropertyInspector
 
 
@@ -190,11 +190,18 @@ class MainWindow(QMainWindow):
         file_menu.addAction(save_as_action)
         file_menu.addSeparator()
         examples_menu = file_menu.addMenu("Examples")
-        for example in FRAME_EXAMPLES:
+        for example in BUILT_IN_FRAME_EXAMPLES:
             action = QAction(example.title, self)
             action.setToolTip(example.description)
             action.triggered.connect(lambda _checked=False, value=example: self.load_example(value))
             examples_menu.addAction(action)
+        examples_menu.addSeparator()
+        engilab_menu = examples_menu.addMenu("EngiLab Frame.2D References (Metric)")
+        for example in ENGILAB_REFERENCE_EXAMPLES:
+            action = QAction(example.title, self)
+            action.setToolTip(example.description)
+            action.triggered.connect(lambda _checked=False, value=example: self.load_example(value))
+            engilab_menu.addAction(action)
         file_menu.addSeparator()
         file_menu.addAction(export_action)
         file_menu.addAction(recover_action)
