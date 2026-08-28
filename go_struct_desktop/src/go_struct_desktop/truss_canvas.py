@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 from .canvas import FrameCanvas
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPen
+from PySide6.QtGui import QColor, QPainter, QPen
 
 from .truss_tools import distribute_vertical_line_load
 
@@ -31,7 +31,12 @@ class TrussCanvas(FrameCanvas):
     def set_diagram_mode(self, mode: str) -> None:
         if mode == "all":
             mode = "n_kg"
-        if mode in {"v_kg", "m_kg_m", "v_mm"}:
+        if mode == "v_mm":
+            self.set_show_deformed(True)
+            self.authoring_message.emit("Showing truss deflected shape from solved nodal displacements.")
+            super().set_diagram_mode("none")
+            return
+        if mode in {"v_kg", "m_kg_m"}:
             self.authoring_message.emit("Truss members report axial force N only.")
             mode = "none"
         super().set_diagram_mode(mode)
@@ -43,6 +48,17 @@ class TrussCanvas(FrameCanvas):
         pen = QPen(color, 3.4)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         return pen
+
+    def _draw_legend(self, painter: QPainter) -> None:
+        super()._draw_legend(painter)
+        painter.setPen(QPen(QColor("#15803d"), 3.4))
+        painter.drawLine(18, 48, 42, 48)
+        painter.setPen(QColor("#334155"))
+        painter.drawText(50, 53, "Tension (+N)")
+        painter.setPen(QPen(QColor("#b91c1c"), 3.4))
+        painter.drawLine(164, 48, 188, 48)
+        painter.setPen(QColor("#334155"))
+        painter.drawText(196, 53, "Compression (-N)")
 
     def assign_active_section_to_selection(self) -> None:
         if not self._selected_members:

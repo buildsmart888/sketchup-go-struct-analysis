@@ -22,6 +22,7 @@ from go_struct_desktop.truss_workspace import TrussMainWindow
 from go_struct_desktop.display import DisplaySettings
 from go_struct_desktop.examples import FRAME_EXAMPLES
 from go_struct_desktop.frame_workspace import FrameInputPanel, default_frame_model
+from go_struct_desktop.template_browser import TemplateBrowserDialog, TemplateOption, TemplateParameter
 from go_struct_desktop.units import get_unit_system
 
 
@@ -136,8 +137,13 @@ def test_truss_workspace_uses_axial_only_authoring_and_results(app: QApplication
     assert window.results_panel.analysis and window.results_panel.analysis["analysisType"] == "Truss"
     assert not window.results_panel._tool_buttons["member_load"].isVisible()
     assert not window.diagram_buttons["v_kg"].isVisible()
-    assert window.results_panel.diagrams.quantity_selector.count() == 1
+    assert window.results_panel.diagrams.quantity_selector.count() == 2
     assert window.results_panel.diagrams.quantity_selector.currentData() == "n_kg"
+    assert window.results_panel.diagrams.quantity_selector.itemText(window.results_panel.diagrams.quantity_selector.findData("v_mm")) == "Deflected Shape"
+    assert window.diagram_buttons["v_mm"].isVisible()
+    window.results_panel.canvas.set_diagram_mode("v_mm")
+    assert window.results_panel.canvas.diagram_mode == "none"
+    assert window.results_panel.canvas._show_deformed is True
     assert "Max tension" in window.results_panel.summary.horizontalHeaderItem(1).text()
     member_load_tab = window.input_panel.tabs.indexOf(window.input_panel.element_loads)
     assert not window.input_panel.tabs.isTabVisible(member_load_tab)
@@ -148,6 +154,24 @@ def test_truss_workspace_uses_axial_only_authoring_and_results(app: QApplication
     window.results_panel.canvas.set_tool("member_load")
     assert window.results_panel.canvas.tool == "select"
     window.close()
+
+
+def test_template_catalog_draws_a_dimensioned_preview_and_collects_parameters(app: QApplication) -> None:
+    option = TemplateOption(
+        "simple",
+        "Simply Supported",
+        "Pinned and roller supports.",
+        "simple",
+        (TemplateParameter("span_m", "Span (m)", 6.0),),
+    )
+    dialog = TemplateBrowserDialog("Template test", (option,))
+    dialog.show()
+    app.processEvents()
+
+    assert dialog.parameters.rowCount() == 1
+    assert dialog.selected_values()["span_m"] == pytest.approx(6.0)
+    assert not dialog.preview.grab().isNull()
+    dialog.close()
 
 
 def test_model_view_draws_all_input_load_cases_while_results_uses_active_case(app: QApplication) -> None:

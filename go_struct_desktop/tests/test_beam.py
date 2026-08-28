@@ -95,3 +95,9 @@ def test_beam_templates_create_editable_analysis_ready_models() -> None:
 
     with pytest.raises(ValueError, match="at least two"):
         continuous_beam_template(1)
+
+
+def test_continuous_template_uses_pinned_intermediate_supports() -> None:
+    model = continuous_beam_template(3, 4.0)
+
+    assert [node["support"] for node in model["nodes"]] == ["Pinned", "Pinned", "Pinned", "RollerX"]

@@ -84,7 +84,9 @@ invalid input. Canvas and Nodes-table editing lock every beam node to its common
 Use `Beam > Add Span` to append a span from the right-most node, `Beam > Place ... support` to assign
 supports, `Beam > Edit Selected Span Length` to retain downstream stations while resizing one span, or
 `Beam > Insert Support in Span` to split a span at a station. Use `Beam Loads > Apply Full-Span UDL to
-Selected` for a fast uniform load, or open the Template Catalog to inspect the starter layouts.
+Selected` for a fast uniform load. The Template Catalog presents a dimensioned beam preview and its
+editable span fields before the model is created. Its continuous-beam starter uses pinned intermediate
+supports and a roller at the right end.
 
 ## Run the Truss workspace
 
@@ -103,10 +105,14 @@ compression for the active result selection. Apply only nodal `Fx/Fy` loads. Mem
 moments, self weight, and frame end releases are intentionally unavailable. Truss sections require only
 `E` and `A`; the frame-only `I` and density fields are hidden. Use `Truss > New Template` to start a
 Triangle, Warren, Pratt, Howe, or pitched Roof truss, then choose the span or panel width and height.
+The canvas legend explicitly marks green as tension (`+N`) and red as compression (`-N`). Select `D` in
+the result toolbar or `Deflected Shape` in the diagram view to show the solved truss deformation.
 Use `Truss > Authoring` to assign the active section to a group of selected members, mirror half a
 truss, adjust roof height, or rebuild a standard template with more/fewer panels. To model a roof line
 load, select its chord members, choose `Convert Selected Chord Load to Nodes`, then enter the vertical
 load per horizontal projected metre. The command reports the resultant and creates only nodal loads.
+The Truss Template Catalog shows the topology drawing and all span/panel/height inputs together before
+creating the editable model.
 
 ## Canvas authoring
 

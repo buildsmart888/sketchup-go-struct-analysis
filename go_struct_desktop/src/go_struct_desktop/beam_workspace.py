@@ -14,7 +14,7 @@ from .app import MainWindow, WorkspaceDefinition
 from .beam_canvas import BeamCanvas
 from .beam_templates import cantilever_template, continuous_beam_template, simply_supported_template
 from .examples import BUILT_IN_BEAM_EXAMPLES
-from .template_browser import TemplateBrowserDialog, TemplateOption
+from .template_browser import TemplateBrowserDialog, TemplateOption, TemplateParameter
 
 
 def default_beam_model() -> dict[str, Any]:
@@ -153,16 +153,32 @@ class BeamMainWindow(MainWindow):
 
     def _show_template_catalog(self) -> None:
         options = (
-            TemplateOption("cantilever", "Cantilever", "Fixed at one end; ideal for a bracket or overhang.", "[Fixed]================ Free"),
-            TemplateOption("simple", "Simply Supported", "Pinned and roller supports with one editable span.", "[Pin]================[Roller]"),
-            TemplateOption("continuous", "Continuous Beam", "Multiple spans with continuous bending across intermediate supports.", "[Pin]====[Roller]====[Roller]"),
+            TemplateOption("cantilever", "Cantilever", "Fixed at one end; ideal for a bracket or overhang.", "cantilever", (TemplateParameter("span_m", "Span (m)", 5.0),)),
+            TemplateOption("simple", "Simply Supported", "Pinned and roller supports with one editable span.", "simple", (TemplateParameter("span_m", "Span (m)", 6.0),)),
+            TemplateOption(
+                "continuous",
+                "Continuous Beam",
+                "Continuous spans with intermediate pinned supports and a roller at the right end.",
+                "continuous",
+                (TemplateParameter("span_count", "Number of spans", 2, 2, 50, integer=True), TemplateParameter("span_m", "Each span (m)", 5.0)),
+            ),
         )
         dialog = TemplateBrowserDialog("Beam Template Catalog", options, self)
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
-        handlers = {"cantilever": self._new_cantilever, "simple": self._new_simply_supported, "continuous": self._new_continuous}
-        if handler := handlers.get(dialog.selected_key() or ""):
-            handler()
+        values = dialog.selected_values()
+        key = dialog.selected_key()
+        if key == "cantilever":
+            model = cantilever_template(float(values["span_m"]))
+        elif key == "simple":
+            model = simply_supported_template(float(values["span_m"]))
+        elif key == "continuous":
+            model = continuous_beam_template(int(values["span_count"]), float(values["span_m"]))
+        else:
+            return
+        self.set_model(model)
+        self.run_analysis()
+        self.statusBar().showMessage(f"New {key} beam from Template Catalog")
 
     def _set_template(self, factory, label: str) -> None:  # type: ignore[no-untyped-def]
         self.set_model(factory())

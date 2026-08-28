@@ -14,7 +14,7 @@ from .app import MainWindow, WorkspaceDefinition
 from .examples import FrameExample
 from .truss_canvas import TrussCanvas
 from .truss_templates import howe_truss_template, pratt_truss_template, roof_truss_template, triangle_truss_template, warren_truss_template
-from .template_browser import TemplateBrowserDialog, TemplateOption
+from .template_browser import TemplateBrowserDialog, TemplateOption, TemplateParameter
 
 
 def _loaded_triangle() -> dict[str, Any]:
@@ -88,7 +88,7 @@ class TrussMainWindow(MainWindow):
 
     def _configure_truss_ui(self) -> None:
         self.results_panel._tool_buttons["member_load"].hide()
-        for mode in ("v_kg", "m_kg_m", "v_mm", "all"):
+        for mode in ("v_kg", "m_kg_m", "all"):
             button = self.diagram_buttons[mode]
             button.hide()
             for action in self.analysis_toolbar.actions():
@@ -97,8 +97,12 @@ class TrussMainWindow(MainWindow):
                     break
         selector = self.results_panel.diagrams.quantity_selector
         for index in range(selector.count() - 1, -1, -1):
-            if selector.itemData(index) != "n_kg":
+            if selector.itemData(index) not in {"n_kg", "v_mm"}:
                 selector.removeItem(index)
+        deflection_index = selector.findData("v_mm")
+        if deflection_index >= 0:
+            selector.setItemText(deflection_index, "Deflected Shape")
+        self.diagram_buttons["v_mm"].setToolTip("Show the deflected truss shape from nodal displacement")
         member_load_tab = self.input_panel.tabs.indexOf(self.input_panel.element_loads)
         self.input_panel.tabs.setTabVisible(member_load_tab, False)
         self.input_panel.nodal_loads.table.setColumnHidden(4, True)
@@ -205,18 +209,34 @@ class TrussMainWindow(MainWindow):
 
     def _show_template_catalog(self) -> None:
         options = (
-            TemplateOption("triangle", "Triangle Truss", "Three-bar truss for a compact, determinate system.", "      /\\\n[Pin]------[Roller]"),
-            TemplateOption("warren", "Warren Truss", "Alternating triangular web system for uniform panel spacing.", " /\\/\\/\\/\\\n------------"),
-            TemplateOption("pratt", "Pratt Truss", "Verticals and inward diagonals toward the centre.", "|\\ |\\ /| /|\n------------"),
-            TemplateOption("howe", "Howe Truss", "Verticals and reversed diagonal direction from Pratt.", "|/ |/ \\| \\|\n------------"),
-            TemplateOption("roof", "Pitched Roof Truss", "Pitched top chord with bottom chord and web bracing.", "    /\\\n  /    \\\n------------"),
+            TemplateOption("triangle", "Triangle Truss", "Three-bar truss for a compact, determinate system.", "triangle", (TemplateParameter("span_m", "Span (m)", 6.0), TemplateParameter("height_m", "Height (m)", 3.0))),
+            TemplateOption("warren", "Warren Truss", "Alternating triangular web system for uniform panel spacing.", "warren", (TemplateParameter("panel_count", "Number of panels", 4, 2, 50, integer=True), TemplateParameter("panel_m", "Panel width (m)", 3.0), TemplateParameter("height_m", "Height (m)", 2.0))),
+            TemplateOption("pratt", "Pratt Truss", "Verticals and inward diagonals toward the centre.", "pratt", (TemplateParameter("panel_count", "Number of panels", 4, 2, 50, integer=True), TemplateParameter("panel_m", "Panel width (m)", 3.0), TemplateParameter("height_m", "Height (m)", 2.5))),
+            TemplateOption("howe", "Howe Truss", "Verticals and reversed diagonal direction from Pratt.", "howe", (TemplateParameter("panel_count", "Number of panels", 4, 2, 50, integer=True), TemplateParameter("panel_m", "Panel width (m)", 3.0), TemplateParameter("height_m", "Height (m)", 2.5))),
+            TemplateOption("roof", "Pitched Roof Truss", "Pitched top chord with bottom chord and web bracing; it requires an even panel count.", "roof", (TemplateParameter("panel_count", "Number of panels (even)", 4, 2, 50, integer=True), TemplateParameter("panel_m", "Panel width (m)", 3.0), TemplateParameter("height_m", "Height (m)", 3.0))),
         )
         dialog = TemplateBrowserDialog("Truss Template Catalog", options, self)
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
-        handlers = {"triangle": self._new_triangle, "warren": self._new_warren, "pratt": self._new_pratt, "howe": self._new_howe, "roof": self._new_roof}
-        if handler := handlers.get(dialog.selected_key() or ""):
-            handler()
+        values = dialog.selected_values()
+        key = dialog.selected_key()
+        if key == "triangle":
+            model = triangle_truss_template(float(values["span_m"]), float(values["height_m"]))
+        elif key == "warren":
+            model = warren_truss_template(int(values["panel_count"]), float(values["panel_m"]), float(values["height_m"]))
+        elif key == "pratt":
+            model = pratt_truss_template(int(values["panel_count"]), float(values["panel_m"]), float(values["height_m"]))
+        elif key == "howe":
+            model = howe_truss_template(int(values["panel_count"]), float(values["panel_m"]), float(values["height_m"]))
+        elif key == "roof":
+            panels = int(values["panel_count"])
+            if panels % 2:
+                self.statusBar().showMessage("Roof template requires an even number of panels.", 4000)
+                return
+            model = roof_truss_template(panels, float(values["panel_m"]), float(values["height_m"]))
+        else:
+            return
+        self._load_template(model, f"{key.title()} truss from Template Catalog")
 
     def _regenerate_template_panels(self) -> None:
         model = self.input_panel.model_data()

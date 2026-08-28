@@ -39,7 +39,7 @@ def continuous_beam_template(span_count: int = 2, span_m: float = 5.0) -> dict[s
     if span_count < 2:
         raise ValueError("Continuous beam requires at least two spans")
     nodes = [
-        {"id": index + 1, "x": index * span_m, "y": 0.0, "support": "Pinned" if index == 0 else "RollerX" if index == span_count else "Free"}
+        {"id": index + 1, "x": index * span_m, "y": 0.0, "support": "Pinned" if index < span_count else "RollerX"}
         for index in range(span_count + 1)
     ]
     elements = [{"id": index + 1, "n1": index + 1, "n2": index + 2, "sec": 1, "release": "Rigid-Rigid"} for index in range(span_count)]
