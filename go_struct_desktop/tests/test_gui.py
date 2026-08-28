@@ -8,6 +8,8 @@ import pytest
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import QPoint
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from go_struct_desktop.app import MainWindow
@@ -39,6 +41,10 @@ def test_frame_workspace_analyzes_default_model(app: QApplication) -> None:
     window.results_panel.canvas_diagram_selector.setCurrentIndex(window.results_panel.canvas_diagram_selector.findData("all"))
     app.processEvents()
     assert window.results_panel.canvas.diagram_mode == "all"
+    target, _, _ = window.results_panel.canvas._hover_points[0]
+    QTest.mouseMove(window.results_panel.canvas, QPoint(round(target.x()), round(target.y())))
+    app.processEvents()
+    assert window.results_panel.canvas.has_hover_value
     window.results_panel.diagram_values_toggle.setChecked(True)
     app.processEvents()
     assert not window.results_panel.canvas.grab().isNull()

@@ -29,6 +29,7 @@ class FrameCanvas(QWidget):
         self._diagram_mode = "none"
         self._show_diagram_values = False
         self._hover_points: list[tuple[QPointF, Mapping[str, Any], Mapping[str, Any]]] = []
+        self._hover_sample: tuple[QPointF, Mapping[str, Any], Mapping[str, Any]] | None = None
         self._show_deformed = True
         self._zoom = 1.0
         self._pan = QPointF()
@@ -40,6 +41,7 @@ class FrameCanvas(QWidget):
         self._model = model
         self._zoom = 1.0
         self._pan = QPointF()
+        self._clear_hover()
         self.update()
 
     def set_result(self, result: Mapping[str, Any] | None) -> None:
@@ -47,6 +49,7 @@ class FrameCanvas(QWidget):
         if result is None:
             self._deformed_members = []
             self._diagram_members = []
+        self._clear_hover()
         self.update()
 
     def set_deformed_members(self, members: list[Mapping[str, Any]]) -> None:
@@ -59,10 +62,12 @@ class FrameCanvas(QWidget):
 
     def set_diagram_members(self, members: list[Mapping[str, Any]]) -> None:
         self._diagram_members = members
+        self._clear_hover()
         self.update()
 
     def set_diagram_mode(self, mode: str) -> None:
         self._diagram_mode = mode if mode in {*self._DIAGRAMS, "all"} else "none"
+        self._clear_hover()
         self.update()
 
     def set_show_diagram_values(self, show: bool) -> None:
@@ -72,6 +77,10 @@ class FrameCanvas(QWidget):
     def set_show_deformed(self, show: bool) -> None:
         self._show_deformed = show
         self.update()
+
+    @property
+    def has_hover_value(self) -> bool:
+        return self._hover_sample is not None
 
     def wheelEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         factor = 1.15 if event.angleDelta().y() > 0 else 1.0 / 1.15
@@ -128,7 +137,7 @@ class FrameCanvas(QWidget):
         def screen(x: float, y: float) -> QPointF:
             return QPointF(viewport_center.x() + (x - center_x) * scale, viewport_center.y() - (y - center_y) * scale)
 
-        self._update_hover_points(node_by_id, screen)
+        self._update_hover_points(node_by_id, screen, span_x, span_y)
         self._draw_grid(painter, screen, min_x, max_x, min_y, max_y)
         self._draw_loads(painter, node_by_id, screen)
 
@@ -144,6 +153,7 @@ class FrameCanvas(QWidget):
 
         self._draw_diagram_overlays(painter, node_by_id, screen, span_x, span_y)
         self._draw_deformed_shape(painter, node_by_id, screen, span_x, span_y)
+        self._draw_hover_crosshair(painter, node_by_id, screen, span_x, span_y)
         self._draw_nodes_and_supports(painter, nodes, screen)
         self._draw_legend(painter)
 
@@ -248,16 +258,10 @@ class FrameCanvas(QWidget):
     def _draw_diagram_overlays(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, span_x: float, span_y: float) -> None:
         if not self._diagram_members or self._diagram_mode == "none":
             return
-        keys = list(self._DIAGRAMS) if self._diagram_mode == "all" else [self._diagram_mode]
-        for key in keys:
-            maximum = max(
-                (abs(float(point.get(key, 0.0))) for member in self._diagram_members for point in member.get("points", [])),
-                default=0.0,
-            )
-            if maximum <= 1.0e-12:
+        for key in self._diagram_keys():
+            amplitude = self._diagram_amplitude(key, span_x, span_y)
+            if amplitude is None:
                 continue
-            # A common scale per result selection preserves visual comparisons between members.
-            amplitude = max(span_x, span_y) * (0.075 if self._diagram_mode == "all" else 0.14) / maximum
             _, color = self._DIAGRAMS[key]
             self._draw_member_diagram(painter, node_by_id, screen, key, amplitude, color, self._diagram_mode == "all")
 
@@ -312,7 +316,7 @@ class FrameCanvas(QWidget):
             painter.setPen(color)
             painter.drawText(rect.adjusted(3.0, 0.0, 0.0, 0.0), Qt.AlignmentFlag.AlignVCenter, text)
 
-    def _update_hover_points(self, node_by_id: Mapping[int, Mapping[str, Any]], screen) -> None:
+    def _update_hover_points(self, node_by_id: Mapping[int, Mapping[str, Any]], screen, span_x: float, span_y: float) -> None:
         self._hover_points = []
         for member in self._diagram_members:
             node = node_by_id.get(member.get("n1"))
@@ -323,15 +327,30 @@ class FrameCanvas(QWidget):
                 x = float(point.get("x_m", 0.0))
                 location = screen(float(node["x"]) + math.cos(angle) * x, float(node["y"]) + math.sin(angle) * x)
                 self._hover_points.append((location, member, point))
+                for key in self._diagram_keys():
+                    amplitude = self._diagram_amplitude(key, span_x, span_y)
+                    if amplitude is None:
+                        continue
+                    offset = float(point.get(key, 0.0)) * amplitude
+                    normal_x, normal_y = -math.sin(angle), math.cos(angle)
+                    diagram_location = screen(
+                        float(node["x"]) + math.cos(angle) * x + normal_x * offset,
+                        float(node["y"]) + math.sin(angle) * x + normal_y * offset,
+                    )
+                    self._hover_points.append((diagram_location, member, point))
 
     def _show_hover_value(self, position: QPointF, global_position: QPoint) -> None:
         if not self._hover_points:
-            QToolTip.hideText()
+            self._clear_hover()
             return
-        location, member, point = min(self._hover_points, key=lambda item: (item[0] - position).manhattanLength())
+        sample = min(self._hover_points, key=lambda item: (item[0] - position).manhattanLength())
+        location, member, point = sample
         if (location - position).manhattanLength() > 16.0:
-            QToolTip.hideText()
+            self._clear_hover()
             return
+        if self._hover_sample != sample:
+            self._hover_sample = sample
+            self.update()
         lines = [
             f"E{member['id']} | N{member['n1']} - N{member['n2']} | x = {float(point['x_m']):.3f} m",
             f"N = {float(point.get('n_kg', 0.0)):,.3f} kg",
@@ -340,6 +359,65 @@ class FrameCanvas(QWidget):
             f"FE deflection = {float(point.get('v_mm', 0.0)):,.4f} mm",
         ]
         QToolTip.showText(global_position, "\n".join(lines), self)
+
+    def _draw_hover_crosshair(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, span_x: float, span_y: float) -> None:
+        if self._hover_sample is None:
+            return
+        _, member, point = self._hover_sample
+        node_i = node_by_id.get(member.get("n1"))
+        node_j = node_by_id.get(member.get("n2"))
+        if node_i is None or node_j is None:
+            return
+        x = float(point.get("x_m", 0.0))
+        angle = float(member.get("angle_rad", 0.0))
+        base = screen(float(node_i["x"]) + math.cos(angle) * x, float(node_i["y"]) + math.sin(angle) * x)
+        end = screen(float(node_j["x"]), float(node_j["y"]))
+        start = screen(float(node_i["x"]), float(node_i["y"]))
+        direction = end - start
+        length = math.hypot(direction.x(), direction.y())
+        if length <= 1.0e-12:
+            return
+        direction /= length
+        normal = QPointF(-direction.y(), direction.x())
+        guide = QPen(QColor("#475569"), 1.0, Qt.PenStyle.DotLine)
+        painter.setPen(guide)
+        painter.drawLine(base - normal * 64.0, base + normal * 64.0)
+        painter.drawLine(base - direction * 7.0, base + direction * 7.0)
+        painter.setBrush(QColor("#ffffff"))
+        painter.setPen(QPen(QColor("#0f172a"), 1.3))
+        painter.drawEllipse(base, 3.6, 3.6)
+        for key in self._diagram_keys():
+            amplitude = self._diagram_amplitude(key, span_x, span_y)
+            if amplitude is None:
+                continue
+            offset = float(point.get(key, 0.0)) * amplitude
+            location = screen(
+                float(node_i["x"]) + math.cos(angle) * x - math.sin(angle) * offset,
+                float(node_i["y"]) + math.sin(angle) * x + math.cos(angle) * offset,
+            )
+            _, color = self._DIAGRAMS[key]
+            painter.setPen(QPen(color, 1.8))
+            painter.setBrush(QColor("#ffffff"))
+            painter.drawEllipse(location, 4.2, 4.2)
+
+    def _diagram_keys(self) -> list[str]:
+        if self._diagram_mode == "all":
+            return list(self._DIAGRAMS)
+        return [self._diagram_mode] if self._diagram_mode in self._DIAGRAMS else []
+
+    def _diagram_amplitude(self, key: str, span_x: float, span_y: float) -> float | None:
+        maximum = max(
+            (abs(float(point.get(key, 0.0))) for member in self._diagram_members for point in member.get("points", [])),
+            default=0.0,
+        )
+        if maximum <= 1.0e-12:
+            return None
+        # A common scale per result selection preserves visual comparisons between members.
+        return max(span_x, span_y) * (0.075 if self._diagram_mode == "all" else 0.14) / maximum
+
+    def _clear_hover(self) -> None:
+        self._hover_sample = None
+        QToolTip.hideText()
 
     @staticmethod
     def _format_diagram_value(key: str, value: float) -> str:
