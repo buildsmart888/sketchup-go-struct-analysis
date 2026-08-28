@@ -298,14 +298,14 @@ class FrameResultsPanel(QWidget):
     canvas_status_changed = Signal(str)
     delete_requested = Signal(object)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, canvas_class: type[FrameCanvas] = FrameCanvas) -> None:
         super().__init__(parent)
         self._model: Mapping[str, Any] = {}
         self._analysis: Mapping[str, Any] | None = None
         self._postprocess: Mapping[str, Any] | None = None
         self._diagnostic_items: list[Mapping[str, Any]] = []
         self._units = get_unit_system("legacy_kg_m")
-        self.canvas = FrameCanvas(self)
+        self.canvas = canvas_class(self)
         self.canvas_tools = QButtonGroup(self)
         self.canvas_tools.setExclusive(True)
         self._tool_buttons: dict[str, QToolButton] = {}

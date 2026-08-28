@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from go_struct_core import BeamModel, analyze_beam_data, build_frame_postprocess
+from go_struct_desktop.beam_templates import cantilever_template, continuous_beam_template, simply_supported_template
 from go_struct_desktop.examples import BUILT_IN_BEAM_EXAMPLES
 
 
@@ -85,3 +86,12 @@ def test_builtin_beam_examples_are_valid_and_analysis_ready() -> None:
     for example in BUILT_IN_BEAM_EXAMPLES:
         assert BeamModel.from_dict(example.model()).to_dict()["projectInfo"]["analysisType"] == "Beam"
         assert analyze_beam_data(example.model())["ok"] is True, example.title
+
+
+def test_beam_templates_create_editable_analysis_ready_models() -> None:
+    for model in (cantilever_template(4.0), simply_supported_template(7.0), continuous_beam_template(3, 4.0)):
+        assert BeamModel.from_dict(model).to_dict()["projectInfo"]["analysisType"] == "Beam"
+        assert analyze_beam_data(model)["ok"] is True
+
+    with pytest.raises(ValueError, match="at least two"):
+        continuous_beam_template(1)

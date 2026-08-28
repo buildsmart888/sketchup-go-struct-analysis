@@ -80,7 +80,9 @@ go-struct-beam
 The Beam workspace opens with a two-span beam and writes `.gobeam.json` files. It accepts horizontal
 members and transverse `Fy`/`Mz`, Local Y, or Global Y loads. This is a separate 1D solver, not a
 restricted visual mode of the Frame solver; axial loads and non-horizontal members are reported as
-invalid input.
+invalid input. Canvas and Nodes-table editing lock every beam node to its common horizontal baseline.
+Use `Beam > Add Span` to append a span from the right-most node, `Beam > Place ... support` to assign
+supports, or `Beam > New Template` to begin with cantilever, simply supported, or continuous geometry.
 
 ## Canvas authoring
 

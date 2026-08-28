@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication, QDockWidget
 
 from go_struct_desktop.app import MainWindow
 from go_struct_desktop.beam_workspace import BeamMainWindow
+from go_struct_desktop.beam_canvas import BeamCanvas
 from go_struct_desktop.display import DisplaySettings
 from go_struct_desktop.examples import FRAME_EXAMPLES
 from go_struct_desktop.frame_workspace import FrameInputPanel, default_frame_model
@@ -71,6 +72,33 @@ def test_beam_workspace_opens_with_its_own_solver_and_examples(app: QApplication
     assert window.results_panel.analysis["analysisType"] == "Beam"
     assert window._workspace.normalize_model(window.input_panel.model_data())["projectInfo"]["analysisType"] == "Beam"
     assert len(window._workspace.examples) == 4
+    window.close()
+
+
+def test_beam_canvas_locks_vertical_authoring_and_appends_spans(app: QApplication) -> None:
+    window = BeamMainWindow()
+    canvas = window.results_panel.canvas
+    assert isinstance(canvas, BeamCanvas)
+
+    window.input_panel.nodes.table.item(1, 2).setText("9.0")
+    app.processEvents()
+    table_locked = next(node for node in window.input_panel.model_data()["nodes"] if node["id"] == 2)
+    assert table_locked["y"] == 0.0
+
+    canvas._move_node(2, (4.5, 9.0))
+    app.processEvents()
+    moved = next(node for node in window.input_panel.model_data()["nodes"] if node["id"] == 2)
+    assert (moved["x"], moved["y"]) == (4.5, 0.0)
+
+    canvas.add_span(3.0, support="RollerX")
+    app.processEvents()
+    model = window.input_panel.model_data()
+    added = max(model["nodes"], key=lambda node: node["id"])
+    member = max(model["elements"], key=lambda item: item["id"])
+    assert (added["x"], added["y"], added["support"]) == (11.0, 0.0, "RollerX")
+    assert member["n2"] == added["id"]
+    window.run_analysis()
+    assert window.results_panel.analysis and window.results_panel.analysis["ok"] is True
     window.close()
 
 

@@ -91,8 +91,10 @@ workspace. Beam and Truss remain separate workspaces, not incomplete Frame featu
   point force/moment, uniform/triangular loading, load cases, combinations, and envelopes.
 - Dedicated `go-struct-beam` desktop entry point with independent files/autosave and four editable
   Beam examples. It reuses the established editor, canvas, units, result diagrams, FBD, and docks.
-- Beam input intentionally rejects non-horizontal members and axial loads instead of treating them
-  as a 2D frame. Beam-specific authoring constraints and templates are the remaining Beam work.
+- Beam authoring locks node/member editing to one horizontal baseline, offers `Add Span`, direct
+  fixed/pinned/roller support placement, and cantilever/simply-supported/continuous templates.
+- Beam input rejects non-horizontal members and axial loads instead of treating them as a 2D frame.
+  More specialised layout helpers can follow from actual project workflows.
 
 ## Next: Phase 3.2 Truss workspace
 

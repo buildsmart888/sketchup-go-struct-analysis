@@ -41,7 +41,8 @@ The data contract mirrors `go_struct_analysis/goframe.rb` and the `collectData()
 - Phase 3.1: the Beam workspace uses `BeamModel` and a standalone 1D Euler-Bernoulli solver while
   retaining the shared JSON field names and result/post-processing contract. It deliberately accepts
   horizontal members with transverse loads only; axial beam actions and non-horizontal geometry are
-  rejected rather than silently analysed as a frame.
+  rejected rather than silently analysed as a frame. `BeamCanvas` and the Beam workspace table-change
+  boundary preserve one horizontal node baseline before data reaches the solver.
 - Phase 3.2: the Truss solver and workspace use the same editor, units, result, and validation
   conventions, with an axial-only solver contract.
 - Phase 4: report and export services consume JSON-compatible analysis results.

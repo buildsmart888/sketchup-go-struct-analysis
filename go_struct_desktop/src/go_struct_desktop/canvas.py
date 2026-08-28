@@ -468,7 +468,8 @@ class FrameCanvas(QWidget):
         nodes = self._model.get("nodes", [])
         if not nodes:
             painter.setPen(QColor("#64748b"))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No frame model")
+            model_kind = str(self._model.get("projectInfo", {}).get("analysisType", "Frame"))
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, f"No {model_kind.lower()} model")
             return
 
         node_by_id = {node["id"]: node for node in nodes}
@@ -1643,7 +1644,8 @@ class FrameCanvas(QWidget):
         painter.setPen(QPen(QColor("#1e293b"), 3.0))
         painter.drawLine(18, 24, 44, 24)
         painter.setPen(QColor("#334155"))
-        painter.drawText(52, 29, "Frame")
+        model_kind = str(self._model.get("projectInfo", {}).get("analysisType", "Frame"))
+        painter.drawText(52, 29, model_kind)
         if self._view_mode == "results" and self._show_deformed and self._result:
             painter.setPen(QPen(QColor("#0f766e"), 2.0, Qt.PenStyle.DashLine))
             painter.drawLine(110, 24, 136, 24)

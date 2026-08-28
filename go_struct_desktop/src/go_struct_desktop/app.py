@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QApplication, QButtonGroup, QDockWidget, QFileDial
 from go_struct_core import FrameModel, ModelValidationError, analyze_frame_data, build_frame_postprocess
 
 from .frame_workspace import FrameInputPanel, FrameResultsPanel, default_frame_model
+from .canvas import FrameCanvas
 from .display import DisplayPanel, DisplaySettings
 from .engilab import EngiLabImportError, import_engilab_frame, installed_example_files
 from .examples import BUILT_IN_FRAME_EXAMPLES, ENGILAB_REFERENCE_EXAMPLES, FrameExample
@@ -36,6 +37,7 @@ class WorkspaceDefinition:
     postprocess: Callable[[Mapping[str, Any], Mapping[str, Any]], dict[str, Any]]
     examples: tuple[FrameExample, ...]
     file_extension: str
+    canvas_class: type[FrameCanvas] = FrameCanvas
     engilab_import: bool = False
 
 
@@ -69,7 +71,7 @@ class MainWindow(QMainWindow):
         self._dirty = False
         self._settings = QSettings("BuildSmart888", f"GOStructDesktop{self._workspace.key.title()}")
         self.input_panel = FrameInputPanel(self)
-        self.results_panel = FrameResultsPanel(self)
+        self.results_panel = FrameResultsPanel(self, canvas_class=self._workspace.canvas_class)
         self.inspector = PropertyInspector(self)
         self._build_window()
         self.input_panel.model_changed.connect(self._model_edited)
