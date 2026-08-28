@@ -64,7 +64,7 @@ the Ruby dialog, and it writes the same input field names back to JSON.
 
 ## Canvas authoring
 
-The main toolbar groups compact icon tools for modeling, loading, and analysis directly after the file commands. Use it to switch among Select, Node, Member, Split, support, load, and Pan. Node and Member tools use
+The workspace uses two stable toolbar rows: Modeling and Loading beside the file commands, then Analysis and Results below it. The result diagram selector is a direct `Model`/`N`/`V`/`M`/`D`/`All` mode-button group, rather than a dropdown. Use the modeling tools to switch among Select, Node, Member, Split, support, load, and Pan. Node and Member tools use
 the configured grid step and can snap to endpoints, member midpoints, or member intersections. Select objects by click or selection
 box; choose Nodes, Members, or Both before selecting. A left-to-right window selects objects fully
 inside it, while a right-to-left window selects crossing members too. Drag a selected node to move,

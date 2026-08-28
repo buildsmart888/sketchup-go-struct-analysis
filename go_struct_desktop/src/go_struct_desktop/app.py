@@ -10,7 +10,7 @@ from typing import Any, Mapping
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QFont, QKeySequence
-from PySide6.QtWidgets import QApplication, QDockWidget, QFileDialog, QMainWindow, QMessageBox, QStyle, QWidget
+from PySide6.QtWidgets import QApplication, QButtonGroup, QDockWidget, QFileDialog, QMainWindow, QMessageBox, QStyle, QToolBar, QToolButton, QWidget
 
 from go_struct_core import FrameModel, ModelValidationError, analyze_frame_data, build_frame_postprocess
 
@@ -232,22 +232,32 @@ class MainWindow(QMainWindow):
         fbd_action.triggered.connect(lambda: self.display_panel.view_mode.setCurrentIndex(self.display_panel.view_mode.findData("fbd")))
         results_menu.addAction(fbd_action)
         self.menuBar().addMenu("Report")
-        toolbar = self.addToolBar("Frame")
-        toolbar.setMovable(False)
-        toolbar.addAction(new_action)
-        toolbar.addAction(open_action)
-        toolbar.addAction(save_action)
-        toolbar.addSeparator()
-        toolbar.addAction(self.undo_action)
-        toolbar.addAction(self.redo_action)
-        toolbar.addSeparator()
-        self._add_canvas_toolbar_controls(toolbar)
-        toolbar.addSeparator()
-        toolbar.addAction(analyze_action)
+        self.modeling_toolbar = self.addToolBar("Modeling and Loading")
+        self.modeling_toolbar.setObjectName("modelingToolbar")
+        self.modeling_toolbar.setMovable(False)
+        self.modeling_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.modeling_toolbar.addAction(new_action)
+        self.modeling_toolbar.addAction(open_action)
+        self.modeling_toolbar.addAction(save_action)
+        self.modeling_toolbar.addSeparator()
+        self.modeling_toolbar.addAction(self.undo_action)
+        self.modeling_toolbar.addAction(self.redo_action)
+        self.modeling_toolbar.addSeparator()
+        self._add_modeling_toolbar_controls(self.modeling_toolbar)
+        self.modeling_toolbar.addSeparator()
+        self._add_loading_toolbar_controls(self.modeling_toolbar)
+
+        self.addToolBarBreak()
+        self.analysis_toolbar = QToolBar("Analysis and Results", self)
+        self.analysis_toolbar.setObjectName("analysisToolbar")
+        self.analysis_toolbar.setMovable(False)
+        self.analysis_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.addToolBar(self.analysis_toolbar)
+        self._add_analysis_toolbar_controls(self.analysis_toolbar, analyze_action)
         self._update_history_actions()
 
-    def _add_canvas_toolbar_controls(self, toolbar: object) -> None:
-        """Place compact canvas controls beside the file actions, grouped by use."""
+    def _add_modeling_toolbar_controls(self, toolbar: QToolBar) -> None:
+        """Add direct model-authoring controls to the first toolbar row."""
         style = self.style()
         icon_map = {
             "select": QStyle.StandardPixmap.SP_ArrowForward,
@@ -255,8 +265,6 @@ class MainWindow(QMainWindow):
             "member": QStyle.StandardPixmap.SP_ArrowRight,
             "split": QStyle.StandardPixmap.SP_DialogApplyButton,
             "pan": QStyle.StandardPixmap.SP_BrowserReload,
-            "nodal_load": QStyle.StandardPixmap.SP_ArrowDown,
-            "member_load": QStyle.StandardPixmap.SP_ArrowUp,
         }
         for key in ("select", "node", "member", "split", "pan"):
             button = self.results_panel._tool_buttons[key]
@@ -271,14 +279,7 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self.results_panel.support_button)
         toolbar.addWidget(self.results_panel.selection_filter)
         toolbar.addSeparator()
-        for key in ("nodal_load", "member_load"):
-            button = self.results_panel._tool_buttons[key]
-            button.setIcon(style.standardIcon(icon_map[key]))
-            button.setText("")
-            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-            toolbar.addWidget(button)
-        toolbar.addWidget(self.results_panel.active_section)
-        toolbar.addSeparator()
+
         toolbar.addWidget(self.results_panel.grid_toggle)
         toolbar.addWidget(self.results_panel.snap_toggle)
         toolbar.addWidget(self.results_panel.snap_nodes_toggle)
@@ -287,11 +288,63 @@ class MainWindow(QMainWindow):
         self.results_panel.fit_button.setText("")
         self.results_panel.fit_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         toolbar.addWidget(self.results_panel.fit_button)
+
+    def _add_loading_toolbar_controls(self, toolbar: QToolBar) -> None:
+        """Add load-authoring controls to the first toolbar row."""
+        style = self.style()
+        icon_map = {
+            "nodal_load": QStyle.StandardPixmap.SP_ArrowDown,
+            "member_load": QStyle.StandardPixmap.SP_ArrowUp,
+        }
+        for key in ("nodal_load", "member_load"):
+            button = self.results_panel._tool_buttons[key]
+            button.setIcon(style.standardIcon(icon_map[key]))
+            button.setText("")
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            toolbar.addWidget(button)
+        toolbar.addWidget(self.results_panel.active_section)
+
+    def _add_analysis_toolbar_controls(self, toolbar: QToolBar, analyze_action: QAction) -> None:
+        """Add result navigation and diagram mode icons to the second toolbar row."""
+        toolbar.addAction(analyze_action)
         toolbar.addWidget(self.results_panel.result_selector)
-        toolbar.addWidget(self.results_panel.canvas_diagram_selector)
+        toolbar.addSeparator()
+        self.results_panel.canvas_diagram_selector.hide()
+        self.diagram_buttons: dict[str, QToolButton] = {}
+        self.diagram_button_group = QButtonGroup(self)
+        self.diagram_button_group.setExclusive(True)
+        for mode, label, tooltip, color in (
+            ("none", "Model", "Show model without result diagrams", "#475569"),
+            ("n_kg", "N", "Show axial-force (N) diagram", "#15803d"),
+            ("v_kg", "V", "Show shear-force (V) diagram", "#2563eb"),
+            ("m_kg_m", "M", "Show bending-moment (M) diagram", "#dc2626"),
+            ("v_mm", "D", "Show FE deflection diagram", "#0f766e"),
+            ("all", "All", "Show N, V, M, and deflection diagrams", "#7c3aed"),
+        ):
+            button = QToolButton(toolbar)
+            button.setText(label)
+            button.setCheckable(True)
+            button.setToolTip(tooltip)
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+            button.setStyleSheet(
+                f"QToolButton {{ color: {color}; min-width: 30px; }}"
+                f"QToolButton:checked {{ background: {color}; color: #ffffff; border-color: {color}; }}"
+            )
+            button.clicked.connect(lambda _checked=False, value=mode: self._set_canvas_diagram(value))
+            self.diagram_button_group.addButton(button)
+            self.diagram_buttons[mode] = button
+            toolbar.addWidget(button)
+        self.results_panel.canvas_diagram_selector.currentIndexChanged.connect(self._sync_diagram_buttons)
+        self._sync_diagram_buttons()
+        toolbar.addSeparator()
         toolbar.addWidget(self.results_panel.diagram_values_toggle)
         toolbar.addWidget(self.results_panel.deformed_toggle)
         toolbar.addWidget(self.results_panel.selection_label)
+
+    def _sync_diagram_buttons(self, _index: int | None = None) -> None:
+        mode = str(self.results_panel.canvas_diagram_selector.currentData() or "none")
+        if button := self.diagram_buttons.get(mode):
+            button.setChecked(True)
 
     def set_model(self, model: Mapping[str, Any]) -> None:
         self._set_input_model(model)
