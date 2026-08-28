@@ -431,6 +431,7 @@ class FrameResultsPanel(QWidget):
         self.grid_spacing.blockSignals(False)
         self.canvas.set_grid_spacing(canonical_grid)
         self.canvas.set_unit_system(new_units.key)
+        self.diagrams.set_unit_system(new_units.key)
         self.summary.setHorizontalHeaderLabels([f"Max displacement ({new_units.length_unit})", f"Max axial ({new_units.force_unit})", f"Max moment ({new_units.moment_label()})"])
         self.node_results.setHorizontalHeaderLabels(["Node", f"dx ({new_units.length_unit})", f"dy ({new_units.length_unit})", "Rz (rad)", f"Rx ({new_units.force_unit})", f"Ry ({new_units.force_unit})", f"Mz ({new_units.moment_label()})"])
         self.member_results.setHorizontalHeaderLabels(["Member", f"N1 axial ({new_units.force_unit})", f"N1 shear ({new_units.force_unit})", f"N1 moment ({new_units.moment_label()})", f"N2 axial ({new_units.force_unit})", f"N2 shear ({new_units.force_unit})", f"N2 moment ({new_units.moment_label()})"])
@@ -621,18 +622,23 @@ class FrameResultsPanel(QWidget):
     def _populate_tables(self, result: Mapping[str, Any]) -> None:
         nodes = result.get("nodes", [])
         elements = result.get("elements", [])
-        maximum_displacement = self._units.length(max((float(node.get("dx", 0.0)) ** 2 + float(node.get("dy", 0.0)) ** 2 for node in nodes), default=0.0) ** 0.5)
+        maximum_displacement_m = max((float(node.get("dx", 0.0)) ** 2 + float(node.get("dy", 0.0)) ** 2 for node in nodes), default=0.0) ** 0.5
         maximum_axial = max((abs(float(member[side]["axial"])) for member in elements for side in ("n1_forces", "n2_forces")), default=0.0)
         maximum_moment = max((abs(float(member[side]["moment"])) for member in elements for side in ("n1_forces", "n2_forces")), default=0.0)
         self.summary.setRowCount(1)
-        for column, value in enumerate((maximum_displacement, self._units.force(maximum_axial), self._units.moment(maximum_moment))):
-            self.summary.setItem(0, column, QTableWidgetItem(f"{value:,.4f}"))
+        values = (self._units.format_displacement(maximum_displacement_m), f"{self._units.force(maximum_axial):,.4f}", f"{self._units.moment(maximum_moment):,.4f}")
+        for column, value in enumerate(values):
+            self.summary.setItem(0, column, QTableWidgetItem(value))
 
         self.node_results.setRowCount(len(nodes))
         for row, node in enumerate(nodes):
-            values = (node["id"], self._units.length(float(node["dx"])), self._units.length(float(node["dy"])), node["rz"], self._units.force(float(node["fx"])), self._units.force(float(node["fy"])), self._units.moment(float(node["mz"])))
+            values = (node["id"], self._units.format_displacement(float(node["dx"])), self._units.format_displacement(float(node["dy"])), node["rz"], self._units.force(float(node["fx"])), self._units.force(float(node["fy"])), self._units.moment(float(node["mz"])))
             for column, value in enumerate(values):
-                self.node_results.setItem(row, column, QTableWidgetItem(str(value) if column == 0 else f"{float(value):,.5f}"))
+                if column in (0, 1, 2):
+                    text = str(value)
+                else:
+                    text = f"{float(value):,.5f}"
+                self.node_results.setItem(row, column, QTableWidgetItem(text))
 
         self.member_results.setRowCount(len(elements))
         for row, member in enumerate(elements):
@@ -667,7 +673,11 @@ class FrameResultsPanel(QWidget):
                 value = extrema.get(key, {}).get("abs")
                 if value:
                     governing = f" ({value['combo']})" if value.get("combo") else ""
-                    lines.append(f"  {label} max abs = {float(value['value']):.4f} at x = {float(value['x_m']):.4f} m{governing}")
+                    if key == "v_mm":
+                        amount = self._units.format_displacement(float(value["value"]) / 1000.0)
+                    else:
+                        amount = f"{float(value['value']):.4f}"
+                    lines.append(f"  {label} max abs = {amount} at x = {float(value['x_m']):.4f} m{governing}")
         self.calculation_details.setPlainText("\n".join(lines))
 
     def _populate_diagnostics(self) -> None:

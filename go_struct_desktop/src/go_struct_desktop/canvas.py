@@ -997,7 +997,7 @@ class FrameCanvas(QWidget):
             f"N = {self._units.force(self._display_diagram_value('n_kg', float(point.get('n_kg', 0.0)))):,.3f} {self._units.force_unit} ({self._display.axial_positive} +)",
             f"V = {self._units.force(self._display_diagram_value('v_kg', float(point.get('v_kg', 0.0)))):,.3f} {self._units.force_unit} ({self._display.shear_positive} +)",
             f"M = {self._units.moment(self._display_diagram_value('m_kg_m', float(point.get('m_kg_m', 0.0)))):,.3f} {self._units.moment_label()} ({self._display.moment_positive})",
-            f"FE deflection = {self._units.length(float(point.get('v_mm', 0.0)) / 1000.0):,.4f} {self._units.length_unit}",
+            f"FE deflection = {self._units.format_displacement(float(point.get('v_mm', 0.0)) / 1000.0)} {self._units.length_unit}",
         ]
         QToolTip.showText(global_position, "\n".join(lines), self)
 
@@ -1077,7 +1077,7 @@ class FrameCanvas(QWidget):
     def _format_diagram_value(self, key: str, value: float) -> str:
         label = {"n_kg": "N", "v_kg": "V", "m_kg_m": "M", "v_mm": "v"}[key]
         if key == "v_mm":
-            return f"{label} {self._units.length(value / 1000.0):,.2f} {self._units.length_unit}"
+            return f"{label} {self._units.format_displacement(value / 1000.0)} {self._units.length_unit}"
         if key == "m_kg_m":
             return f"{label} {self._units.moment(value):,.2f} {self._units.moment_label()}"
         return f"{label} {self._units.force(value):,.2f} {self._units.force_unit}"

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QApplication, QDockWidget
 from go_struct_desktop.app import MainWindow
 from go_struct_desktop.display import DisplaySettings
 from go_struct_desktop.frame_workspace import FrameInputPanel, default_frame_model
+from go_struct_desktop.units import get_unit_system
 
 
 @pytest.fixture(scope="session")
@@ -399,6 +400,12 @@ def test_project_units_convert_editor_values_but_keep_solver_payload_canonical(a
     assert stored["nloads"][0]["fx"] == pytest.approx(10.0)
     assert "mm" in panel.nodes.table.horizontalHeaderItem(1).text()
     assert "N" in panel.nodal_loads.table.horizontalHeaderItem(2).text()
+
+
+def test_displacement_formatter_preserves_small_values_in_each_display_unit() -> None:
+    assert get_unit_system("legacy_kg_m").format_displacement(0.0000037) == "0.000004"
+    assert get_unit_system("n_mm").format_displacement(0.0000037) == "0.004"
+    assert get_unit_system("legacy_kg_m").format_displacement(0.0000001) == "1.000e-07"
 
 
 def test_productivity_commands_and_diagnostic_navigation(app: QApplication) -> None:

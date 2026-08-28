@@ -43,6 +43,15 @@ class UnitSystem:
     def distributed_label(self) -> str:
         return f"{self.force_unit}/{self.length_unit}"
 
+    def format_displacement(self, value_m: float) -> str:
+        """Format a displacement without rounding small metre values down to zero."""
+        value = self.length(value_m)
+        decimals = 3 if self.length_unit == "mm" else 6
+        threshold = 0.5 * 10.0 ** -decimals
+        if value and abs(value) < threshold:
+            return f"{value:.3e}"
+        return f"{value:,.{decimals}f}"
+
 
 UNIT_SYSTEMS: dict[str, UnitSystem] = {
     "legacy_kg_m": UnitSystem("legacy_kg_m", "Legacy kg-m", 1.0, 1.0, "kg", "m"),
