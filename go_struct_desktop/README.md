@@ -25,7 +25,7 @@ reused by a CLI, and later called by the Ruby extension through a bridge.
 - Workspace persistence for docks, display settings, grid/snap state, plus autosave/recovery for unsaved model changes.
 - Productivity tools for mirrored/array copies, move-by-delta, zoom window, and selecting members by section.
 - Five built-in, analysis-ready examples covering point actions, triangular loads, portal combinations, member releases, and reaction checks.
-- Five Metric reference examples adapted from the locally installed EngiLab Frame.2D sample set.
+- An EngiLab Frame.2D `.fr2d` importer plus automatic access to every locally installed sample.
 
 GOBeam, GOTruss, reports, and the SketchUp bridge remain outside the current increment. The existing
 Ruby extension remains the production SketchUp integration.
@@ -84,10 +84,12 @@ new `.goframe.json` name before keeping your own changes. The set includes a can
 point force/moment, a simply supported triangular load, a portal frame with combinations, a released
 beam, and a two-span reaction/equilibrium check that opens in FBD view.
 
-The `EngiLab Frame.2D References (Metric)` submenu contains adapted versions of Cantilever Beam 1,
-Fixed-Pinned Beam, Frame 2, Gerber Beam 1, and Two-Span Continuous Beam from the local EngiLab
-example installation. The application stores converted solver values internally and displays them in
-`kN-m`; it does not package or depend on the original `.fr2d` files.
+When EngiLab is installed at its standard location, `File > Examples > EngiLab Installed Examples`
+lists every `.fr2d` sample found there (18 on the reference installation). `File > Import EngiLab
+Frame.2D` imports any other compatible `.fr2d` file. The application converts Metric, US, and
+Consistent units internally and displays the result in `kN-m`; it does not package or depend on the
+original `.fr2d` files. Unsupported translational springs are omitted and reported in the status bar
+after import.
 
 `Model Input` and `Analysis Results` are movable, floatable, and closable docks. Reopen them from
 `View > Model Input` and `View > Analysis Results`. Analysis Results starts in a compact height and can be dragged down to

@@ -7,6 +7,7 @@ import pytest
 
 from go_struct_core import FrameModel, analyze_frame_data, build_frame_postprocess
 from go_struct_desktop.examples import BUILT_IN_FRAME_EXAMPLES, ENGILAB_REFERENCE_EXAMPLES, FRAME_EXAMPLES
+from go_struct_desktop.engilab import import_engilab_frame, installed_example_files
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "portal_frame.json"
@@ -52,6 +53,17 @@ def test_all_builtin_examples_are_valid_and_analysis_ready() -> None:
         model = example.model()
         assert FrameModel.from_dict(model).to_dict()["projectInfo"]["name"]
         assert analyze_frame_data(model)["ok"] is True, example.title
+
+
+def test_all_installed_engilab_examples_import_and_analyze_when_available() -> None:
+    files = installed_example_files()
+    if not files:
+        pytest.skip("EngiLab Frame.2D examples are not installed on this host")
+    assert len(files) == 18
+    for path in files:
+        imported = import_engilab_frame(path)
+        assert FrameModel.from_dict(imported.model).to_dict()["projectInfo"]["sourceFile"] == path.name
+        assert analyze_frame_data(imported.model)["ok"] is True, path.name
 
 
 def test_simply_supported_uniform_load_reactions_and_fe_deflection_are_stable() -> None:

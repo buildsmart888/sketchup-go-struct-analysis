@@ -17,6 +17,7 @@ from go_struct_core import FrameModel, ModelValidationError, analyze_frame_data,
 
 from .frame_workspace import FrameInputPanel, FrameResultsPanel, default_frame_model
 from .display import DisplayPanel, DisplaySettings
+from .engilab import EngiLabImportError, import_engilab_frame, installed_example_files
 from .examples import BUILT_IN_FRAME_EXAMPLES, ENGILAB_REFERENCE_EXAMPLES, FrameExample
 from .inspector import PropertyInspector
 
@@ -122,6 +123,10 @@ class MainWindow(QMainWindow):
         open_action.setToolTip("Open GOFrame JSON")
         open_action.triggered.connect(self.open_model)
 
+        import_engilab_action = QAction("Import EngiLab Frame.2D", self)
+        import_engilab_action.setToolTip("Import an EngiLab Frame.2D .fr2d text model")
+        import_engilab_action.triggered.connect(self.import_engilab_model)
+
         save_action = QAction(style.standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton), "Save", self)
         save_action.setShortcut(QKeySequence.StandardKey.Save)
         save_action.setToolTip("Save GOFrame JSON")
@@ -186,6 +191,7 @@ class MainWindow(QMainWindow):
         file_menu = self.menuBar().addMenu("File")
         file_menu.addAction(new_action)
         file_menu.addAction(open_action)
+        file_menu.addAction(import_engilab_action)
         file_menu.addAction(save_action)
         file_menu.addAction(save_as_action)
         file_menu.addSeparator()
@@ -196,12 +202,21 @@ class MainWindow(QMainWindow):
             action.triggered.connect(lambda _checked=False, value=example: self.load_example(value))
             examples_menu.addAction(action)
         examples_menu.addSeparator()
-        engilab_menu = examples_menu.addMenu("EngiLab Frame.2D References (Metric)")
-        for example in ENGILAB_REFERENCE_EXAMPLES:
-            action = QAction(example.title, self)
-            action.setToolTip(example.description)
-            action.triggered.connect(lambda _checked=False, value=example: self.load_example(value))
-            engilab_menu.addAction(action)
+        installed_files = installed_example_files()
+        if installed_files:
+            engilab_menu = examples_menu.addMenu(f"EngiLab Installed Examples ({len(installed_files)})")
+            for path in installed_files:
+                action = QAction(path.stem, self)
+                action.setToolTip(f"Import {path.name} from the installed EngiLab examples folder")
+                action.triggered.connect(lambda _checked=False, value=path: self.load_engilab_file(value))
+                engilab_menu.addAction(action)
+        else:
+            engilab_menu = examples_menu.addMenu("EngiLab Frame.2D References (Metric)")
+            for example in ENGILAB_REFERENCE_EXAMPLES:
+                action = QAction(example.title, self)
+                action.setToolTip(example.description)
+                action.triggered.connect(lambda _checked=False, value=example: self.load_example(value))
+                engilab_menu.addAction(action)
         file_menu.addSeparator()
         file_menu.addAction(export_action)
         file_menu.addAction(recover_action)
@@ -441,6 +456,33 @@ class MainWindow(QMainWindow):
         self._set_canvas_diagram(example.diagram_mode)
         self.display_panel.view_mode.setCurrentIndex(self.display_panel.view_mode.findData(example.view_mode))
         self.statusBar().showMessage(f"Loaded example: {example.title}. {example.description}")
+
+    def import_engilab_model(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import EngiLab Frame.2D",
+            str(installed_example_files()[0].parent if installed_example_files() else Path.home()),
+            "EngiLab Frame.2D Files (*.fr2d)",
+        )
+        if path:
+            self.load_engilab_file(Path(path))
+
+    def load_engilab_file(self, path: Path) -> None:
+        try:
+            imported = import_engilab_frame(path)
+        except EngiLabImportError as exc:
+            self._show_error("Unable to import EngiLab model", str(exc))
+            return
+        self._current_path = None
+        self._clear_autosave()
+        self.set_model(imported.model)
+        self.run_analysis()
+        self.results_panel.result_selector.setCurrentIndex(self.results_panel.result_selector.findData("case:DL"))
+        self._set_canvas_diagram("all")
+        message = f"Imported EngiLab example: {path.name}"
+        if imported.warnings:
+            message += f" Warning: {' '.join(imported.warnings)}"
+        self.statusBar().showMessage(message)
 
     def open_model(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Open Frame", str(self._current_path.parent if self._current_path else Path.home()), "GOFrame Files (*.goframe.json *.json)")
