@@ -15,6 +15,7 @@ dependencies = [
 [project.scripts]
 go-struct-desktop = "go_struct_desktop.app:main"
 go-struct-beam = "go_struct_desktop.beam_workspace:main"
+go-struct-truss = "go_struct_desktop.truss_workspace:main"
 
 [project.optional-dependencies]
 dev = [

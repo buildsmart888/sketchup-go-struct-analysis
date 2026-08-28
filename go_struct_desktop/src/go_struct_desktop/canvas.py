@@ -498,14 +498,13 @@ class FrameCanvas(QWidget):
         if self._display.show_loads:
             self._draw_loads(painter, node_by_id, screen, self._display_load_factors())
 
-        member_pen = QPen(QColor("#1e293b"), 3.0)
-        member_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        painter.setPen(member_pen)
         for element in self._model.get("elements", []):
             first = node_by_id.get(element.get("n1"))
             second = node_by_id.get(element.get("n2"))
             if first is None or second is None:
                 continue
+            member_pen = self._member_pen(element)
+            painter.setPen(member_pen)
             if int(element["id"]) in self._selected_members:
                 selected_pen = QPen(QColor("#0f766e"), 5.0)
                 selected_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -542,6 +541,12 @@ class FrameCanvas(QWidget):
             left, right = screen(min_x - grid_step, y), screen(max_x + grid_step, y)
             painter.drawLine(left, right)
             y += grid_step
+
+    @staticmethod
+    def _member_pen(_element: Mapping[str, Any]) -> QPen:
+        pen = QPen(QColor("#1e293b"), 3.0)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        return pen
 
     def _display_load_factors(self) -> dict[str, float]:
         if self._view_mode == "fbd":

@@ -84,6 +84,20 @@ invalid input. Canvas and Nodes-table editing lock every beam node to its common
 Use `Beam > Add Span` to append a span from the right-most node, `Beam > Place ... support` to assign
 supports, or `Beam > New Template` to begin with cantilever, simply supported, or continuous geometry.
 
+## Run the Truss workspace
+
+```powershell
+cd go_struct_desktop
+py -m pip install -e ".[dev,gui]"
+go-struct-truss
+```
+
+The Truss workspace writes `.gotruss.json` files and uses a dedicated planar pin-jointed solver.
+Members report tension-positive axial `N`; green members are in tension and red members are in
+compression for the active result selection. Apply only nodal `Fx/Fy` loads. Member loads, nodal
+moments, self weight, and frame end releases are intentionally unavailable. Use `Truss > New Template`
+to start a Triangle, Warren, or Pratt truss.
+
 ## Canvas authoring
 
 The workspace uses two stable toolbar rows: Modeling and Loading beside the file commands, then Analysis and Results below it. The result diagram selector is a direct `Model`/`N`/`V`/`M`/`D`/`All`/`FBD` mode-button group, rather than a dropdown. Use the modeling tools to switch among Select, Node, Member, Split, support, load, and Pan. Node and Member tools use

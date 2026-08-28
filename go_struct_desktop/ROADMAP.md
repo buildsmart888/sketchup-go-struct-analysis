@@ -96,10 +96,14 @@ workspace. Beam and Truss remain separate workspaces, not incomplete Frame featu
 - Beam input rejects non-horizontal members and axial loads instead of treating them as a 2D frame.
   More specialised layout helpers can follow from actual project workflows.
 
-## Next: Phase 3.2 Truss workspace
+## In progress: Phase 3.2 Truss workspace foundation
 
-- Axial-only 2D Truss solver and workspace using the same editor, result, diagram, and diagnostic
-  conventions.
+- Planar pin-jointed Truss solver with nodal `Fx/Fy`, reactions, tension/compression member forces,
+  load cases, combinations, envelopes, and mechanism detection.
+- Dedicated `go-struct-truss` entry point with `.gotruss.json` files, independent workspace state,
+  axial-only `N` result display, and tension/compression member colours.
+- Triangle, Warren, and Pratt templates/examples. Truss authoring hides frame-only member loads,
+  releases, `V`, `M`, and bending-deflection result modes.
 
 ## Later: Phase 4
 

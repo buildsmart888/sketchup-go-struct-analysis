@@ -16,6 +16,8 @@ from PySide6.QtWidgets import QApplication, QDockWidget
 from go_struct_desktop.app import MainWindow
 from go_struct_desktop.beam_workspace import BeamMainWindow
 from go_struct_desktop.beam_canvas import BeamCanvas
+from go_struct_desktop.truss_canvas import TrussCanvas
+from go_struct_desktop.truss_workspace import TrussMainWindow
 from go_struct_desktop.display import DisplaySettings
 from go_struct_desktop.examples import FRAME_EXAMPLES
 from go_struct_desktop.frame_workspace import FrameInputPanel, default_frame_model
@@ -99,6 +101,25 @@ def test_beam_canvas_locks_vertical_authoring_and_appends_spans(app: QApplicatio
     assert member["n2"] == added["id"]
     window.run_analysis()
     assert window.results_panel.analysis and window.results_panel.analysis["ok"] is True
+    window.close()
+
+
+def test_truss_workspace_uses_axial_only_authoring_and_results(app: QApplication) -> None:
+    window = TrussMainWindow()
+    window.show()
+    app.processEvents()
+
+    assert "2D Truss" in window.windowTitle()
+    assert isinstance(window.results_panel.canvas, TrussCanvas)
+    assert window.results_panel.analysis and window.results_panel.analysis["analysisType"] == "Truss"
+    assert not window.results_panel._tool_buttons["member_load"].isVisible()
+    assert not window.diagram_buttons["v_kg"].isVisible()
+    assert window.results_panel.diagrams.quantity_selector.count() == 1
+    assert window.results_panel.diagrams.quantity_selector.currentData() == "n_kg"
+    member_load_tab = window.input_panel.tabs.indexOf(window.input_panel.element_loads)
+    assert not window.input_panel.tabs.isTabVisible(member_load_tab)
+    window.results_panel.canvas.set_tool("member_load")
+    assert window.results_panel.canvas.tool == "select"
     window.close()
 
 

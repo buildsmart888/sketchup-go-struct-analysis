@@ -650,7 +650,7 @@ class FrameResultsPanel(QWidget):
     def _populate_calculation_details(self, selection: str, postprocess: Mapping[str, Any]) -> None:
         convention = self._postprocess.get("conventions", {}) if self._postprocess else {}
         lines = [
-            "2D Frame Direct Stiffness Analysis",
+            f"2D {self._model.get('projectInfo', {}).get('analysisType', 'Frame')} Direct Stiffness Analysis",
             "",
             "System: K u = F",
             f"Selection: {selection}",
