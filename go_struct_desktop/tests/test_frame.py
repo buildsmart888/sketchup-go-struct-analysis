@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from go_struct_core import FrameModel, analyze_frame_data
+from go_struct_core import FrameModel, analyze_frame_data, build_frame_postprocess
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "portal_frame.json"
@@ -99,3 +99,63 @@ def test_schema_round_trips_to_go_frame_json_shape() -> None:
     assert serialized["elements"] == load_portal()["elements"]
     assert serialized["sections"] == load_portal()["sections"]
     assert json.loads(json.dumps(serialized)) == serialized
+
+
+def test_member_point_force_matches_cantilever_closed_form_and_diagram_jump() -> None:
+    model = cantilever_model()
+    model["nodes"][1] = {"id": 2, "x": 6.0, "y": 0.0, "support": "Free"}
+    model["elements"][0] = {"id": 1, "n1": 1, "n2": 2, "sec": 1, "release": "Rigid-Rigid"}
+    model["nloads"] = []
+    model["eloads"] = [{"elem": 1, "lcase": "DL", "type": "Point Force", "dir": "Local Y", "x_m": 3.0, "p": -10.0}]
+
+    result = analyze_frame_data(model)
+    postprocess = build_frame_postprocess(model, result)
+    member = postprocess["cases"]["DL"]["members"][0]
+
+    expected_tip_dy = -10.0 * 3.0**2 * (3.0 * 6.0 - 3.0) / (6.0 * 2.0e9 * (1000000.0 * 1.0e-8))
+    assert result["ok"] is True
+    assert result["cases"]["DL"]["nodes"][1]["dy"] == pytest.approx(expected_tip_dy, rel=1e-10)
+    assert result["cases"]["DL"]["nodes"][0]["fy"] == pytest.approx(10.0)
+    assert result["cases"]["DL"]["nodes"][0]["mz"] == pytest.approx(30.0)
+    assert member["endpoint_residual"]["v_kg"] == pytest.approx(0.0, abs=1e-9)
+    assert member["point_loads"] == [{"case": "DL", "type": "Point Force", "x_m": 3.0, "px_kg": 0.0, "py_kg": -10.0, "mz_kg_m": 0.0}]
+
+
+def test_member_point_moment_creates_a_moment_diagram_jump() -> None:
+    model = cantilever_model()
+    model["nodes"][1] = {"id": 2, "x": 6.0, "y": 0.0, "support": "Free"}
+    model["elements"][0] = {"id": 1, "n1": 1, "n2": 2, "sec": 1, "release": "Rigid-Rigid"}
+    model["nloads"] = []
+    model["eloads"] = [{"elem": 1, "lcase": "DL", "type": "Point Moment", "x_m": 3.0, "m": 10.0}]
+
+    result = analyze_frame_data(model)
+    member = build_frame_postprocess(model, result)["cases"]["DL"]["members"][0]
+
+    assert result["ok"] is True
+    assert result["cases"]["DL"]["nodes"][0]["mz"] == pytest.approx(-10.0)
+    assert member["end_actions"]["m_i"] == pytest.approx(10.0)
+    assert member["end_actions"]["m_j"] == pytest.approx(0.0, abs=1e-9)
+    assert member["endpoint_residual"]["m_kg_m"] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_member_point_load_requires_a_position_on_the_member() -> None:
+    model = cantilever_model()
+    model["eloads"] = [{"elem": 1, "lcase": "DL", "type": "Point Force", "dir": "Local Y", "x_m": 4.0, "p": -10.0}]
+
+    result = analyze_frame_data(model)
+
+    assert result["ok"] is False
+    assert "requires x_m between" in result["error"]
+
+
+def test_envelope_keeps_point_load_sampling_positions_for_zero_factor_combinations() -> None:
+    model = cantilever_model()
+    model["loadcases"] = ["DL", "LL"]
+    model["loadcombos"] = [{"name": "DL only", "factors": {"DL": 1.0}}, {"name": "LL only", "factors": {"LL": 1.0}}]
+    model["nloads"] = []
+    model["eloads"] = [{"elem": 1, "lcase": "LL", "type": "Point Force", "dir": "Local Y", "x_m": 1.5, "p": -10.0}]
+
+    postprocess = build_frame_postprocess(model, analyze_frame_data(model))
+
+    for selection in (*postprocess["combos"].values(), postprocess["envelope"]):
+        assert any(point["x_m"] == pytest.approx(1.5) for point in selection["members"][0]["points"])

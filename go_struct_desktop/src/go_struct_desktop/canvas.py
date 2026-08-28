@@ -390,11 +390,17 @@ class FrameCanvas(QWidget):
 
         element_by_id = {element.get("id"): element for element in self._model.get("elements", [])}
         active_member = [load for load in self._model.get("eloads", []) if float(factors.get(str(load.get("lcase")), 0.0))]
+        distributed_loads = [load for load in active_member if load.get("type", "Distributed") == "Distributed"]
+        point_loads = [load for load in active_member if load.get("type") in {"Point Force", "Point Moment"}]
         maximum_member = max(
-            (max(abs(float(load.get(key, 0.0)) * float(factors.get(str(load.get("lcase")), 0.0))) for key in ("w1", "w2")) for load in active_member),
+            (max(abs(float(load.get(key, 0.0)) * float(factors.get(str(load.get("lcase")), 0.0))) for key in ("w1", "w2")) for load in distributed_loads),
             default=0.0,
         )
-        for load in active_member:
+        maximum_point = max(
+            (abs(float(load.get("p", load.get("m", 0.0)))) * float(factors.get(str(load.get("lcase")), 0.0)) for load in point_loads),
+            default=0.0,
+        )
+        for load in distributed_loads:
             element = element_by_id.get(load.get("elem"))
             if not element:
                 continue
@@ -427,6 +433,48 @@ class FrameCanvas(QWidget):
                     label += f" | {load.get('dir', 'Local Y')}"
                 painter.setPen(member_color)
                 painter.drawText(middle + QPointF(8.0, -26.0), label)
+        for load in point_loads:
+            element = element_by_id.get(load.get("elem"))
+            if not element:
+                continue
+            first, second = node_by_id.get(element.get("n1")), node_by_id.get(element.get("n2"))
+            if first is None or second is None:
+                continue
+            dx = float(second["x"]) - float(first["x"])
+            dy = float(second["y"]) - float(first["y"])
+            length = math.hypot(dx, dy)
+            if length <= 1.0e-12:
+                continue
+            cosine, sine = dx / length, dy / length
+            factor = float(factors.get(str(load.get("lcase")), 0.0))
+            at_x = min(length, max(0.0, float(load.get("x_m", 0.0))))
+            x = float(first["x"]) + cosine * at_x
+            y = float(first["y"]) + sine * at_x
+            point = screen(x, y)
+            if load.get("type") == "Point Force":
+                value = float(load.get("p", 0.0)) * factor
+                if abs(value) <= 1.0e-12:
+                    continue
+                if load.get("dir") == "Local Y":
+                    direction_x, direction_y = -sine * math.copysign(1.0, value), cosine * math.copysign(1.0, value)
+                else:
+                    direction_x, direction_y = 0.0, math.copysign(1.0, value)
+                arrow_length = (22.0 + 30.0 * abs(value) / maximum_point) / self._view_scale if maximum_point else 30.0 / self._view_scale
+                self._draw_force_arrow(painter, screen, x, y, direction_x * arrow_length, direction_y * arrow_length, member_color)
+                if self._display.show_load_values:
+                    label = f"P {value:,.2f} kg @ {at_x:.2f} m"
+                    if self._display.show_load_directions:
+                        label += f" | {load.get('dir', 'Local Y')}"
+                    painter.setPen(member_color)
+                    painter.drawText(point + QPointF(10.0, -22.0), label)
+            else:
+                value = float(load.get("m", 0.0)) * factor
+                if abs(value) <= 1.0e-12:
+                    continue
+                self._draw_moment_arrow(painter, point, value, member_color)
+                if self._display.show_load_values:
+                    painter.setPen(member_color)
+                    painter.drawText(point + QPointF(18.0, -18.0), f"M {value:,.2f} kg-m @ {at_x:.2f} m")
 
     def _draw_force_arrow(self, painter: QPainter, screen, x: float, y: float, vector_x: float, vector_y: float, color: QColor) -> None:
         tip = screen(x, y)
@@ -532,6 +580,20 @@ class FrameCanvas(QWidget):
             dx, dy = float(second["x"]) - float(first["x"]), float(second["y"]) - float(first["y"])
             length = math.hypot(dx, dy)
             if length <= 1.0e-12:
+                continue
+            if load.get("type", "Distributed") == "Point Force":
+                value = float(load.get("p", 0.0)) * factor
+                at_x = min(length, max(0.0, float(load.get("x_m", 0.0))))
+                cosine, sine = dx / length, dy / length
+                fx, fy = (-sine * value, cosine * value) if load.get("dir") == "Local Y" else (0.0, value)
+                x = float(first["x"]) + cosine * at_x
+                y = float(first["y"]) + sine * at_x
+                total_fx += fx
+                total_fy += fy
+                total_moment += x * fy - y * fx
+                continue
+            if load.get("type") == "Point Moment":
+                total_moment += float(load.get("m", 0.0)) * factor
                 continue
             q1, q2 = float(load.get("w1", 0.0)) * factor, float(load.get("w2", 0.0)) * factor
             resultant = length * (q1 + q2) / 2.0

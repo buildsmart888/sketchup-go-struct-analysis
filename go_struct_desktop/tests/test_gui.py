@@ -207,6 +207,30 @@ def test_fbd_uses_single_combo_and_balances_reactions(app: QApplication) -> None
     window.close()
 
 
+def test_member_point_load_flows_through_editor_canvas_and_fbd(app: QApplication) -> None:
+    window = MainWindow()
+    model = default_frame_model()
+    model["eloads"].append({"elem": 3, "lcase": "LL", "type": "Point Force", "dir": "Global Y", "x_m": 3.0, "p": -12.0})
+    model["eloads"].append({"elem": 3, "lcase": "LL", "type": "Point Moment", "x_m": 4.0, "m": 8.0})
+    window.set_model(model)
+    window.run_analysis()
+    window.show()
+    app.processEvents()
+
+    stored = window.input_panel.model_data()["eloads"]
+    assert stored[-2]["type"] == "Point Force"
+    assert stored[-2]["x_m"] == 3.0
+    assert stored[-1]["type"] == "Point Moment"
+    panel = window.results_panel
+    panel.result_selector.setCurrentIndex(panel.result_selector.findData("combo:Service"))
+    panel.canvas.set_view_mode("fbd")
+    app.processEvents()
+    residual = panel.canvas._equilibrium_residual(panel.canvas._display_load_factors(), {node["id"]: node for node in panel.canvas._model["nodes"]})
+    assert max(abs(value) for value in residual) < 1.0e-8
+    assert not panel.canvas.grab().isNull()
+    window.close()
+
+
 def test_input_panel_preserves_legacy_combination_equation(app: QApplication) -> None:
     model = default_frame_model()
     model["loadcombos"] = [{"name": "Legacy", "eq": "1.2DL + 1.6LL"}]

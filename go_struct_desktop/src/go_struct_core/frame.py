@@ -125,6 +125,49 @@ def _fixed_end_forces(wx1: float, wx2: float, wy1: float, wy2: float, length: fl
     return forces
 
 
+def _point_load_fixed_end(
+    px: float,
+    py: float,
+    mz: float,
+    x_m: float,
+    section: FrameSection,
+    length: float,
+    release: str,
+) -> np.ndarray:
+    """Return fixed-end actions for a point force/moment using consistent FE loading."""
+    ratio = min(1.0, max(0.0, x_m / length))
+    rigid_load = np.zeros(6, dtype=float)
+    rigid_load[0] = px * (1.0 - ratio)
+    rigid_load[3] = px * ratio
+    rigid_load[1] = py * (1.0 - 3.0 * ratio**2 + 2.0 * ratio**3)
+    rigid_load[2] = py * length * (ratio - 2.0 * ratio**2 + ratio**3)
+    rigid_load[4] = py * (3.0 * ratio**2 - 2.0 * ratio**3)
+    rigid_load[5] = py * length * (-ratio**2 + ratio**3)
+    rigid_load[1] += mz * (-6.0 * ratio + 6.0 * ratio**2) / length
+    rigid_load[2] += mz * (1.0 - 4.0 * ratio + 3.0 * ratio**2)
+    rigid_load[4] += mz * (6.0 * ratio - 6.0 * ratio**2) / length
+    rigid_load[5] += mz * (-2.0 * ratio + 3.0 * ratio**2)
+
+    released = {
+        "Rigid-Rigid": (),
+        "Pin-Rigid": (2,),
+        "Rigid-Pin": (5,),
+        "Pin-Pin": (2, 5),
+    }[release]
+    if not released:
+        return -rigid_load
+    active = tuple(index for index in range(6) if index not in released)
+    rigid_stiffness = _local_stiffness(section, length, "Rigid-Rigid")
+    active_load = rigid_load[list(active)]
+    released_load = rigid_load[list(released)]
+    coupling = rigid_stiffness[np.ix_(active, released)]
+    release_stiffness = rigid_stiffness[np.ix_(released, released)]
+    condensed_load = active_load - coupling @ np.linalg.solve(release_stiffness, released_load)
+    forces = np.zeros(6, dtype=float)
+    forces[list(active)] = -condensed_load
+    return forces
+
+
 def resolve_combination_factors(combination: LoadCombination) -> dict[str, float]:
     """Return factor objects or parse the legacy ``eq`` expression without mutation."""
     if combination.factors:
@@ -277,6 +320,18 @@ def _analyze(model: FrameModel) -> dict[str, Any]:
                 )
             for load in element_by_case[load_case]:
                 if load.elem != element.id:
+                    continue
+                if load.type == "Point Force":
+                    px = py = 0.0
+                    if load.direction == "Local Y":
+                        py = load.p
+                    else:
+                        px = load.p * math.sin(state.angle)
+                        py = load.p * math.cos(state.angle)
+                    fixed_end += _point_load_fixed_end(px, py, 0.0, load.x_m, state.section, state.length, element.release)
+                    continue
+                if load.type == "Point Moment":
+                    fixed_end += _point_load_fixed_end(0.0, 0.0, load.m, load.x_m, state.section, state.length, element.release)
                     continue
                 wx1 = wy1 = wx2 = wy2 = 0.0
                 if load.direction == "Local Y":

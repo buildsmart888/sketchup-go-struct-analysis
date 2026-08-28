@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
@@ -136,9 +137,13 @@ class NodalLoad:
 class ElementLoad:
     elem: int
     lcase: str
+    type: str
     direction: str
-    w1: float
-    w2: float
+    w1: float = 0.0
+    w2: float = 0.0
+    x_m: float = 0.0
+    p: float = 0.0
+    m: float = 0.0
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any], path: str) -> "ElementLoad":
@@ -146,9 +151,13 @@ class ElementLoad:
         return cls(
             elem=_integer(value.get("elem"), f"{path}.elem"),
             lcase=_text(value.get("lcase"), f"{path}.lcase", "DL"),
+            type=_text(value.get("type"), f"{path}.type", "Distributed"),
             direction=_text(value.get("dir"), f"{path}.dir", "Local Y"),
             w1=w1,
             w2=_number(value.get("w2", w1), f"{path}.w2"),
+            x_m=_number(value.get("x_m", value.get("x", value.get("at", 0.0))), f"{path}.x_m"),
+            p=_number(value.get("p", value.get("value", 0.0)), f"{path}.p"),
+            m=_number(value.get("m", value.get("mz", value.get("value", 0.0))), f"{path}.m"),
         )
 
 
@@ -290,8 +299,18 @@ class FrameModel:
                 errors.append(f"element load references missing element {load.elem}")
             if load.lcase not in load_case_set:
                 errors.append(f"element load references missing load case {load.lcase!r}")
-            if load.direction not in LOAD_DIRECTIONS:
+            if load.type not in {"Distributed", "Point Force", "Point Moment"}:
+                errors.append(f"element load has unsupported type {load.type!r}")
+            if load.type != "Point Moment" and load.direction not in LOAD_DIRECTIONS:
                 errors.append(f"element load has unsupported direction {load.direction!r}")
+            if load.type in {"Point Force", "Point Moment"}:
+                element = next((item for item in self.elements if item.id == load.elem), None)
+                if element is not None:
+                    node_i = next(node for node in self.nodes if node.id == element.n1)
+                    node_j = next(node for node in self.nodes if node.id == element.n2)
+                    length = math.hypot(node_j.x - node_i.x, node_j.y - node_i.y)
+                    if load.x_m < 0.0 or load.x_m > length:
+                        errors.append(f"element load on element {load.elem} requires x_m between 0 and {length:g} m")
         for combo in self.load_combinations:
             for load_case in combo.factors:
                 if load_case not in load_case_set:
@@ -343,7 +362,18 @@ class FrameModel:
                 for load in self.nodal_loads
             ],
             "eloads": [
-                {"elem": load.elem, "lcase": load.lcase, "dir": load.direction, "w1": load.w1, "w2": load.w2}
+                (
+                    {"elem": load.elem, "lcase": load.lcase, "dir": load.direction, "w1": load.w1, "w2": load.w2}
+                    if load.type == "Distributed"
+                    else {
+                        "elem": load.elem,
+                        "lcase": load.lcase,
+                        "type": load.type,
+                        "dir": load.direction,
+                        "x_m": load.x_m,
+                        **({"p": load.p} if load.type == "Point Force" else {"m": load.m}),
+                    }
+                )
                 for load in self.element_loads
             ],
         }

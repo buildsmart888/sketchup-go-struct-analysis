@@ -77,6 +77,7 @@ def _selection_postprocess(
                 result_by_node[element.n2],
                 member_result,
                 _distributed_loads(model, element, load_factors),
+                _point_loads(model, element, load_factors),
                 sample_count,
             )
         )
@@ -91,6 +92,7 @@ def _member_diagram(
     result_j: Mapping[str, Any],
     member_result: Mapping[str, Any],
     loads: list[dict[str, float | str]],
+    point_loads: list[dict[str, float | str]],
     sample_count: int,
 ) -> dict[str, Any]:
     dx = node_j.x - node_i.x
@@ -109,13 +111,21 @@ def _member_diagram(
     u_i, v_i = _to_local_displacement(result_i, cosine, sine)
     u_j, v_j = _to_local_displacement(result_j, cosine, sine)
     theta_i, theta_j = float(result_i["rz"]), float(result_j["rz"])
+    positions = {length * index / (sample_count - 1) for index in range(sample_count)}
+    positions.update(float(load["x_m"]) for load in point_loads)
     points: list[dict[str, float]] = []
-    for index in range(sample_count):
-        x = length * index / (sample_count - 1)
+    for x in sorted(positions):
         ratio = x / length
         axial = start_n + qx1 * x + (qx2 - qx1) * x**2 / (2.0 * length)
         shear = start_v + qy1 * x + (qy2 - qy1) * x**2 / (2.0 * length)
         moment = start_m + start_v * x + qy1 * x**2 / 2.0 + (qy2 - qy1) * x**3 / (6.0 * length)
+        for load in point_loads:
+            if x + 1.0e-10 < float(load["x_m"]):
+                continue
+            load_x = float(load["x_m"])
+            axial += float(load["px_kg"])
+            shear += float(load["py_kg"])
+            moment += float(load["py_kg"]) * (x - load_x) - float(load["mz_kg_m"])
         local_u = (1.0 - ratio) * u_i + ratio * u_j
         local_v = _hermite_transverse_displacement(ratio, length, v_i, theta_i, v_j, theta_j)
         global_dx = cosine * local_u - sine * local_v
@@ -141,6 +151,7 @@ def _member_diagram(
         "release": element.release,
         "end_actions": {"n_i": start_n, "v_i": start_v, "m_i": start_m, "n_j": end_n, "v_j": end_v, "m_j": end_m},
         "distributed_load": {"qx1_kg_m": qx1, "qx2_kg_m": qx2, "qy1_kg_m": qy1, "qy2_kg_m": qy2},
+        "point_loads": point_loads,
         "points": points,
         "extrema": {
             "n_kg": _extrema(points, "n_kg"),
@@ -168,7 +179,7 @@ def _distributed_loads(model: FrameModel, element: FrameElement, factors: Mappin
         loads.append({"case": "DL", "qx1": -weight * math.sin(angle), "qx2": -weight * math.sin(angle), "qy1": -weight * math.cos(angle), "qy2": -weight * math.cos(angle)})
     for load in model.element_loads:
         factor = float(factors.get(load.lcase, 0.0))
-        if load.elem != element.id or not factor:
+        if load.type != "Distributed" or load.elem != element.id or not factor:
             continue
         if load.direction == "Local Y":
             loads.append({"case": load.lcase, "qx1": 0.0, "qx2": 0.0, "qy1": load.w1 * factor, "qy2": load.w2 * factor})
@@ -182,6 +193,28 @@ def _distributed_loads(model: FrameModel, element: FrameElement, factors: Mappin
                     "qy2": load.w2 * factor * math.cos(angle),
                 }
             )
+    return loads
+
+
+def _point_loads(model: FrameModel, element: FrameElement, factors: Mapping[str, float]) -> list[dict[str, float | str]]:
+    node_i = next(node for node in model.nodes if node.id == element.n1)
+    node_j = next(node for node in model.nodes if node.id == element.n2)
+    angle = math.atan2(node_j.y - node_i.y, node_j.x - node_i.x)
+    loads: list[dict[str, float | str]] = []
+    for load in model.element_loads:
+        factor = float(factors.get(load.lcase, 0.0))
+        if load.type not in {"Point Force", "Point Moment"} or load.elem != element.id:
+            continue
+        px = py = mz = 0.0
+        if load.type == "Point Force":
+            if load.direction == "Local Y":
+                py = load.p * factor
+            else:
+                px = load.p * factor * math.sin(angle)
+                py = load.p * factor * math.cos(angle)
+        else:
+            mz = load.m * factor
+        loads.append({"case": load.lcase, "type": load.type, "x_m": load.x_m, "px_kg": px, "py_kg": py, "mz_kg_m": mz})
     return loads
 
 
@@ -233,8 +266,7 @@ def _envelope_postprocess(combos: Mapping[str, Mapping[str, Any]], model: FrameM
             continue
         base = candidates[0][1]
         points: list[dict[str, Any]] = []
-        for index in range(sample_count):
-            base_point = base["points"][index]
+        for index, base_point in enumerate(base["points"]):
             point: dict[str, Any] = {"x_m": base_point["x_m"]}
             for field in ("n_kg", "v_kg", "m_kg_m", "u_mm", "v_mm"):
                 governing_name, governing_member = max(candidates, key=lambda item: abs(item[1]["points"][index][field]))
@@ -252,6 +284,7 @@ def _envelope_postprocess(combos: Mapping[str, Mapping[str, Any]], model: FrameM
                 "extrema": {field: _extrema(points, field) for field in ("n_kg", "v_kg", "m_kg_m", "v_mm")},
                 "end_actions": {},
                 "distributed_load": {},
+                "point_loads": [],
                 "endpoint_residual": {},
             }
         )
@@ -308,6 +341,19 @@ def _equilibrium_for_case(model: FrameModel, case_name: str, result: Mapping[str
             force_x += global_x_total
             force_y += global_y_total
             moment += node_i.x * global_y_total - node_i.y * global_x_total + cosine * global_y_first - sine * global_x_first
+        for load in _point_loads(model, element, {case_name: 1.0}):
+            node_i = nodes[element.n1]
+            node_j = nodes[element.n2]
+            angle = math.atan2(node_j.y - node_i.y, node_j.x - node_i.x)
+            cosine, sine = math.cos(angle), math.sin(angle)
+            px, py, mz = float(load["px_kg"]), float(load["py_kg"]), float(load["mz_kg_m"])
+            global_x = cosine * px - sine * py
+            global_y = sine * px + cosine * py
+            x = node_i.x + cosine * float(load["x_m"])
+            y = node_i.y + sine * float(load["x_m"])
+            force_x += global_x
+            force_y += global_y
+            moment += mz + x * global_y - y * global_x
     reaction_x = sum(float(node["fx"]) for node in result.get("nodes", []))
     reaction_y = sum(float(node["fy"]) for node in result.get("nodes", []))
     reaction_moment = sum(float(node["mz"]) + nodes[node["id"]].x * float(node["fy"]) - nodes[node["id"]].y * float(node["fx"]) for node in result.get("nodes", []))

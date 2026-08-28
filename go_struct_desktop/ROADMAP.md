@@ -35,7 +35,9 @@ six nodal degrees of freedom and torsional member stiffness.
 - Directionally correct nodal force/moment and linearly varying distributed-load rendering.
 - Free-body drawing for a single case or combo, with reactions and global residuals. Envelopes are
   explicitly excluded from FBD equilibrium.
-- Next: member point loads/moments require a schema and solver increment before they can be drawn.
+- Member load schema now supports distributed load, point force, and point moment. Point locations use
+  `x_m` measured from member I toward member J; they flow through the solver, diagrams, input canvas,
+  and FBD equilibrium.
 
 ## Next: Phase 3
 

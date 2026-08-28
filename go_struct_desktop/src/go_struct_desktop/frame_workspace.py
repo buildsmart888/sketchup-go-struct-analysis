@@ -37,6 +37,7 @@ from .editors import CombinationEditor, Column, ProjectEditor, TableEditor, as_f
 SUPPORTS = ("Free", "Pinned", "Fixed", "RollerX", "RollerY")
 RELEASES = ("Rigid-Rigid", "Pin-Rigid", "Rigid-Pin", "Pin-Pin")
 DIRECTIONS = ("Local Y", "Global Y")
+MEMBER_LOAD_TYPES = ("Distributed", "Point Force", "Point Moment")
 
 
 def default_frame_model() -> dict[str, Any]:
@@ -97,7 +98,17 @@ class FrameInputPanel(QWidget):
             self,
         )
         self.element_loads = TableEditor(
-            [Column("Element", "elem", 1, as_int), Column("Load case", "lcase", "DL", choices=("DL",)), Column("Direction", "dir", "Local Y", choices=DIRECTIONS), Column("W1 (kg/m)", "w1", 0.0, as_float), Column("W2 (kg/m)", "w2", 0.0, as_float)],
+            [
+                Column("Element", "elem", 1, as_int),
+                Column("Load case", "lcase", "DL", choices=("DL",)),
+                Column("Type", "type", "Distributed", choices=MEMBER_LOAD_TYPES),
+                Column("Direction", "dir", "Local Y", choices=DIRECTIONS),
+                Column("At x (m)", "x_m", 0.0, as_float),
+                Column("P (kg)", "p", 0.0, as_float),
+                Column("M (kg-m)", "m", 0.0, as_float),
+                Column("W1 (kg/m)", "w1", 0.0, as_float),
+                Column("W2 (kg/m)", "w2", 0.0, as_float),
+            ],
             self,
         )
         self._build_layout()
