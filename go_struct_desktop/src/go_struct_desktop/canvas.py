@@ -543,18 +543,27 @@ class FrameCanvas(QWidget):
             y += grid_step
 
     def _display_load_factors(self) -> dict[str, float]:
-        if self._view_mode == "model":
-            return {str(load_case): 1.0 for load_case in self._model.get("loadcases", [])}
-        if self._view_mode != "fbd":
-            load_case = self._load_case or (self._model.get("loadcases", [""])[0] if self._model.get("loadcases") else "")
+        if self._view_mode == "fbd":
+            if self._result_selection.startswith("case:"):
+                return {self._result_selection.removeprefix("case:"): 1.0}
+            if self._result_selection.startswith("combo:"):
+                return self._combination_factors(self._result_selection.removeprefix("combo:"))
+            return {}
+        selection = self._load_case or "all"
+        if selection == "all":
+            if self._view_mode == "model":
+                return {str(load_case): 1.0 for load_case in self._model.get("loadcases", [])}
+            load_case = self._model.get("loadcases", [""])[0] if self._model.get("loadcases") else ""
             return {str(load_case): 1.0} if load_case else {}
-        if self._result_selection.startswith("case:"):
-            return {self._result_selection.removeprefix("case:"): 1.0}
-        if self._result_selection.startswith("combo:"):
-            name = self._result_selection.removeprefix("combo:")
+        if selection.startswith("case:"):
+            return {selection.removeprefix("case:"): 1.0}
+        if selection.startswith("combo:"):
+            return self._combination_factors(selection.removeprefix("combo:"))
+        return {selection: 1.0}
+
+    def _combination_factors(self, name: str) -> dict[str, float]:
             combo = next((item for item in self._model.get("loadcombos", []) if item.get("name") == name), {})
             return {str(key): float(value) for key, value in combo.get("factors", {}).items()}
-        return {}
 
     def _load_case_color(self, load_case: str) -> QColor:
         cases = [str(value) for value in self._model.get("loadcases", [])]

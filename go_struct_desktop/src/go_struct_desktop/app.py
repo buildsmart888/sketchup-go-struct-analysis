@@ -409,7 +409,7 @@ class MainWindow(QMainWindow):
         self._set_input_model(model)
         current_model = self.input_panel.model_data()
         self.inspector.set_model(current_model)
-        self.display_panel.set_load_cases(list(current_model.get("loadcases", [])))
+        self.display_panel.set_load_cases(list(current_model.get("loadcases", [])), list(current_model.get("loadcombos", [])))
         self.results_panel.set_model(current_model)
         self.results_panel.clear_analysis()
         self._history = [copy.deepcopy(current_model)]
@@ -516,7 +516,7 @@ class MainWindow(QMainWindow):
             return
         try:
             model = self.input_panel.model_data()
-            self.display_panel.set_load_cases(list(model.get("loadcases", [])))
+            self.display_panel.set_load_cases(list(model.get("loadcases", [])), list(model.get("loadcombos", [])))
             self.results_panel.set_model(model)
             self.inspector.set_model(model)
         except (TypeError, ValueError):

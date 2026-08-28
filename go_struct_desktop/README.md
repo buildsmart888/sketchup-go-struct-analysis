@@ -98,7 +98,9 @@ overlay without changing result values. These choices transform presentation onl
 values and units are unchanged. The Free body view accepts a single Case or Combo, never an Envelope, because
 an envelope can contain values governed by different combinations and is not a balanced load state.
 Model view draws every input load case in a distinct colour and prefixes its load labels with the case
-name; Results view uses the active input case selected in the Display dock.
+name. In `Display > Loads`, select `All input cases`, an individual case, or a `Combo`; a combo draws
+factored loads using its defined case factors. Results view defaults to the first input case unless a
+specific case or combo is selected.
 The FBD panel also accepts a moment reference point. Double-clicking a Diagnostics row selects and
 fits its implicated canvas objects, where applicable.
 

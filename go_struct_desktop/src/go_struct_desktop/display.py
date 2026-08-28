@@ -118,12 +118,17 @@ class DisplayPanel(QWidget):
     def settings(self) -> DisplaySettings:
         return self._settings
 
-    def set_load_cases(self, names: list[str]) -> None:
+    def set_load_cases(self, names: list[str], combinations: list[Mapping[str, Any]] | None = None) -> None:
         current = self.load_case.currentData()
         self.load_case.blockSignals(True)
         self.load_case.clear()
+        self.load_case.addItem("All input cases (Model)", "all")
         for name in names:
-            self.load_case.addItem(name, name)
+            self.load_case.addItem(f"Case: {name}", f"case:{name}")
+        for combination in combinations or []:
+            name = str(combination.get("name", ""))
+            if name:
+                self.load_case.addItem(f"Combo: {name}", f"combo:{name}")
         index = self.load_case.findData(current)
         self.load_case.setCurrentIndex(index if index >= 0 else 0)
         self.load_case.blockSignals(False)
@@ -149,10 +154,10 @@ class DisplayPanel(QWidget):
     def _loads_tab(self) -> QWidget:
         tab = QWidget(self)
         layout = QFormLayout(tab)
-        layout.addRow("Active case (Results)", self.load_case)
+        layout.addRow("Load display", self.load_case)
         for control in (self.loads, self.load_values, self.load_directions):
             layout.addRow(control)
-        note = QLabel("Model view shows all input load cases in distinct colours.", tab)
+        note = QLabel("Model view shows all input cases by default. Select a case or combo to display its load pattern.", tab)
         note.setWordWrap(True)
         note.setStyleSheet("color: #64748b;")
         layout.addRow(note)

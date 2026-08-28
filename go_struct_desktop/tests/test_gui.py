@@ -72,6 +72,17 @@ def test_model_view_draws_all_input_load_cases_while_results_uses_active_case(ap
     window.close()
 
 
+def test_model_view_can_display_factored_combo_loads(app: QApplication) -> None:
+    window = MainWindow()
+    canvas = window.results_panel.canvas
+    canvas.set_view_mode("model")
+    window.display_panel.load_case.setCurrentIndex(window.display_panel.load_case.findData("combo:ULS"))
+
+    assert canvas._display_load_factors() == {"DL": 1.2, "LL": 1.6}
+    assert window.display_panel.load_case.currentText() == "Combo: ULS"
+    window.close()
+
+
 def test_manual_analysis_reports_completion(app: QApplication, monkeypatch: pytest.MonkeyPatch) -> None:
     window = MainWindow()
     shown: list[tuple[int, int, float]] = []
