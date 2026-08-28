@@ -10,6 +10,8 @@ from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QToolTip, QWidget
 
+from .display import DisplaySettings
+
 
 class FrameCanvas(QWidget):
     """Draws the structural model, deformation, and selected member diagrams."""
@@ -31,6 +33,10 @@ class FrameCanvas(QWidget):
         super().__init__(parent)
         self._model: Mapping[str, Any] = {}
         self._result: Mapping[str, Any] | None = None
+        self._result_selection = "envelope"
+        self._view_mode = "results"
+        self._load_case = ""
+        self._display = DisplaySettings()
         self._deformed_members: list[Mapping[str, Any]] = []
         self._diagram_members: list[Mapping[str, Any]] = []
         self._diagram_mode = "none"
@@ -78,6 +84,23 @@ class FrameCanvas(QWidget):
             self._deformed_members = []
             self._diagram_members = []
         self._clear_hover()
+        self.update()
+
+    def set_result_selection(self, selection: str) -> None:
+        self._result_selection = selection
+        self.update()
+
+    def set_view_mode(self, mode: str) -> None:
+        self._view_mode = mode if mode in {"model", "results", "fbd"} else "results"
+        self.update()
+
+    def set_load_case(self, load_case: str) -> None:
+        self._load_case = load_case
+        self.update()
+
+    def set_display_settings(self, settings: DisplaySettings) -> None:
+        self._display = settings
+        self._grid_visible = settings.show_grid
         self.update()
 
     def set_deformed_members(self, members: list[Mapping[str, Any]]) -> None:
@@ -272,9 +295,10 @@ class FrameCanvas(QWidget):
             return QPointF(viewport_center.x() + (x - center_x) * scale, viewport_center.y() - (y - center_y) * scale)
 
         self._update_hover_points(node_by_id, screen, span_x, span_y)
-        if self._grid_visible:
+        if self._display.show_grid and self._grid_visible:
             self._draw_grid(painter, screen, min_x, max_x, min_y, max_y)
-        self._draw_loads(painter, node_by_id, screen)
+        if self._display.show_loads:
+            self._draw_loads(painter, node_by_id, screen, self._display_load_factors())
 
         member_pen = QPen(QColor("#1e293b"), 3.0)
         member_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -293,9 +317,13 @@ class FrameCanvas(QWidget):
             painter.drawLine(screen(float(first["x"]), float(first["y"])), screen(float(second["x"]), float(second["y"])))
 
         self._draw_member_preview(painter, screen)
-        self._draw_diagram_overlays(painter, node_by_id, screen, span_x, span_y)
-        self._draw_deformed_shape(painter, node_by_id, screen, span_x, span_y)
-        self._draw_hover_crosshair(painter, node_by_id, screen, span_x, span_y)
+        self._draw_member_annotations(painter, node_by_id, screen)
+        if self._view_mode == "fbd":
+            self._draw_fbd(painter, node_by_id, screen)
+        elif self._view_mode == "results":
+            self._draw_diagram_overlays(painter, node_by_id, screen, span_x, span_y)
+            self._draw_deformed_shape(painter, node_by_id, screen, span_x, span_y)
+            self._draw_hover_crosshair(painter, node_by_id, screen, span_x, span_y)
         self._draw_nodes_and_supports(painter, nodes, screen)
         self._draw_selection_rect(painter)
         self._draw_legend(painter)
@@ -316,31 +344,215 @@ class FrameCanvas(QWidget):
             painter.drawLine(left, right)
             y += grid_step
 
-    def _draw_loads(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen) -> None:
-        pen = QPen(QColor("#dc2626"), 1.4)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        painter.setPen(pen)
-        painter.setBrush(QColor("#dc2626"))
+    def _display_load_factors(self) -> dict[str, float]:
+        if self._view_mode != "fbd":
+            load_case = self._load_case or (self._model.get("loadcases", [""])[0] if self._model.get("loadcases") else "")
+            return {str(load_case): 1.0} if load_case else {}
+        if self._result_selection.startswith("case:"):
+            return {self._result_selection.removeprefix("case:"): 1.0}
+        if self._result_selection.startswith("combo:"):
+            name = self._result_selection.removeprefix("combo:")
+            combo = next((item for item in self._model.get("loadcombos", []) if item.get("name") == name), {})
+            return {str(key): float(value) for key, value in combo.get("factors", {}).items()}
+        return {}
+
+    def _draw_loads(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, factors: Mapping[str, float]) -> None:
+        if not factors:
+            return
+        node_color = QColor("#dc2626")
+        member_color = QColor("#15803d")
+        active_nodal = [load for load in self._model.get("nloads", []) if float(factors.get(str(load.get("lcase")), 0.0))]
+        maximum_nodal = max(
+            (max(abs(float(load.get(key, 0.0)) * float(factors.get(str(load.get("lcase")), 0.0))) for key in ("fx", "fy", "mz")) for load in active_nodal),
+            default=0.0,
+        )
+        for load in active_nodal:
+            node = node_by_id.get(load.get("node"))
+            if node is None:
+                continue
+            factor = float(factors.get(str(load.get("lcase")), 0.0))
+            point = screen(float(node["x"]), float(node["y"]))
+            for key, direction in (("fx", (1.0, 0.0)), ("fy", (0.0, 1.0))):
+                value = float(load.get(key, 0.0)) * factor
+                if abs(value) <= 1.0e-12:
+                    continue
+                length = 22.0 + 24.0 * abs(value) / maximum_nodal if maximum_nodal else 28.0
+                model_length = length / self._view_scale
+                self._draw_force_arrow(painter, screen, float(node["x"]), float(node["y"]), direction[0] * math.copysign(model_length, value), direction[1] * math.copysign(model_length, value), node_color)
+            moment = float(load.get("mz", 0.0)) * factor
+            if abs(moment) > 1.0e-12:
+                self._draw_moment_arrow(painter, point, moment, node_color)
+            if self._display.show_load_values:
+                labels = [f"{key.upper()} {float(load.get(key, 0.0)) * factor:,.2f}" for key in ("fx", "fy", "mz") if abs(float(load.get(key, 0.0)) * factor) > 1.0e-12]
+                if labels:
+                    painter.setPen(node_color)
+                    painter.drawText(point + QPointF(10.0, -20.0), " | ".join(labels))
+
         element_by_id = {element.get("id"): element for element in self._model.get("elements", [])}
-        for load in self._model.get("eloads", []):
+        active_member = [load for load in self._model.get("eloads", []) if float(factors.get(str(load.get("lcase")), 0.0))]
+        maximum_member = max(
+            (max(abs(float(load.get(key, 0.0)) * float(factors.get(str(load.get("lcase")), 0.0))) for key in ("w1", "w2")) for load in active_member),
+            default=0.0,
+        )
+        for load in active_member:
             element = element_by_id.get(load.get("elem"))
             if not element:
                 continue
             first, second = node_by_id.get(element.get("n1")), node_by_id.get(element.get("n2"))
             if first is None or second is None:
                 continue
-            start = screen(float(first["x"]), float(first["y"]))
-            end = screen(float(second["x"]), float(second["y"]))
-            direction = end - start
-            length = math.hypot(direction.x(), direction.y())
-            if length < 1.0:
+            factor = float(factors.get(str(load.get("lcase")), 0.0))
+            dx = float(second["x"]) - float(first["x"])
+            dy = float(second["y"]) - float(first["y"])
+            length = math.hypot(dx, dy)
+            if length <= 1.0e-12:
                 continue
-            normal = QPointF(-direction.y() / length, direction.x() / length)
-            for fraction in (0.14, 0.38, 0.62, 0.86):
-                point = start + direction * fraction
-                head = point + normal * 22.0
-                painter.drawLine(head, point)
-                painter.drawPolygon(QPolygonF([point, point + normal * 7.0 + direction * 4.0 / length, point + normal * 7.0 - direction * 4.0 / length]))
+            cosine, sine = dx / length, dy / length
+            for index, fraction in enumerate((0.0, 0.2, 0.4, 0.6, 0.8, 1.0)):
+                value = (float(load.get("w1", 0.0)) + (float(load.get("w2", 0.0)) - float(load.get("w1", 0.0))) * fraction) * factor
+                if abs(value) <= 1.0e-12:
+                    continue
+                if load.get("dir") == "Local Y":
+                    direction_x, direction_y = -sine * math.copysign(1.0, value), cosine * math.copysign(1.0, value)
+                else:
+                    direction_x, direction_y = 0.0, math.copysign(1.0, value)
+                arrow_length = (16.0 + 28.0 * abs(value) / maximum_member) / self._view_scale if maximum_member else 24.0 / self._view_scale
+                x = float(first["x"]) + dx * fraction
+                y = float(first["y"]) + dy * fraction
+                self._draw_force_arrow(painter, screen, x, y, direction_x * arrow_length, direction_y * arrow_length, member_color)
+            if self._display.show_load_values:
+                middle = screen((float(first["x"]) + float(second["x"])) / 2.0, (float(first["y"]) + float(second["y"])) / 2.0)
+                label = f"w {float(load.get('w1', 0.0)) * factor:,.2f} to {float(load.get('w2', 0.0)) * factor:,.2f} kg/m"
+                if self._display.show_load_directions:
+                    label += f" | {load.get('dir', 'Local Y')}"
+                painter.setPen(member_color)
+                painter.drawText(middle + QPointF(8.0, -26.0), label)
+
+    def _draw_force_arrow(self, painter: QPainter, screen, x: float, y: float, vector_x: float, vector_y: float, color: QColor) -> None:
+        tip = screen(x, y)
+        tail = screen(x - vector_x, y - vector_y)
+        direction = tip - tail
+        length = math.hypot(direction.x(), direction.y())
+        if length <= 1.0e-12:
+            return
+        unit = direction / length
+        normal = QPointF(-unit.y(), unit.x())
+        pen = QPen(color, 1.8)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(color)
+        painter.drawLine(tail, tip)
+        painter.drawPolygon(QPolygonF([tip, tip - unit * 8.0 + normal * 4.0, tip - unit * 8.0 - normal * 4.0]))
+
+    def _draw_moment_arrow(self, painter: QPainter, point: QPointF, value: float, color: QColor) -> None:
+        rect = QRectF(point.x() - 15.0, point.y() - 15.0, 30.0, 30.0)
+        span = 280 * 16 if value > 0 else -280 * 16
+        start = 40 * 16 if value > 0 else 320 * 16
+        painter.setPen(QPen(color, 1.8))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawArc(rect, start, span)
+        end_angle = math.radians((start + span) / 16.0)
+        tip = QPointF(point.x() + 15.0 * math.cos(end_angle), point.y() - 15.0 * math.sin(end_angle))
+        tangent = QPointF(-math.sin(end_angle), -math.cos(end_angle)) * (1.0 if value > 0 else -1.0)
+        painter.setBrush(color)
+        painter.drawPolygon(QPolygonF([tip, tip - tangent * 7.0 + QPointF(-tangent.y(), tangent.x()) * 3.5, tip - tangent * 7.0 - QPointF(-tangent.y(), tangent.x()) * 3.5]))
+
+    def _draw_fbd(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen) -> None:
+        factors = self._display_load_factors()
+        if self._result is None:
+            painter.setPen(QColor("#b45309"))
+            painter.drawText(QRectF(18.0, 42.0, max(self.width() - 36.0, 1.0), 32.0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "Run analysis before viewing a free body diagram.")
+            return
+        if not factors or not self._result_selection.startswith(("case:", "combo:")):
+            painter.setPen(QColor("#b45309"))
+            painter.drawText(QRectF(18.0, 42.0, max(self.width() - 36.0, 1.0), 32.0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "Free body diagram requires a single Case or Combo. Envelope is not physically equilibrated.")
+            return
+        result_nodes = {node.get("id"): node for node in self._result.get("nodes", [])} if self._result else {}
+        reaction_color = QColor("#b91c1c")
+        maximum = max(
+            (max(abs(float(node.get(key, 0.0))) for key in ("fx", "fy", "mz")) for node in result_nodes.values()),
+            default=0.0,
+        )
+        if self._display.show_reactions:
+            for node_id, node in node_by_id.items():
+                if node.get("support") == "Free":
+                    continue
+                result = result_nodes.get(node_id)
+                if result is None:
+                    continue
+                point = screen(float(node["x"]), float(node["y"]))
+                labels: list[str] = []
+                for key, direction, label in (("fx", (1.0, 0.0), "Rx"), ("fy", (0.0, 1.0), "Ry")):
+                    value = float(result.get(key, 0.0))
+                    if abs(value) <= 1.0e-12:
+                        continue
+                    length = 24.0 + 26.0 * abs(value) / maximum if maximum else 30.0
+                    model_length = length / self._view_scale
+                    self._draw_force_arrow(painter, screen, float(node["x"]), float(node["y"]), direction[0] * math.copysign(model_length, value), direction[1] * math.copysign(model_length, value), reaction_color)
+                    labels.append(f"{label} {value:,.2f}")
+                moment = float(result.get("mz", 0.0))
+                if abs(moment) > 1.0e-12:
+                    self._draw_moment_arrow(painter, point, moment, reaction_color)
+                    labels.append(f"Mz {moment:,.2f}")
+                if labels:
+                    painter.setPen(reaction_color)
+                    painter.drawText(point + QPointF(10.0, 34.0), " | ".join(labels))
+        if self._display.show_equilibrium:
+            fx, fy, moment = self._equilibrium_residual(factors, node_by_id)
+            painter.setPen(QColor("#334155"))
+            title = self._result_selection.removeprefix("case:").removeprefix("combo:")
+            lines = [
+                f"Free body | {title}",
+                f"ΣFx = {fx:,.3e} kg",
+                f"ΣFy = {fy:,.3e} kg",
+                f"ΣMz@0,0 = {moment:,.3e} kg-m",
+            ]
+            painter.drawText(QRectF(18.0, 42.0, 260.0, 92.0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "\n".join(lines))
+
+    def _equilibrium_residual(self, factors: Mapping[str, float], node_by_id: Mapping[int, Mapping[str, Any]]) -> tuple[float, float, float]:
+        total_fx = total_fy = total_moment = 0.0
+        for load in self._model.get("nloads", []):
+            factor = float(factors.get(str(load.get("lcase")), 0.0))
+            node = node_by_id.get(load.get("node"))
+            if not factor or node is None:
+                continue
+            fx, fy, mz = float(load.get("fx", 0.0)) * factor, float(load.get("fy", 0.0)) * factor, float(load.get("mz", 0.0)) * factor
+            total_fx += fx
+            total_fy += fy
+            total_moment += mz + float(node["x"]) * fy - float(node["y"]) * fx
+        elements = {element.get("id"): element for element in self._model.get("elements", [])}
+        for load in self._model.get("eloads", []):
+            factor = float(factors.get(str(load.get("lcase")), 0.0))
+            element = elements.get(load.get("elem"))
+            if not factor or element is None:
+                continue
+            first, second = node_by_id.get(element.get("n1")), node_by_id.get(element.get("n2"))
+            if first is None or second is None:
+                continue
+            dx, dy = float(second["x"]) - float(first["x"]), float(second["y"]) - float(first["y"])
+            length = math.hypot(dx, dy)
+            if length <= 1.0e-12:
+                continue
+            q1, q2 = float(load.get("w1", 0.0)) * factor, float(load.get("w2", 0.0)) * factor
+            resultant = length * (q1 + q2) / 2.0
+            local_x = length * (q1 + 2.0 * q2) / (3.0 * (q1 + q2)) if abs(q1 + q2) > 1.0e-12 else length / 2.0
+            cosine, sine = dx / length, dy / length
+            fx, fy = (-sine * resultant, cosine * resultant) if load.get("dir") == "Local Y" else (0.0, resultant)
+            x = float(first["x"]) + cosine * local_x
+            y = float(first["y"]) + sine * local_x
+            total_fx += fx
+            total_fy += fy
+            total_moment += x * fy - y * fx
+        if self._result:
+            for node in self._result.get("nodes", []):
+                model_node = node_by_id.get(node.get("id"))
+                if model_node is None or model_node.get("support") == "Free":
+                    continue
+                fx, fy, mz = float(node.get("fx", 0.0)), float(node.get("fy", 0.0)), float(node.get("mz", 0.0))
+                total_fx += fx
+                total_fy += fy
+                total_moment += mz + float(model_node["x"]) * fy - float(model_node["y"]) * fx
+        return total_fx, total_fy, total_moment
 
     def _draw_deformed_shape(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, span_x: float, span_y: float) -> None:
         if not self._show_deformed or not self._result:
@@ -427,15 +639,16 @@ class FrameCanvas(QWidget):
                 x = float(point.get("x_m", 0.0))
                 origin_x = float(node["x"]) + direction_x * x
                 origin_y = float(node["y"]) + direction_y * x
-                offset = float(point.get(key, 0.0)) * amplitude
+                offset = self._diagram_offset(key, float(point.get(key, 0.0)), amplitude)
                 base.append(screen(origin_x, origin_y))
                 curve.append(screen(origin_x + normal_x * offset, origin_y + normal_y * offset))
             polygon = QPolygonF(base)
             for point in reversed(curve):
                 polygon.append(point)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(fill)
-            painter.drawPolygon(polygon)
+            if self._display.diagram_fill:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(fill)
+                painter.drawPolygon(polygon)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setPen(pen)
             painter.drawPolyline(curve)
@@ -450,7 +663,7 @@ class FrameCanvas(QWidget):
         painter.setPen(color)
         painter.setBrush(QColor(255, 255, 255, 220))
         for index in sorted(indices):
-            text = self._format_diagram_value(key, float(points[index].get(key, 0.0)))
+            text = self._format_diagram_value(key, self._display_diagram_value(key, float(points[index].get(key, 0.0))))
             anchor = curve[index] + QPointF(5.0, -5.0)
             metrics = painter.fontMetrics()
             rect = QRectF(anchor.x(), anchor.y() - metrics.height(), metrics.horizontalAdvance(text) + 6.0, metrics.height() + 4.0)
@@ -474,7 +687,7 @@ class FrameCanvas(QWidget):
                     amplitude = self._diagram_amplitude(key, span_x, span_y)
                     if amplitude is None:
                         continue
-                    offset = float(point.get(key, 0.0)) * amplitude
+                    offset = self._diagram_offset(key, float(point.get(key, 0.0)), amplitude)
                     normal_x, normal_y = -math.sin(angle), math.cos(angle)
                     diagram_location = screen(
                         float(node["x"]) + math.cos(angle) * x + normal_x * offset,
@@ -496,9 +709,9 @@ class FrameCanvas(QWidget):
             self.update()
         lines = [
             f"E{member['id']} | N{member['n1']} - N{member['n2']} | x = {float(point['x_m']):.3f} m",
-            f"N = {float(point.get('n_kg', 0.0)):,.3f} kg",
-            f"V = {float(point.get('v_kg', 0.0)):,.3f} kg",
-            f"M = {float(point.get('m_kg_m', 0.0)):,.3f} kg-m",
+            f"N = {self._display_diagram_value('n_kg', float(point.get('n_kg', 0.0))):,.3f} kg ({self._display.axial_positive} +)",
+            f"V = {self._display_diagram_value('v_kg', float(point.get('v_kg', 0.0))):,.3f} kg ({self._display.shear_positive} +)",
+            f"M = {self._display_diagram_value('m_kg_m', float(point.get('m_kg_m', 0.0))):,.3f} kg-m ({self._display.moment_positive})",
             f"FE deflection = {float(point.get('v_mm', 0.0)):,.4f} mm",
         ]
         QToolTip.showText(global_position, "\n".join(lines), self)
@@ -533,7 +746,7 @@ class FrameCanvas(QWidget):
             amplitude = self._diagram_amplitude(key, span_x, span_y)
             if amplitude is None:
                 continue
-            offset = float(point.get(key, 0.0)) * amplitude
+            offset = self._diagram_offset(key, float(point.get(key, 0.0)), amplitude)
             location = screen(
                 float(node_i["x"]) + math.cos(angle) * x - math.sin(angle) * offset,
                 float(node_i["y"]) + math.sin(angle) * x + math.cos(angle) * offset,
@@ -558,6 +771,19 @@ class FrameCanvas(QWidget):
         # A common scale per result selection preserves visual comparisons between members.
         return max(span_x, span_y) * (0.075 if self._diagram_mode == "all" else 0.14) / maximum
 
+    def _display_diagram_value(self, key: str, value: float) -> float:
+        if key == "n_kg" and self._display.axial_positive == "compression":
+            return -value
+        if key == "v_kg" and self._display.shear_positive == "counter_clockwise":
+            return -value
+        if key == "m_kg_m" and self._display.moment_positive == "top_tension":
+            return -value
+        return value
+
+    def _diagram_offset(self, key: str, value: float, amplitude: float) -> float:
+        placement = 1.0 if self._display.diagram_placement == "local_positive" else -1.0
+        return self._display_diagram_value(key, value) * amplitude * placement
+
     def _clear_hover(self) -> None:
         self._hover_sample = None
         QToolTip.hideText()
@@ -575,7 +801,7 @@ class FrameCanvas(QWidget):
         for node in nodes:
             point = screen(float(node["x"]), float(node["y"]))
             support = node.get("support", "Free")
-            if support != "Free":
+            if support != "Free" and self._display.show_supports:
                 support_pen = QPen(QColor("#334155"), 1.5)
                 painter.setPen(support_pen)
                 painter.setBrush(QColor("#cbd5e1"))
@@ -583,12 +809,41 @@ class FrameCanvas(QWidget):
                 painter.drawPolygon(triangle)
                 if support == "Fixed":
                     painter.drawLine(point + QPointF(-15, 21), point + QPointF(15, 21))
-            selected = int(node["id"]) in self._selected_nodes
-            painter.setPen(QPen(QColor("#0f766e") if selected else QColor("#0f172a"), 2.2 if selected else 1.2))
-            painter.setBrush(QColor("#ccfbf1") if selected else QColor("#ffffff"))
-            painter.drawEllipse(point, 6.0 if selected else 4.2, 6.0 if selected else 4.2)
-            painter.setPen(QColor("#334155"))
-            painter.drawText(point + QPointF(7, -8), f"N{node['id']}")
+            if self._display.show_nodes:
+                selected = int(node["id"]) in self._selected_nodes
+                painter.setPen(QPen(QColor("#0f766e") if selected else QColor("#0f172a"), 2.2 if selected else 1.2))
+                painter.setBrush(QColor("#ccfbf1") if selected else QColor("#ffffff"))
+                painter.drawEllipse(point, 6.0 if selected else 4.2, 6.0 if selected else 4.2)
+            if self._display.show_node_ids:
+                painter.setPen(QColor("#334155"))
+                painter.drawText(point + QPointF(7, -8), f"N{node['id']}")
+
+    def _draw_member_annotations(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen) -> None:
+        if not self._display.show_member_ids and not self._display.show_local_axes:
+            return
+        for member in self._model.get("elements", []):
+            first, second = node_by_id.get(member.get("n1")), node_by_id.get(member.get("n2"))
+            if first is None or second is None:
+                continue
+            start = screen(float(first["x"]), float(first["y"]))
+            end = screen(float(second["x"]), float(second["y"]))
+            direction = end - start
+            length = math.hypot(direction.x(), direction.y())
+            if length <= 1.0e-12:
+                continue
+            unit = direction / length
+            normal = QPointF(-unit.y(), unit.x())
+            middle = (start + end) / 2.0
+            if self._display.show_member_ids:
+                painter.setPen(QColor("#475569"))
+                painter.drawText(middle + normal * 14.0, f"E{member['id']}")
+            if self._display.show_local_axes:
+                painter.setPen(QPen(QColor("#7c3aed"), 1.2))
+                painter.drawLine(middle - unit * 12.0, middle + unit * 12.0)
+                painter.setBrush(QColor("#7c3aed"))
+                painter.drawPolygon(QPolygonF([middle + unit * 12.0, middle + unit * 5.0 + normal * 3.5, middle + unit * 5.0 - normal * 3.5]))
+                painter.setPen(QColor("#7c3aed"))
+                painter.drawText(middle + normal * 16.0, "i->j")
 
     def _draw_member_preview(self, painter: QPainter, screen) -> None:
         if self._member_start is None or self._member_current is None:
@@ -801,16 +1056,24 @@ class FrameCanvas(QWidget):
         painter.drawLine(18, 24, 44, 24)
         painter.setPen(QColor("#334155"))
         painter.drawText(52, 29, "Frame")
-        if self._show_deformed and self._result:
+        if self._view_mode == "results" and self._show_deformed and self._result:
             painter.setPen(QPen(QColor("#0f766e"), 2.0, Qt.PenStyle.DashLine))
             painter.drawLine(110, 24, 136, 24)
             painter.setPen(QColor("#334155"))
             painter.drawText(144, 29, "Deformed")
-        if self._diagram_mode != "none":
+        if self._view_mode == "results" and self._diagram_mode != "none":
             keys = list(self._DIAGRAMS) if self._diagram_mode == "all" else [self._diagram_mode]
             x = 238
             for key in keys:
                 label, color = self._DIAGRAMS[key]
+                suffix = ""
+                if key == "n_kg":
+                    suffix = " (C+)" if self._display.axial_positive == "compression" else " (T+)"
+                elif key == "v_kg":
+                    suffix = " (CCW+)" if self._display.shear_positive == "counter_clockwise" else " (CW+)"
+                elif key == "m_kg_m":
+                    suffix = " (top tension)" if self._display.moment_positive == "top_tension" else " (bottom tension)"
+                label += suffix
                 painter.setPen(QPen(color, 2.0, Qt.PenStyle.DashLine if key == "v_mm" else Qt.PenStyle.SolidLine))
                 painter.drawLine(x, 24, x + 20, 24)
                 painter.setPen(QColor("#334155"))

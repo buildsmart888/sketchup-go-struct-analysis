@@ -30,6 +30,7 @@ from go_struct_core import FrameModel
 
 from .canvas import FrameCanvas
 from .diagrams import FrameDiagramsPanel
+from .display import DisplaySettings
 from .editors import CombinationEditor, Column, ProjectEditor, TableEditor, as_float, as_int
 
 
@@ -284,6 +285,12 @@ class FrameResultsPanel(QWidget):
             self.canvas.set_active_section(int(self.active_section.currentData()))
         self.canvas.set_model(model)
 
+    def set_display_settings(self, settings: DisplaySettings) -> None:
+        self.grid_toggle.blockSignals(True)
+        self.grid_toggle.setChecked(settings.show_grid)
+        self.grid_toggle.blockSignals(False)
+        self.canvas.set_display_settings(settings)
+
     def clear_analysis(self) -> None:
         self._analysis = None
         self._postprocess = None
@@ -373,6 +380,7 @@ class FrameResultsPanel(QWidget):
         selection = self.result_selector.currentData() or "envelope"
         selected, selected_postprocess = self._selected_data(str(selection))
         self.canvas.set_result(selected)
+        self.canvas.set_result_selection(str(selection))
         self.canvas.set_deformed_members(selected_postprocess.get("members", []))
         self.canvas.set_diagram_members(selected_postprocess.get("members", []))
         self.diagrams.set_members(selected_postprocess.get("members", []))

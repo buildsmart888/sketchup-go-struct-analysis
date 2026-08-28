@@ -8,12 +8,14 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QFont, QKeySequence
-from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox, QSplitter, QStyle
+from PySide6.QtWidgets import QApplication, QDockWidget, QFileDialog, QMainWindow, QMessageBox, QSplitter, QStyle
 
 from go_struct_core import FrameModel, ModelValidationError, analyze_frame_data, build_frame_postprocess
 
 from .frame_workspace import FrameInputPanel, FrameResultsPanel, default_frame_model
+from .display import DisplayPanel
 
 
 class MainWindow(QMainWindow):
@@ -34,6 +36,10 @@ class MainWindow(QMainWindow):
         self.input_panel.model_changed.connect(self._model_edited)
         self.results_panel.model_change_requested.connect(self._canvas_model_edited)
         self.results_panel.canvas_status_changed.connect(self.statusBar().showMessage)
+        self.display_panel.settings_changed.connect(self.results_panel.set_display_settings)
+        self.display_panel.load_case_changed.connect(self.results_panel.canvas.set_load_case)
+        self.display_panel.view_mode_changed.connect(self.results_panel.canvas.set_view_mode)
+        self.results_panel.set_display_settings(self.display_panel.settings)
         self.set_model(default_frame_model())
         self.run_analysis()
 
@@ -63,6 +69,15 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([510, 930])
         self.setCentralWidget(splitter)
+        self.display_panel = DisplayPanel(self)
+        self.display_dock = QDockWidget("Display", self)
+        self.display_dock.setObjectName("displayDock")
+        self.display_dock.setWidget(self.display_panel)
+        self.display_dock.setMinimumWidth(280)
+        self.display_dock.setMaximumWidth(360)
+        self.display_dock.resize(320, 700)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.display_dock)
+        self.display_dock.hide()
         self._build_actions()
         self.statusBar().showMessage("Ready")
 
@@ -112,6 +127,13 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.redo_action)
         analysis_menu = self.menuBar().addMenu("Analysis")
         analysis_menu.addAction(analyze_action)
+        view_menu = self.menuBar().addMenu("View")
+        view_menu.addAction(self.display_dock.toggleViewAction())
+        results_menu = self.menuBar().addMenu("Results")
+        results_menu.addAction(analyze_action)
+        self.menuBar().addMenu("Model")
+        self.menuBar().addMenu("Loads")
+        self.menuBar().addMenu("Report")
         toolbar = self.addToolBar("Frame")
         toolbar.setMovable(False)
         toolbar.addAction(new_action)
@@ -127,6 +149,7 @@ class MainWindow(QMainWindow):
     def set_model(self, model: Mapping[str, Any]) -> None:
         self._set_input_model(model)
         current_model = self.input_panel.model_data()
+        self.display_panel.set_load_cases(list(current_model.get("loadcases", [])))
         self.results_panel.set_model(current_model)
         self.results_panel.clear_analysis()
         self._history = [copy.deepcopy(current_model)]
@@ -186,6 +209,7 @@ class MainWindow(QMainWindow):
             return
         try:
             model = self.input_panel.model_data()
+            self.display_panel.set_load_cases(list(model.get("loadcases", [])))
             self.results_panel.set_model(model)
         except (TypeError, ValueError):
             return

@@ -27,6 +27,11 @@ updates `FrameInputPanel`, which remains the model source of truth and sends the
 back to the canvas and results panel. The main window records compatible model snapshots for
 undo/redo. This keeps mouse authoring and table editing synchronized.
 
+`DisplaySettings` belongs to the UI layer. It can reverse visual diagram conventions or change
+layer visibility, but it never changes solver input, stored result values, or units. FBD receives a
+single case/combo result plus matching load factors; envelopes are intentionally excluded because
+they do not represent one equilibrated load state.
+
 The data contract mirrors `go_struct_analysis/goframe.rb` and the `collectData()` function in
 `go_struct_analysis/templates/goframe_dialog.html`.
 

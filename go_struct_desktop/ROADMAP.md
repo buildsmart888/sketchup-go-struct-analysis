@@ -29,6 +29,14 @@ six nodal degrees of freedom and torsional member stiffness.
 - Canvas changes flow back through the editable model tables and invalidate stale results.
 - Next in this phase: property inspector and support/load authoring tools.
 
+## In progress: Display and FBD foundation
+
+- UI-only display settings for model, load, result-convention, and FBD layers.
+- Directionally correct nodal force/moment and linearly varying distributed-load rendering.
+- Free-body drawing for a single case or combo, with reactions and global residuals. Envelopes are
+  explicitly excluded from FBD equilibrium.
+- Next: member point loads/moments require a schema and solver increment before they can be drawn.
+
 ## Next: Phase 3
 
 - Beam and Truss workspaces using the same editor, result, diagram, and diagnostic conventions.

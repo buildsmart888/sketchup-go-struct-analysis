@@ -14,6 +14,7 @@ from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QApplication
 
 from go_struct_desktop.app import MainWindow
+from go_struct_desktop.display import DisplaySettings
 from go_struct_desktop.frame_workspace import FrameInputPanel, default_frame_model
 
 
@@ -170,6 +171,39 @@ def test_canvas_zoom_preserves_model_point_under_cursor(app: QApplication) -> No
     after = canvas._screen_to_model(cursor)
     assert abs(after[0] - before[0]) < 1.0e-9
     assert abs(after[1] - before[1]) < 1.0e-9
+    window.close()
+
+
+def test_display_settings_transform_only_the_diagram_presentation(app: QApplication) -> None:
+    window = MainWindow()
+    canvas = window.results_panel.canvas
+    canvas.set_display_settings(DisplaySettings(axial_positive="compression", shear_positive="counter_clockwise", moment_positive="top_tension", diagram_placement="local_negative"))
+
+    assert canvas._display_diagram_value("n_kg", 10.0) == -10.0
+    assert canvas._display_diagram_value("v_kg", 10.0) == -10.0
+    assert canvas._display_diagram_value("m_kg_m", 10.0) == -10.0
+    assert canvas._diagram_offset("n_kg", 10.0, 2.0) == 20.0
+    window.close()
+
+
+def test_fbd_uses_single_combo_and_balances_reactions(app: QApplication) -> None:
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+    panel = window.results_panel
+    panel.result_selector.setCurrentIndex(panel.result_selector.findData("combo:Service"))
+    panel.canvas.set_view_mode("fbd")
+    app.processEvents()
+
+    factors = panel.canvas._display_load_factors()
+    residual = panel.canvas._equilibrium_residual(factors, {node["id"]: node for node in panel.canvas._model["nodes"]})
+    assert factors == {"DL": 1.0, "LL": 1.0}
+    assert max(abs(value) for value in residual) < 1.0e-8
+    assert not panel.canvas.grab().isNull()
+
+    panel.result_selector.setCurrentIndex(panel.result_selector.findData("envelope"))
+    app.processEvents()
+    assert panel.canvas._display_load_factors() == {}
     window.close()
 
 

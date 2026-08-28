@@ -15,6 +15,9 @@ reused by a CLI, and later called by the Ruby extension through a bridge.
 - Canvas overlays for N, V, M, FE deflection, or all diagrams on the structural model.
 - Optional diagram value labels plus crosshair hover markers and tooltips for member force and deflection values.
 - Canvas authoring foundation: select, pan, grid/snap, box selection, create snapped nodes, and draw members with live length/angle preview.
+- A Display dock for independent model, load, result-convention, and free-body layers.
+- Directionally correct nodal forces/moments and uniform or linearly varying member loads for an active input load case.
+- Free-body diagrams for a single analysis case or combination, including support reactions and global equilibrium residuals.
 - Calculation details, topology screening, and load-case equilibrium checks.
 
 GOBeam, GOTruss, reports, and the SketchUp bridge remain outside the current increment. The existing
@@ -66,3 +69,10 @@ inside it, while a right-to-left window selects crossing members too. Press `Del
 selected members or nodes when the remaining model is valid. `Ctrl+Z` and `Ctrl+Y` undo and redo
 model changes. Canvas edits update the same model shown in the input tables and require analysis to
 be run again.
+
+## Display and free body layers
+
+Open `View > Display` to control model labels, load values and direction labels, diagram fill, and
+visual sign conventions. These choices transform presentation only; the solver's native values and
+units are unchanged. The Free body view accepts a single Case or Combo, never an Envelope, because
+an envelope can contain values governed by different combinations and is not a balanced load state.
