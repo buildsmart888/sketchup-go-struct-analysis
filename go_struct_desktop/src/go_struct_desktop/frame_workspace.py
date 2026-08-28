@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from go_struct_core import FrameModel
 
 from .canvas import FrameCanvas
+from .diagrams import FrameDiagramsPanel
 from .editors import CombinationEditor, Column, ProjectEditor, TableEditor, as_float, as_int
 
 
@@ -178,6 +179,7 @@ class FrameResultsPanel(QWidget):
         super().__init__(parent)
         self._model: Mapping[str, Any] = {}
         self._analysis: Mapping[str, Any] | None = None
+        self._postprocess: Mapping[str, Any] | None = None
         self.canvas = FrameCanvas(self)
         self.result_selector = QComboBox(self)
         self.deformed_toggle = QCheckBox("Deformed", self)
@@ -185,6 +187,11 @@ class FrameResultsPanel(QWidget):
         self.summary = self._result_table(["Max displacement (mm)", "Max axial (kg)", "Max moment (kg-m)"], 1)
         self.node_results = self._result_table(["Node", "dx (mm)", "dy (mm)", "Rz (rad)", "Rx (kg)", "Ry (kg)", "Mz (kg-m)"], 0)
         self.member_results = self._result_table(["Member", "N1 axial", "N1 shear", "N1 moment", "N2 axial", "N2 shear", "N2 moment"], 0)
+        self.diagrams = FrameDiagramsPanel(self)
+        self.calculation_details = QPlainTextEdit(self)
+        self.calculation_details.setReadOnly(True)
+        self.diagnostics = self._result_table(["Status", "Check"], 0)
+        self.equilibrium = self._result_table(["Load Case", "Residual Fx (kg)", "Residual Fy (kg)", "Residual Mz (kg-m)", "Pass"], 0)
         self.steps = QPlainTextEdit(self)
         self.steps.setReadOnly(True)
         self._build_layout()
@@ -201,6 +208,7 @@ class FrameResultsPanel(QWidget):
 
     def clear_analysis(self) -> None:
         self._analysis = None
+        self._postprocess = None
         self.result_selector.blockSignals(True)
         self.result_selector.clear()
         self.result_selector.blockSignals(False)
@@ -208,16 +216,24 @@ class FrameResultsPanel(QWidget):
         self.summary.setRowCount(0)
         self.node_results.setRowCount(0)
         self.member_results.setRowCount(0)
+        self.diagrams.set_members([])
+        self.calculation_details.clear()
+        self.diagnostics.setRowCount(0)
+        self.equilibrium.setRowCount(0)
         self.steps.clear()
 
-    def set_analysis(self, analysis: Mapping[str, Any]) -> None:
+    def set_analysis(self, analysis: Mapping[str, Any], postprocess: Mapping[str, Any]) -> None:
         self._analysis = analysis
+        self._postprocess = postprocess
         self.result_selector.blockSignals(True)
         self.result_selector.clear()
-        self.result_selector.addItem("Envelope", "Envelope")
+        self.result_selector.addItem("Envelope", "envelope")
+        for name in analysis.get("cases", {}):
+            self.result_selector.addItem(f"Case | {name}", f"case:{name}")
         for name in analysis.get("combos", {}):
-            self.result_selector.addItem(name, name)
+            self.result_selector.addItem(f"Combo | {name}", f"combo:{name}")
         self.result_selector.blockSignals(False)
+        self._populate_diagnostics()
         self._selection_changed()
 
     def _build_layout(self) -> None:
@@ -230,8 +246,12 @@ class FrameResultsPanel(QWidget):
 
         result_tabs = QTabWidget(self)
         result_tabs.addTab(self.summary, "Summary")
+        result_tabs.addTab(self.diagrams, "Diagrams")
         result_tabs.addTab(self.node_results, "Node Results")
         result_tabs.addTab(self.member_results, "Member Forces")
+        result_tabs.addTab(self.calculation_details, "Calculation Details")
+        result_tabs.addTab(self.diagnostics, "Diagnostics")
+        result_tabs.addTab(self.equilibrium, "Equilibrium")
         result_tabs.addTab(self.steps, "Solver Log")
         splitter = QSplitter(Qt.Orientation.Vertical, self)
         canvas_host = QWidget(self)
@@ -249,11 +269,23 @@ class FrameResultsPanel(QWidget):
     def _selection_changed(self) -> None:
         if not self._analysis:
             return
-        selection = self.result_selector.currentData()
-        selected = self._analysis if selection in (None, "Envelope") else self._analysis.get("combos", {}).get(selection, self._analysis)
+        selection = self.result_selector.currentData() or "envelope"
+        selected, selected_postprocess = self._selected_data(str(selection))
         self.canvas.set_result(selected)
+        self.canvas.set_deformed_members(selected_postprocess.get("members", []))
+        self.diagrams.set_members(selected_postprocess.get("members", []))
         self._populate_tables(selected)
+        self._populate_calculation_details(str(selection), selected_postprocess)
         self.steps.setPlainText("\n".join(self._analysis.get("steps", [])))
+
+    def _selected_data(self, selection: str) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
+        if selection.startswith("case:"):
+            name = selection.removeprefix("case:")
+            return self._analysis.get("cases", {}).get(name, self._analysis), self._postprocess.get("cases", {}).get(name, {})
+        if selection.startswith("combo:"):
+            name = selection.removeprefix("combo:")
+            return self._analysis.get("combos", {}).get(name, self._analysis), self._postprocess.get("combos", {}).get(name, {})
+        return self._analysis, self._postprocess.get("envelope", {})
 
     def _populate_tables(self, result: Mapping[str, Any]) -> None:
         nodes = result.get("nodes", [])
@@ -277,6 +309,50 @@ class FrameResultsPanel(QWidget):
             values = (member["id"], first["axial"], first["shear"], first["moment"], second["axial"], second["shear"], second["moment"])
             for column, value in enumerate(values):
                 self.member_results.setItem(row, column, QTableWidgetItem(str(value) if column == 0 else f"{float(value):,.4f}"))
+
+    def _populate_calculation_details(self, selection: str, postprocess: Mapping[str, Any]) -> None:
+        convention = self._postprocess.get("conventions", {}) if self._postprocess else {}
+        lines = [
+            "2D Frame Direct Stiffness Analysis",
+            "",
+            "System: K u = F",
+            f"Selection: {selection}",
+            f"Model: {len(self._model.get('nodes', []))} nodes, {len(self._model.get('elements', []))} members, {len(self._model.get('sections', []))} sections",
+            "",
+            "Conventions:",
+        ]
+        lines.extend(f"- {name}: {description}" for name, description in convention.items())
+        lines.extend(["", "Member calculations:"])
+        for member in postprocess.get("members", []):
+            actions = member.get("end_actions", {})
+            extrema = member.get("extrema", {})
+            lines.append(f"E{member['id']} | N{member['n1']} - N{member['n2']} | L = {float(member['length_m']):.4f} m | {member['release']}")
+            if actions:
+                lines.append(f"  End actions: Ni={float(actions['n_i']):.3f}, Vi={float(actions['v_i']):.3f}, Mi={float(actions['m_i']):.3f}; Nj={float(actions['n_j']):.3f}, Vj={float(actions['v_j']):.3f}, Mj={float(actions['m_j']):.3f}")
+            load = member.get("distributed_load", {})
+            if load:
+                lines.append(f"  Factored distributed load: qx={float(load.get('qx1_kg_m', 0.0)):.3f} to {float(load.get('qx2_kg_m', 0.0)):.3f} kg/m; qy={float(load.get('qy1_kg_m', 0.0)):.3f} to {float(load.get('qy2_kg_m', 0.0)):.3f} kg/m")
+            for key, label in (("n_kg", "N"), ("v_kg", "V"), ("m_kg_m", "M"), ("v_mm", "v")):
+                value = extrema.get(key, {}).get("abs")
+                if value:
+                    governing = f" ({value['combo']})" if value.get("combo") else ""
+                    lines.append(f"  {label} max abs = {float(value['value']):.4f} at x = {float(value['x_m']):.4f} m{governing}")
+        self.calculation_details.setPlainText("\n".join(lines))
+
+    def _populate_diagnostics(self) -> None:
+        diagnostics = self._postprocess.get("diagnostics", {}) if self._postprocess else {}
+        items = diagnostics.get("items", [])
+        self.diagnostics.setRowCount(len(items))
+        for row, item in enumerate(items):
+            self.diagnostics.setItem(row, 0, QTableWidgetItem(str(item.get("severity", "info")).upper()))
+            self.diagnostics.setItem(row, 1, QTableWidgetItem(str(item.get("message", ""))))
+        checks = diagnostics.get("equilibrium", [])
+        self.equilibrium.setRowCount(len(checks))
+        for row, check in enumerate(checks):
+            residual = check["residual"]
+            values = (check["load_case"], residual["fx_kg"], residual["fy_kg"], residual["mz_kg_m"], "PASS" if check["ok"] else "CHECK")
+            for column, value in enumerate(values):
+                self.equilibrium.setItem(row, column, QTableWidgetItem(str(value) if column in (0, 4) else f"{float(value):.3e}"))
 
     @staticmethod
     def _result_table(headers: list[str], rows: int) -> QTableWidget:

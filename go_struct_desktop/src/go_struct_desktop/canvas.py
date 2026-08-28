@@ -17,6 +17,7 @@ class FrameCanvas(QWidget):
         super().__init__(parent)
         self._model: Mapping[str, Any] = {}
         self._result: Mapping[str, Any] | None = None
+        self._deformed_members: list[Mapping[str, Any]] = []
         self._show_deformed = True
         self._zoom = 1.0
         self._pan = QPointF()
@@ -32,6 +33,12 @@ class FrameCanvas(QWidget):
 
     def set_result(self, result: Mapping[str, Any] | None) -> None:
         self._result = result
+        if result is None:
+            self._deformed_members = []
+        self.update()
+
+    def set_deformed_members(self, members: list[Mapping[str, Any]]) -> None:
+        self._deformed_members = members
         self.update()
 
     def set_show_deformed(self, show: bool) -> None:
@@ -153,6 +160,9 @@ class FrameCanvas(QWidget):
     def _draw_deformed_shape(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, span_x: float, span_y: float) -> None:
         if not self._show_deformed or not self._result:
             return
+        if self._deformed_members:
+            self._draw_deformed_member_curves(painter, node_by_id, screen, span_x, span_y)
+            return
         result_nodes = {node["id"]: node for node in self._result.get("nodes", [])}
         maximum = max((math.hypot(float(node.get("dx", 0.0)), float(node.get("dy", 0.0))) for node in result_nodes.values()), default=0.0)
         if maximum <= 1.0e-15:
@@ -169,6 +179,39 @@ class FrameCanvas(QWidget):
             p1 = screen(float(first["x"]) + float(first_result.get("dx", 0.0)) * exaggeration, float(first["y"]) + float(first_result.get("dy", 0.0)) * exaggeration)
             p2 = screen(float(second["x"]) + float(second_result.get("dx", 0.0)) * exaggeration, float(second["y"]) + float(second_result.get("dy", 0.0)) * exaggeration)
             painter.drawLine(p1, p2)
+
+    def _draw_deformed_member_curves(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, span_x: float, span_y: float) -> None:
+        maximum = 0.0
+        for member in self._deformed_members:
+            node = node_by_id.get(member["n1"])
+            if node is None:
+                continue
+            angle = float(member["angle_rad"])
+            for point in member.get("points", []):
+                x = float(point["x_m"])
+                original_x = float(node["x"]) + math.cos(angle) * x
+                original_y = float(node["y"]) + math.sin(angle) * x
+                maximum = max(maximum, math.hypot(float(point["x_deformed_m"]) - original_x, float(point["y_deformed_m"]) - original_y))
+        if maximum <= 1.0e-15:
+            return
+        exaggeration = max(span_x, span_y) * 0.12 / maximum
+        pen = QPen(QColor("#0f766e"), 2.0, Qt.PenStyle.DashLine)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        for member in self._deformed_members:
+            node = node_by_id.get(member["n1"])
+            if node is None:
+                continue
+            angle = float(member["angle_rad"])
+            curve = QPolygonF()
+            for point in member.get("points", []):
+                x = float(point["x_m"])
+                original_x = float(node["x"]) + math.cos(angle) * x
+                original_y = float(node["y"]) + math.sin(angle) * x
+                deformed_x = original_x + (float(point["x_deformed_m"]) - original_x) * exaggeration
+                deformed_y = original_y + (float(point["y_deformed_m"]) - original_y) * exaggeration
+                curve.append(screen(deformed_x, deformed_y))
+            painter.drawPolyline(curve)
 
     def _draw_nodes_and_supports(self, painter: QPainter, nodes: list[Mapping[str, Any]], screen) -> None:
         font = QFont(painter.font())

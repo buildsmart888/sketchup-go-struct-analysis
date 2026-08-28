@@ -26,9 +26,14 @@ def test_frame_workspace_analyzes_default_model(app: QApplication) -> None:
 
     assert window.results_panel.analysis is not None
     assert window.results_panel.analysis["ok"] is True
-    assert window.results_panel.result_selector.count() == 3
+    assert window.results_panel.result_selector.count() == 5
     assert window.results_panel.node_results.rowCount() == 4
     assert window.results_panel.member_results.rowCount() == 3
+    window.results_panel.result_selector.setCurrentIndex(window.results_panel.result_selector.findData("combo:ULS"))
+    app.processEvents()
+    assert window.results_panel.diagrams.member_selector.count() == 3
+    assert "Member calculations" in window.results_panel.calculation_details.toPlainText()
+    assert not window.results_panel.diagrams.canvas.grab().isNull()
     assert not window.results_panel.canvas.grab().isNull()
 
     window.close()

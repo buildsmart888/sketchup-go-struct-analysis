@@ -125,7 +125,8 @@ def _fixed_end_forces(wx1: float, wx2: float, wy1: float, wy2: float, length: fl
     return forces
 
 
-def _combination_factors(combination: LoadCombination) -> dict[str, float]:
+def resolve_combination_factors(combination: LoadCombination) -> dict[str, float]:
+    """Return factor objects or parse the legacy ``eq`` expression without mutation."""
     if combination.factors:
         return dict(combination.factors)
     if not combination.equation:
@@ -175,7 +176,7 @@ def _apply_envelope(target: dict[str, Any], candidate: dict[str, Any]) -> None:
 
 def _combine_case_results(model: FrameModel, case_results: Mapping[str, dict[str, Any]], combination: LoadCombination) -> dict[str, Any]:
     combined = {"nodes": _empty_node_results(model), "elements": _empty_element_results(model)}
-    for case_name, factor in _combination_factors(combination).items():
+    for case_name, factor in resolve_combination_factors(combination).items():
         case = case_results.get(case_name)
         if case is None:
             continue

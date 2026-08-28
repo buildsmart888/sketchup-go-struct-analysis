@@ -7,10 +7,10 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping
 
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QFont, QKeySequence
 from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox, QSplitter, QStyle
 
-from go_struct_core import FrameModel, ModelValidationError, analyze_frame_data
+from go_struct_core import FrameModel, ModelValidationError, analyze_frame_data, build_frame_postprocess
 
 from .frame_workspace import FrameInputPanel, FrameResultsPanel, default_frame_model
 
@@ -20,6 +20,9 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
+        application = QApplication.instance()
+        if application is not None:
+            application.setFont(QFont("Segoe UI", 10))
         self._current_path: Path | None = None
         self.input_panel = FrameInputPanel(self)
         self.results_panel = FrameResultsPanel(self)
@@ -148,7 +151,7 @@ class MainWindow(QMainWindow):
             self.results_panel.clear_analysis()
             self._show_error("Analysis failed", str(result.get("error", "Unknown error")))
             return
-        self.results_panel.set_analysis(result)
+        self.results_panel.set_analysis(result, build_frame_postprocess(model, result))
         self.statusBar().showMessage(f"Analysis complete: {len(model['nodes'])} nodes, {len(model['elements'])} members")
 
     def _model_edited(self) -> None:
@@ -176,6 +179,7 @@ class MainWindow(QMainWindow):
 def main() -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("GO Struct Desktop")
+    app.setFont(QFont("Segoe UI", 10))
     window = MainWindow()
     window.show()
     return app.exec()

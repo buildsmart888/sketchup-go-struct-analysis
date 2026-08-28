@@ -15,6 +15,10 @@ The PySide workspace is a separate consumer of that boundary:
 FrameInputPanel -> FrameModel -> frame solver -> FrameResultsPanel
 ```
 
+Before results reach the UI, `build_frame_postprocess()` samples each member for N/V/M and FE
+deflection, records extrema, and creates governing-combination envelope data. This keeps diagram
+math, sign conventions, and diagnostics independent from PySide.
+
 The UI owns editable tables, file dialogs, rendering, and presentation units such as mm. The core
 owns validation, source units, stiffness calculations, and result semantics.
 
@@ -35,6 +39,8 @@ The data contract mirrors `go_struct_analysis/goframe.rb` and the `collectData()
 - Do not mutate input dictionaries while parsing combinations or solving.
 - New properties must have defaults or a migration path before they are written back to a model.
 - The result envelope stores the signed value with greatest absolute magnitude, matching Ruby.
+- Member diagrams use tension-positive axial force and the legacy GOFrame local V/M display signs.
+- Torsion is outside the 2D solver scope and must not be represented by `Rz`.
 
 ## Validation command
 

@@ -11,6 +11,8 @@ reused by a CLI, and later called by the Ruby extension through a bridge.
 - Load cases, linear load combinations, and maximum-absolute envelopes.
 - Regression, equilibrium, and validation tests.
 - A PySide 2D Frame workspace with editable model tables, model/deformed-shape views, and results.
+- Member diagrams for axial force (N), shear (V), moment (M), and FE deflection.
+- Calculation details, topology screening, and load-case equilibrium checks.
 
 GOBeam, GOTruss, reports, and the SketchUp bridge remain outside the current increment. The existing
 Ruby extension remains the production SketchUp integration.
@@ -29,6 +31,9 @@ The frame input uses the same field names and units as the Ruby GOFrame dialog:
 
 `analyze_frame_data()` returns the legacy result shape (`ok`, `nodes`, `elements`, `cases`,
 `combos`, and `steps`) so a later bridge can exchange JSON without redesigning the data contract.
+
+The 2D frame solver does not calculate torsion (T). Its node degrees of freedom are `Ux`, `Uy`, and
+`Rz`; a torsion result requires a future 3D frame solver.
 
 ## Development
 
