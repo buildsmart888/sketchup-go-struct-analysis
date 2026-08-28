@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
-    QSplitter,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -357,58 +356,23 @@ class FrameResultsPanel(QWidget):
         self._selection_changed()
 
     def _build_layout(self) -> None:
-        authoring_controls = QHBoxLayout()
-        authoring_controls.setContentsMargins(0, 0, 0, 0)
-        for tool in ("select", "node", "member", "split", "nodal_load", "member_load", "pan"):
-            authoring_controls.addWidget(self._tool_buttons[tool])
-        authoring_controls.addWidget(self.support_type)
-        authoring_controls.addWidget(self.support_button)
-        authoring_controls.addWidget(QLabel("Pick", self))
-        authoring_controls.addWidget(self.selection_filter)
-        authoring_controls.addSpacing(8)
-        authoring_controls.addWidget(self.grid_toggle)
-        authoring_controls.addWidget(self.snap_toggle)
-        authoring_controls.addWidget(self.snap_nodes_toggle)
-        authoring_controls.addWidget(QLabel("Step", self))
-        authoring_controls.addWidget(self.grid_spacing)
-        authoring_controls.addWidget(self.fit_button)
-        authoring_controls.addWidget(QLabel("New member", self))
-        authoring_controls.addWidget(self.active_section)
-        authoring_controls.addStretch()
-        authoring_controls.addWidget(self.selection_label)
-
-        result_controls = QHBoxLayout()
-        result_controls.setContentsMargins(0, 0, 0, 0)
-        result_controls.addWidget(QLabel("Result", self))
-        result_controls.addWidget(self.result_selector)
-        result_controls.addWidget(QLabel("Canvas", self))
-        result_controls.addWidget(self.canvas_diagram_selector)
-        result_controls.addWidget(self.diagram_values_toggle)
-        result_controls.addStretch()
-        result_controls.addWidget(self.deformed_toggle)
-
-        result_tabs = QTabWidget(self)
-        result_tabs.addTab(self.summary, "Summary")
-        result_tabs.addTab(self.diagrams, "Diagrams")
-        result_tabs.addTab(self.node_results, "Node Results")
-        result_tabs.addTab(self.member_results, "Member Forces")
-        result_tabs.addTab(self.calculation_details, "Calculation Details")
-        result_tabs.addTab(self.diagnostics, "Diagnostics")
-        result_tabs.addTab(self.equilibrium, "Equilibrium")
-        result_tabs.addTab(self.steps, "Solver Log")
-        splitter = QSplitter(Qt.Orientation.Vertical, self)
-        canvas_host = QWidget(self)
-        canvas_layout = QVBoxLayout(canvas_host)
-        canvas_layout.setContentsMargins(0, 0, 0, 0)
-        canvas_layout.addLayout(authoring_controls)
-        canvas_layout.addLayout(result_controls)
-        canvas_layout.addWidget(self.canvas, 1)
-        splitter.addWidget(canvas_host)
-        splitter.addWidget(result_tabs)
-        splitter.setSizes([490, 250])
+        self.results_tabs = QTabWidget(self)
+        self.results_tabs.addTab(self.summary, "Summary")
+        self.results_tabs.addTab(self.diagrams, "Diagrams")
+        self.results_tabs.addTab(self.node_results, "Node Results")
+        self.results_tabs.addTab(self.member_results, "Member Forces")
+        self.results_tabs.addTab(self.calculation_details, "Calculation Details")
+        self.results_tabs.addTab(self.diagnostics, "Diagnostics")
+        self.results_tabs.addTab(self.equilibrium, "Equilibrium")
+        self.results_tabs.addTab(self.steps, "Solver Log")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
-        layout.addWidget(splitter)
+        layout.addWidget(self.canvas)
+
+    def detach_results_tabs(self) -> QTabWidget:
+        """Hand the result tabs to the main window's dock layout."""
+        self.results_tabs.setParent(None)
+        return self.results_tabs
 
     def _selection_changed(self) -> None:
         if not self._analysis:

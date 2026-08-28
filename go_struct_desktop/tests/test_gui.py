@@ -11,7 +11,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtGui import QWheelEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QDockWidget
 
 from go_struct_desktop.app import MainWindow
 from go_struct_desktop.display import DisplaySettings
@@ -54,6 +54,24 @@ def test_frame_workspace_analyzes_default_model(app: QApplication) -> None:
     assert not window.results_panel.diagrams.canvas.grab().isNull()
     assert not window.results_panel.canvas.grab().isNull()
 
+    window.close()
+
+
+def test_workspace_input_and_results_are_independent_docks(app: QApplication) -> None:
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+
+    assert window.centralWidget() is window.results_panel
+    assert window.input_dock.widget() is window.input_panel
+    assert window.results_dock.widget() is window.results_panel.results_tabs
+    for dock in (window.input_dock, window.results_dock):
+        assert dock.features() & QDockWidget.DockWidgetFeature.DockWidgetClosable
+        assert dock.features() & QDockWidget.DockWidgetFeature.DockWidgetMovable
+        assert dock.features() & QDockWidget.DockWidgetFeature.DockWidgetFloatable
+
+    assert window.results_panel._tool_buttons["node"].parentWidget() is not window.results_panel
+    assert window.results_panel.result_selector.parentWidget() is not window.results_panel
     window.close()
 
 

@@ -10,7 +10,7 @@ from typing import Any, Mapping
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QFont, QKeySequence
-from PySide6.QtWidgets import QApplication, QDockWidget, QFileDialog, QMainWindow, QMessageBox, QSplitter, QStyle
+from PySide6.QtWidgets import QApplication, QDockWidget, QFileDialog, QMainWindow, QMessageBox, QStyle, QWidget
 
 from go_struct_core import FrameModel, ModelValidationError, analyze_frame_data, build_frame_postprocess
 
@@ -67,31 +67,40 @@ class MainWindow(QMainWindow):
             QStatusBar { background: #ffffff; border-top: 1px solid #cbd5e1; color: #475569; }
             """
         )
-        splitter = QSplitter(self)
-        splitter.addWidget(self.input_panel)
-        splitter.addWidget(self.results_panel)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([510, 930])
-        self.setCentralWidget(splitter)
+        self.setCentralWidget(self.results_panel)
+        self.input_dock = self._create_dock("Model Input", "modelInputDock", self.input_panel)
+        self.input_dock.setMinimumWidth(300)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.input_dock)
+        self.results_dock = self._create_dock("Analysis Results", "analysisResultsDock", self.results_panel.detach_results_tabs())
+        self.results_dock.setMinimumHeight(230)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.results_dock)
         self.display_panel = DisplayPanel(self)
-        self.display_dock = QDockWidget("Display", self)
-        self.display_dock.setObjectName("displayDock")
-        self.display_dock.setWidget(self.display_panel)
+        self.display_dock = self._create_dock("Display", "displayDock", self.display_panel)
         self.display_dock.setMinimumWidth(280)
         self.display_dock.setMaximumWidth(360)
         self.display_dock.resize(320, 700)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.display_dock)
         self.display_dock.hide()
-        self.inspector_dock = QDockWidget("Properties", self)
-        self.inspector_dock.setObjectName("propertiesDock")
-        self.inspector_dock.setWidget(self.inspector)
+        self.inspector_dock = self._create_dock("Properties", "propertiesDock", self.inspector)
         self.inspector_dock.setMinimumWidth(280)
         self.inspector_dock.setMaximumWidth(360)
         self.inspector_dock.resize(320, 700)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.inspector_dock)
+        self.resizeDocks([self.input_dock], [360], Qt.Orientation.Horizontal)
+        self.resizeDocks([self.results_dock], [300], Qt.Orientation.Vertical)
         self._build_actions()
         self.statusBar().showMessage("Ready")
+
+    def _create_dock(self, title: str, object_name: str, widget: QWidget) -> QDockWidget:
+        dock = QDockWidget(title, self)
+        dock.setObjectName(object_name)
+        dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetClosable
+            | QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+        dock.setWidget(widget)
+        return dock
 
     def _build_actions(self) -> None:
         style = self.style()
@@ -207,6 +216,8 @@ class MainWindow(QMainWindow):
         analysis_menu = self.menuBar().addMenu("Analysis")
         analysis_menu.addAction(analyze_action)
         view_menu = self.menuBar().addMenu("View")
+        view_menu.addAction(self.input_dock.toggleViewAction())
+        view_menu.addAction(self.results_dock.toggleViewAction())
         view_menu.addAction(self.display_dock.toggleViewAction())
         view_menu.addAction(self.inspector_dock.toggleViewAction())
         view_menu.addAction(fit_selection_action)
@@ -230,8 +241,57 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.undo_action)
         toolbar.addAction(self.redo_action)
         toolbar.addSeparator()
+        self._add_canvas_toolbar_controls(toolbar)
+        toolbar.addSeparator()
         toolbar.addAction(analyze_action)
         self._update_history_actions()
+
+    def _add_canvas_toolbar_controls(self, toolbar: object) -> None:
+        """Place compact canvas controls beside the file actions, grouped by use."""
+        style = self.style()
+        icon_map = {
+            "select": QStyle.StandardPixmap.SP_ArrowForward,
+            "node": QStyle.StandardPixmap.SP_FileDialogNewFolder,
+            "member": QStyle.StandardPixmap.SP_ArrowRight,
+            "split": QStyle.StandardPixmap.SP_DialogApplyButton,
+            "pan": QStyle.StandardPixmap.SP_BrowserReload,
+            "nodal_load": QStyle.StandardPixmap.SP_ArrowDown,
+            "member_load": QStyle.StandardPixmap.SP_ArrowUp,
+        }
+        for key in ("select", "node", "member", "split", "pan"):
+            button = self.results_panel._tool_buttons[key]
+            button.setIcon(style.standardIcon(icon_map[key]))
+            button.setText("")
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            toolbar.addWidget(button)
+        toolbar.addWidget(self.results_panel.support_type)
+        self.results_panel.support_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_DriveHDIcon))
+        self.results_panel.support_button.setText("")
+        self.results_panel.support_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        toolbar.addWidget(self.results_panel.support_button)
+        toolbar.addWidget(self.results_panel.selection_filter)
+        toolbar.addSeparator()
+        for key in ("nodal_load", "member_load"):
+            button = self.results_panel._tool_buttons[key]
+            button.setIcon(style.standardIcon(icon_map[key]))
+            button.setText("")
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            toolbar.addWidget(button)
+        toolbar.addWidget(self.results_panel.active_section)
+        toolbar.addSeparator()
+        toolbar.addWidget(self.results_panel.grid_toggle)
+        toolbar.addWidget(self.results_panel.snap_toggle)
+        toolbar.addWidget(self.results_panel.snap_nodes_toggle)
+        toolbar.addWidget(self.results_panel.grid_spacing)
+        self.results_panel.fit_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
+        self.results_panel.fit_button.setText("")
+        self.results_panel.fit_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        toolbar.addWidget(self.results_panel.fit_button)
+        toolbar.addWidget(self.results_panel.result_selector)
+        toolbar.addWidget(self.results_panel.canvas_diagram_selector)
+        toolbar.addWidget(self.results_panel.diagram_values_toggle)
+        toolbar.addWidget(self.results_panel.deformed_toggle)
+        toolbar.addWidget(self.results_panel.selection_label)
 
     def set_model(self, model: Mapping[str, Any]) -> None:
         self._set_input_model(model)

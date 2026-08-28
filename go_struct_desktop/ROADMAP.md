@@ -41,6 +41,8 @@ six nodal degrees of freedom and torsional member stiffness.
   overlapping diagram value labels.
 - Diagnostics now detect duplicate nodes, duplicate members, disconnected nodes, non-nodal member
   intersections, restraint shortages, and solver mechanisms.
+- Model Input and Analysis Results now use independently movable, floatable, and closable docks;
+  compact grouped canvas controls live in the main toolbar beside file/edit commands.
 
 ## In progress: Display and FBD foundation
 

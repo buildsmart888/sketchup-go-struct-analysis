@@ -10,7 +10,7 @@ reused by a CLI, and later called by the Ruby extension through a bridge.
 - A NumPy implementation of the 2D frame direct-stiffness solver.
 - Load cases, linear load combinations, and maximum-absolute envelopes.
 - Regression, equilibrium, and validation tests.
-- A PySide 2D Frame workspace with editable model tables, model/deformed-shape views, and results.
+- A dockable PySide 2D Frame workspace with editable model tables, model/deformed-shape views, and results.
 - Member diagrams for axial force (N), shear (V), moment (M), and FE deflection.
 - Canvas overlays for N, V, M, FE deflection, or all diagrams on the structural model.
 - Optional diagram value labels plus crosshair hover markers and tooltips for member force and deflection values.
@@ -64,7 +64,7 @@ the Ruby dialog, and it writes the same input field names back to JSON.
 
 ## Canvas authoring
 
-Use the canvas toolbar to switch among Select, Node, Member, Split, support, load, and Pan. Node and Member tools use
+The main toolbar groups compact icon tools for modeling, loading, and analysis directly after the file commands. Use it to switch among Select, Node, Member, Split, support, load, and Pan. Node and Member tools use
 the configured grid step and can snap to endpoints, member midpoints, or member intersections. Select objects by click or selection
 box; choose Nodes, Members, or Both before selecting. A left-to-right window selects objects fully
 inside it, while a right-to-left window selects crossing members too. Drag a selected node to move,
@@ -72,6 +72,8 @@ extend, or trim its connected members; press `Delete` and confirm to remove sele
 nodes. `Ctrl+D`, `Ctrl+Z`, and `Ctrl+Y` duplicate, undo, and redo model changes. Canvas edits update
 the same model shown in the input tables and require analysis to be run again.
 
+`Model Input` and `Analysis Results` are movable, floatable, and closable docks. Reopen them from
+`View > Model Input` and `View > Analysis Results`; this leaves the canvas available as a focused central work area.
 Open `View > Properties` for selection-aware editing. `Model`, `Loads`, and `Results` menus expose
 the matching canvas tools and input tables. `File > Export Analysis JSON` writes a normalized model,
 solver result, and post-processing data package for review or later reporting.
