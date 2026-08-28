@@ -47,6 +47,7 @@ class MainWindow(QMainWindow):
         self.display_panel.settings_changed.connect(self._save_display_settings)
         self.display_panel.load_case_changed.connect(self.results_panel.canvas.set_load_case)
         self.display_panel.view_mode_changed.connect(self.results_panel.canvas.set_view_mode)
+        self.display_panel.view_mode_changed.connect(self._sync_result_view_buttons)
         self.results_panel.set_display_settings(self.display_panel.settings)
         self._restore_display_settings()
         self.set_model(default_frame_model())
@@ -362,17 +363,38 @@ class MainWindow(QMainWindow):
             self.diagram_button_group.addButton(button)
             self.diagram_buttons[mode] = button
             toolbar.addWidget(button)
+        fbd_button = QToolButton(toolbar)
+        fbd_button.setText("FBD")
+        fbd_button.setCheckable(True)
+        fbd_button.setToolTip("Show the free-body diagram with applied loads and reactions")
+        fbd_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        fbd_button.setStyleSheet(
+            "QToolButton { color: #9f1239; min-width: 38px; }"
+            "QToolButton:checked { background: #9f1239; color: #ffffff; border-color: #9f1239; }"
+        )
+        fbd_button.clicked.connect(self._set_fbd_view)
+        self.diagram_button_group.addButton(fbd_button)
+        self.diagram_buttons["fbd"] = fbd_button
+        toolbar.addWidget(fbd_button)
         self.results_panel.canvas_diagram_selector.currentIndexChanged.connect(self._sync_diagram_buttons)
-        self._sync_diagram_buttons()
+        self._sync_result_view_buttons()
         toolbar.addSeparator()
         toolbar.addWidget(self.results_panel.diagram_values_toggle)
         toolbar.addWidget(self.results_panel.deformed_toggle)
         toolbar.addWidget(self.results_panel.selection_label)
 
     def _sync_diagram_buttons(self, _index: int | None = None) -> None:
+        if str(self.display_panel.view_mode.currentData() or "results") == "fbd":
+            return
         mode = str(self.results_panel.canvas_diagram_selector.currentData() or "none")
         if button := self.diagram_buttons.get(mode):
             button.setChecked(True)
+
+    def _sync_result_view_buttons(self, _mode: str | None = None) -> None:
+        if str(self.display_panel.view_mode.currentData() or "results") == "fbd":
+            self.diagram_buttons["fbd"].setChecked(True)
+        else:
+            self._sync_diagram_buttons()
 
     def set_model(self, model: Mapping[str, Any]) -> None:
         self._set_input_model(model)
@@ -506,8 +528,12 @@ class MainWindow(QMainWindow):
             self.results_panel.canvas.select_members_by_section(int(section_id))
 
     def _set_canvas_diagram(self, mode: str) -> None:
+        self.display_panel.view_mode.setCurrentIndex(self.display_panel.view_mode.findData("results"))
         selector = self.results_panel.canvas_diagram_selector
         selector.setCurrentIndex(selector.findData(mode))
+
+    def _set_fbd_view(self) -> None:
+        self.display_panel.view_mode.setCurrentIndex(self.display_panel.view_mode.findData("fbd"))
 
     def _confirm_delete(self, impact: Mapping[str, Any]) -> None:
         nodes = impact.get("nodes", [])

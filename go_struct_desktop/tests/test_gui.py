@@ -85,12 +85,20 @@ def test_toolbar_uses_two_fixed_rows_and_diagram_mode_buttons(app: QApplication)
     assert window.toolBarArea(window.analysis_toolbar) == Qt.ToolBarArea.TopToolBarArea
     assert window.analysis_toolbar.geometry().top() > window.modeling_toolbar.geometry().top()
     assert not window.results_panel.canvas_diagram_selector.isVisible()
-    assert set(window.diagram_buttons) == {"none", "n_kg", "v_kg", "m_kg_m", "v_mm", "all"}
+    assert set(window.diagram_buttons) == {"none", "n_kg", "v_kg", "m_kg_m", "v_mm", "all", "fbd"}
 
     QTest.mouseClick(window.diagram_buttons["m_kg_m"], Qt.MouseButton.LeftButton)
     app.processEvents()
     assert window.diagram_buttons["m_kg_m"].isChecked()
     assert window.results_panel.canvas.diagram_mode == "m_kg_m"
+    QTest.mouseClick(window.diagram_buttons["fbd"], Qt.MouseButton.LeftButton)
+    app.processEvents()
+    assert window.diagram_buttons["fbd"].isChecked()
+    assert window.results_panel.canvas._view_mode == "fbd"
+    QTest.mouseClick(window.diagram_buttons["n_kg"], Qt.MouseButton.LeftButton)
+    app.processEvents()
+    assert window.results_panel.canvas._view_mode == "results"
+    assert window.results_panel.canvas.diagram_mode == "n_kg"
     window.close()
 
 
