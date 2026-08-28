@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
+    QSizePolicy,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -365,6 +366,8 @@ class FrameResultsPanel(QWidget):
         self.results_tabs.addTab(self.diagnostics, "Diagnostics")
         self.results_tabs.addTab(self.equilibrium, "Equilibrium")
         self.results_tabs.addTab(self.steps, "Solver Log")
+        self.diagrams.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
+        self.results_tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.addWidget(self.canvas)

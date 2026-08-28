@@ -72,7 +72,7 @@ class MainWindow(QMainWindow):
         self.input_dock.setMinimumWidth(300)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.input_dock)
         self.results_dock = self._create_dock("Analysis Results", "analysisResultsDock", self.results_panel.detach_results_tabs())
-        self.results_dock.setMinimumHeight(230)
+        self.results_dock.setMinimumHeight(120)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.results_dock)
         self.display_panel = DisplayPanel(self)
         self.display_dock = self._create_dock("Display", "displayDock", self.display_panel)
@@ -87,7 +87,7 @@ class MainWindow(QMainWindow):
         self.inspector_dock.resize(320, 700)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.inspector_dock)
         self.resizeDocks([self.input_dock], [360], Qt.Orientation.Horizontal)
-        self.resizeDocks([self.results_dock], [300], Qt.Orientation.Vertical)
+        self.resizeDocks([self.results_dock], [170], Qt.Orientation.Vertical)
         self._build_actions()
         self.statusBar().showMessage("Ready")
 

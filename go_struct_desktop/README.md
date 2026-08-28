@@ -73,7 +73,8 @@ nodes. `Ctrl+D`, `Ctrl+Z`, and `Ctrl+Y` duplicate, undo, and redo model changes.
 the same model shown in the input tables and require analysis to be run again.
 
 `Model Input` and `Analysis Results` are movable, floatable, and closable docks. Reopen them from
-`View > Model Input` and `View > Analysis Results`; this leaves the canvas available as a focused central work area.
+`View > Model Input` and `View > Analysis Results`. Analysis Results starts in a compact height and can be dragged down to
+120 px, leaving the canvas available as a focused central work area.
 Open `View > Properties` for selection-aware editing. `Model`, `Loads`, and `Results` menus expose
 the matching canvas tools and input tables. `File > Export Analysis JSON` writes a normalized model,
 solver result, and post-processing data package for review or later reporting.

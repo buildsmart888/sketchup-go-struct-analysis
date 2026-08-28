@@ -65,6 +65,7 @@ def test_workspace_input_and_results_are_independent_docks(app: QApplication) ->
     assert window.centralWidget() is window.results_panel
     assert window.input_dock.widget() is window.input_panel
     assert window.results_dock.widget() is window.results_panel.results_tabs
+    assert window.results_dock.minimumHeight() == 120
     for dock in (window.input_dock, window.results_dock):
         assert dock.features() & QDockWidget.DockWidgetFeature.DockWidgetClosable
         assert dock.features() & QDockWidget.DockWidgetFeature.DockWidgetMovable
