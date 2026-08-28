@@ -32,6 +32,7 @@ class FrameCanvas(QWidget):
         "m_kg_m": ("M", QColor("#1d4ed8")),
         "v_mm": ("FE deflection", QColor("#be123c")),
     }
+    _LOAD_CASE_COLORS = ("#15803d", "#2563eb", "#b45309", "#9333ea", "#dc2626", "#0f766e")
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -542,6 +543,8 @@ class FrameCanvas(QWidget):
             y += grid_step
 
     def _display_load_factors(self) -> dict[str, float]:
+        if self._view_mode == "model":
+            return {str(load_case): 1.0 for load_case in self._model.get("loadcases", [])}
         if self._view_mode != "fbd":
             load_case = self._load_case or (self._model.get("loadcases", [""])[0] if self._model.get("loadcases") else "")
             return {str(load_case): 1.0} if load_case else {}
@@ -553,11 +556,17 @@ class FrameCanvas(QWidget):
             return {str(key): float(value) for key, value in combo.get("factors", {}).items()}
         return {}
 
+    def _load_case_color(self, load_case: str) -> QColor:
+        cases = [str(value) for value in self._model.get("loadcases", [])]
+        try:
+            index = cases.index(load_case)
+        except ValueError:
+            index = 0
+        return QColor(self._LOAD_CASE_COLORS[index % len(self._LOAD_CASE_COLORS)])
+
     def _draw_loads(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, factors: Mapping[str, float]) -> None:
         if not factors:
             return
-        node_color = QColor("#dc2626")
-        member_color = QColor("#15803d")
         active_nodal = [load for load in self._model.get("nloads", []) if float(factors.get(str(load.get("lcase")), 0.0))]
         maximum_nodal = max(
             (max(abs(float(load.get(key, 0.0)) * float(factors.get(str(load.get("lcase")), 0.0))) for key in ("fx", "fy", "mz")) for load in active_nodal),
@@ -567,6 +576,8 @@ class FrameCanvas(QWidget):
             node = node_by_id.get(load.get("node"))
             if node is None:
                 continue
+            load_case = str(load.get("lcase", ""))
+            node_color = self._load_case_color(load_case)
             factor = float(factors.get(str(load.get("lcase")), 0.0))
             point = screen(float(node["x"]), float(node["y"]))
             for key, direction in (("fx", (1.0, 0.0)), ("fy", (0.0, 1.0))):
@@ -583,7 +594,8 @@ class FrameCanvas(QWidget):
                 labels = [f"{key.upper()} {float(load.get(key, 0.0)) * factor:,.2f}" for key in ("fx", "fy", "mz") if abs(float(load.get(key, 0.0)) * factor) > 1.0e-12]
                 if labels:
                     painter.setPen(node_color)
-                    painter.drawText(point + QPointF(10.0, -20.0), " | ".join(labels))
+                    prefix = f"[{load_case}] " if len(factors) > 1 else ""
+                    painter.drawText(point + QPointF(10.0, -20.0), prefix + " | ".join(labels))
 
         element_by_id = {element.get("id"): element for element in self._model.get("elements", [])}
         active_member = [load for load in self._model.get("eloads", []) if float(factors.get(str(load.get("lcase")), 0.0))]
@@ -604,6 +616,8 @@ class FrameCanvas(QWidget):
             first, second = node_by_id.get(element.get("n1")), node_by_id.get(element.get("n2"))
             if first is None or second is None:
                 continue
+            load_case = str(load.get("lcase", ""))
+            member_color = self._load_case_color(load_case)
             factor = float(factors.get(str(load.get("lcase")), 0.0))
             dx = float(second["x"]) - float(first["x"])
             dy = float(second["y"]) - float(first["y"])
@@ -629,7 +643,8 @@ class FrameCanvas(QWidget):
                 self._draw_force_arrow(painter, screen, x, y, direction_x * arrow_length, direction_y * arrow_length, member_color)
             if self._display.show_load_values:
                 middle = screen((float(first["x"]) + float(second["x"])) / 2.0, (float(first["y"]) + float(second["y"])) / 2.0)
-                label = f"w {float(load.get('w1', 0.0)) * factor:,.2f} to {float(load.get('w2', 0.0)) * factor:,.2f} kg/m"
+                prefix = f"[{load_case}] " if len(factors) > 1 else ""
+                label = f"{prefix}w {float(load.get('w1', 0.0)) * factor:,.2f} to {float(load.get('w2', 0.0)) * factor:,.2f} kg/m"
                 if self._display.show_load_directions:
                     label += f" | {load.get('dir', 'Local Y')}"
                 painter.setPen(member_color)
@@ -641,6 +656,8 @@ class FrameCanvas(QWidget):
             first, second = node_by_id.get(element.get("n1")), node_by_id.get(element.get("n2"))
             if first is None or second is None:
                 continue
+            load_case = str(load.get("lcase", ""))
+            member_color = self._load_case_color(load_case)
             dx = float(second["x"]) - float(first["x"])
             dy = float(second["y"]) - float(first["y"])
             length = math.hypot(dx, dy)
@@ -667,7 +684,8 @@ class FrameCanvas(QWidget):
                 arrow_length = (22.0 + 30.0 * abs(value) / maximum_point) / self._view_scale if maximum_point else 30.0 / self._view_scale
                 self._draw_force_arrow(painter, screen, x, y, direction_x * arrow_length, direction_y * arrow_length, member_color)
                 if self._display.show_load_values:
-                    label = f"P {value:,.2f} kg @ {at_x:.2f} m"
+                    prefix = f"[{load_case}] " if len(factors) > 1 else ""
+                    label = f"{prefix}P {value:,.2f} kg @ {at_x:.2f} m"
                     if self._display.show_load_directions:
                         label += f" | {load.get('dir', 'Local Y')}"
                     painter.setPen(member_color)
@@ -679,7 +697,8 @@ class FrameCanvas(QWidget):
                 self._draw_moment_arrow(painter, point, value, member_color)
                 if self._display.show_load_values:
                     painter.setPen(member_color)
-                    painter.drawText(point + QPointF(18.0, -18.0), f"M {value:,.2f} kg-m @ {at_x:.2f} m")
+                    prefix = f"[{load_case}] " if len(factors) > 1 else ""
+                    painter.drawText(point + QPointF(18.0, -18.0), f"{prefix}M {value:,.2f} kg-m @ {at_x:.2f} m")
 
     def _draw_force_arrow(self, painter: QPainter, screen, x: float, y: float, vector_x: float, vector_y: float, color: QColor) -> None:
         tip = screen(x, y)

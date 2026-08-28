@@ -59,6 +59,19 @@ def test_frame_workspace_analyzes_default_model(app: QApplication) -> None:
     window.close()
 
 
+def test_model_view_draws_all_input_load_cases_while_results_uses_active_case(app: QApplication) -> None:
+    window = MainWindow()
+    canvas = window.results_panel.canvas
+
+    canvas.set_view_mode("model")
+    assert canvas._display_load_factors() == {"DL": 1.0, "LL": 1.0}
+    canvas.set_view_mode("results")
+    canvas.set_load_case("LL")
+    assert canvas._display_load_factors() == {"LL": 1.0}
+    assert canvas._load_case_color("DL") != canvas._load_case_color("LL")
+    window.close()
+
+
 def test_manual_analysis_reports_completion(app: QApplication, monkeypatch: pytest.MonkeyPatch) -> None:
     window = MainWindow()
     shown: list[tuple[int, int, float]] = []

@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Mapping
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QLabel, QTabWidget, QVBoxLayout, QWidget
 
 
 @dataclass(frozen=True)
@@ -149,9 +149,13 @@ class DisplayPanel(QWidget):
     def _loads_tab(self) -> QWidget:
         tab = QWidget(self)
         layout = QFormLayout(tab)
-        layout.addRow("Input case", self.load_case)
+        layout.addRow("Active case (Results)", self.load_case)
         for control in (self.loads, self.load_values, self.load_directions):
             layout.addRow(control)
+        note = QLabel("Model view shows all input load cases in distinct colours.", tab)
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #64748b;")
+        layout.addRow(note)
         return tab
 
     def _results_tab(self) -> QWidget:
