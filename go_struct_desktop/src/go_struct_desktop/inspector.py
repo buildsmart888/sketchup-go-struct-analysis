@@ -259,11 +259,11 @@ class PropertyInspector(QWidget):
 class LoadDialog(QDialog):
     """Small modal input for a canvas load tool."""
 
-    def __init__(self, kind: str, load_cases: list[str], member_length: float = 0.0, parent: QWidget | None = None, units: UnitSystem | None = None) -> None:
+    def __init__(self, kind: str, load_cases: list[str], member_length: float = 0.0, parent: QWidget | None = None, units: UnitSystem | None = None, preset: str = "generic") -> None:
         super().__init__(parent)
         self.kind = kind
         self.units = units or get_unit_system("legacy_kg_m")
-        self.setWindowTitle("Nodal load" if kind == "nodal" else "Member load")
+        self.setWindowTitle(self._preset_title(kind, preset))
         form = QFormLayout(self)
         self.load_case = QComboBox(self)
         self.load_case.addItems(load_cases or ["DL"])
@@ -297,6 +297,49 @@ class LoadDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
+        self._apply_preset(preset)
+
+    @staticmethod
+    def _preset_title(kind: str, preset: str) -> str:
+        titles = {
+            "nodal_force": "Place nodal force",
+            "nodal_moment": "Place nodal moment",
+            "uniform_load": "Place uniform member load",
+            "triangular_load": "Place triangular member load",
+            "point_force": "Place member point force",
+            "point_moment": "Place member point moment",
+        }
+        return titles.get(preset, "Nodal load" if kind == "nodal" else "Member load")
+
+    def _apply_preset(self, preset: str) -> None:
+        if self.kind == "nodal":
+            if preset == "nodal_moment":
+                self.fx.setValue(0.0)
+                self.fy.setValue(0.0)
+            return
+        type_by_preset = {
+            "uniform_load": "Distributed",
+            "triangular_load": "Distributed",
+            "point_force": "Point Force",
+            "point_moment": "Point Moment",
+        }
+        if preset not in type_by_preset:
+            return
+        self.load_type.setCurrentText(type_by_preset[preset])
+        self.load_type.setEnabled(False)
+        if preset == "uniform_load":
+            self.direction.setCurrentText("Global Y")
+            self.w1.setValue(-10.0)
+            self.w2.setValue(-10.0)
+        elif preset == "triangular_load":
+            self.direction.setCurrentText("Global Y")
+            self.w1.setValue(0.0)
+            self.w2.setValue(-10.0)
+        elif preset == "point_force":
+            self.direction.setCurrentText("Global Y")
+            self.p.setValue(-10.0)
+        elif preset == "point_moment":
+            self.m.setValue(10.0)
 
     def values(self) -> dict[str, Any]:
         if self.kind == "nodal":

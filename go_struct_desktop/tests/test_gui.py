@@ -150,9 +150,25 @@ def test_truss_workspace_uses_axial_only_authoring_and_results(app: QApplication
     assert window.input_panel.sections.table.isColumnHidden(3)
     assert window.input_panel.sections.table.isColumnHidden(4)
     assert not window.input_panel.self_weight.isVisible()
+    assert not window.load_tool_buttons["nodal_force"].isHidden()
+    assert window.load_tool_buttons["uniform_load"].isHidden()
     assert len(window._workspace.examples) == 5
     window.results_panel.canvas.set_tool("member_load")
     assert window.results_panel.canvas.tool == "select"
+    window.close()
+
+
+def test_truss_uses_tension_compression_colours_for_the_n_diagram_and_marks_deflection(app: QApplication) -> None:
+    window = TrussMainWindow()
+    canvas = window.results_panel.canvas
+    assert isinstance(canvas, TrussCanvas)
+
+    assert canvas._diagram_color("n_kg", 5.0, canvas._DIAGRAMS["n_kg"][1]).name() == "#15803d"
+    assert canvas._diagram_color("n_kg", -5.0, canvas._DIAGRAMS["n_kg"][1]).name() == "#b91c1c"
+    canvas.set_diagram_mode("n_kg")
+    assert canvas._member_pen(window.input_panel.model_data()["elements"][0]).color().name() == "#1e293b"
+    canvas.set_diagram_mode("v_mm")
+    assert not canvas.grab().isNull()
     window.close()
 
 
@@ -172,6 +188,58 @@ def test_template_catalog_draws_a_dimensioned_preview_and_collects_parameters(ap
     assert dialog.selected_values()["span_m"] == pytest.approx(6.0)
     assert not dialog.preview.grab().isNull()
     dialog.close()
+
+
+def test_continuous_template_catalog_collects_each_span_length(app: QApplication) -> None:
+    option = TemplateOption(
+        "continuous",
+        "Continuous Beam",
+        "Independent spans.",
+        "continuous",
+        (TemplateParameter("span_count", "Number of spans", 2, 2, 10, integer=True),),
+        TemplateParameter("span_m", "Span {index} (m)", 5.0),
+        "span_count",
+    )
+    dialog = TemplateBrowserDialog("Beam Template test", (option,))
+    dialog.show()
+    app.processEvents()
+    dialog._editors["span_count"].setValue(3)
+    app.processEvents()
+    dialog._editors["span_m_1"].setValue(3.0)
+    dialog._editors["span_m_2"].setValue(4.0)
+    dialog._editors["span_m_3"].setValue(5.0)
+
+    assert dialog.parameters.rowCount() == 4
+    assert dialog.selected_values()["span_m_3"] == pytest.approx(5.0)
+    assert not dialog.preview.grab().isNull()
+    dialog.close()
+
+
+def test_canvas_places_a_configured_load_and_beam_batch_loads_selected_spans(app: QApplication) -> None:
+    window = BeamMainWindow()
+    canvas = window.results_panel.canvas
+    members = [member["id"] for member in window.input_panel.model_data()["elements"]]
+    initial_loads = len(window.input_panel.model_data()["eloads"])
+    canvas._set_selection(set(), set(members))
+    canvas.add_member_loads(members, {"lcase": "DL", "type": "Distributed", "dir": "Global Y", "w1": -4.0, "w2": -4.0})
+    app.processEvents()
+
+    assert len(window.input_panel.model_data()["eloads"]) == initial_loads + len(members)
+    canvas.set_pending_load("member", {"lcase": "DL", "type": "Point Force", "dir": "Global Y", "p": -6.0, "m": 0.0, "w1": 0.0, "w2": 0.0}, "point_force")
+    member = window.input_panel.model_data()["elements"][0]
+    nodes = {node["id"]: node for node in window.input_panel.model_data()["nodes"]}
+    start, end = nodes[member["n1"]], nodes[member["n2"]]
+    assert canvas.tool == "member_load"
+    assert canvas._pending_load and canvas._pending_load["preset"] == "point_force"
+    values = dict(canvas._pending_load["values"])
+    values["x_m"] = canvas._member_station(member["id"], ((start["x"] + end["x"]) / 2.0, 0.0))
+    canvas.add_member_load(member["id"], values)
+    app.processEvents()
+
+    created = window.input_panel.model_data()["eloads"][-1]
+    assert created["type"] == "Point Force"
+    assert created["x_m"] == pytest.approx((end["x"] - start["x"]) / 2.0)
+    window.close()
 
 
 def test_model_view_draws_all_input_load_cases_while_results_uses_active_case(app: QApplication) -> None:

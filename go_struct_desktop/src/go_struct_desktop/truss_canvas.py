@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from .canvas import FrameCanvas
-from PySide6.QtCore import Qt
+import math
+
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 
 from .truss_tools import distribute_vertical_line_load
@@ -41,16 +43,49 @@ class TrussCanvas(FrameCanvas):
             mode = "none"
         super().set_diagram_mode(mode)
 
-    def _member_pen(self, element: Mapping[str, Any]) -> QPen:
-        member = next((item for item in (self._result or {}).get("elements", []) if int(item.get("id", -1)) == int(element["id"])), None)
-        axial = float(member["n1_forces"]["axial"]) if member else 0.0
-        color = QColor("#b91c1c") if axial < -1.0e-12 else QColor("#15803d") if axial > 1.0e-12 else QColor("#475569")
-        pen = QPen(color, 3.4)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        return pen
+    def _diagram_color(self, key: str, value: float, default: QColor) -> QColor:
+        if key != "n_kg":
+            return default
+        if value > 1.0e-12:
+            return QColor("#15803d")
+        if value < -1.0e-12:
+            return QColor("#b91c1c")
+        return QColor("#475569")
+
+    def _draw_deformed_member_curves(self, painter: QPainter, node_by_id, screen, span_x: float, span_y: float) -> None:  # type: ignore[no-untyped-def]
+        super()._draw_deformed_member_curves(painter, node_by_id, screen, span_x, span_y)
+        maximum = 0.0
+        maximum_point: tuple[Mapping[str, Any], Mapping[str, Any], float, float, float, float] | None = None
+        for member in self._deformed_members:
+            node = node_by_id.get(member.get("n1"))
+            if node is None:
+                continue
+            angle = float(member.get("angle_rad", 0.0))
+            for point in member.get("points", []):
+                distance = float(point.get("x_m", 0.0))
+                original_x = float(node["x"]) + math.cos(angle) * distance
+                original_y = float(node["y"]) + math.sin(angle) * distance
+                deformed_x, deformed_y = float(point.get("x_deformed_m", original_x)), float(point.get("y_deformed_m", original_y))
+                displacement = math.hypot(deformed_x - original_x, deformed_y - original_y)
+                if displacement > maximum:
+                    maximum = displacement
+                    maximum_point = member, point, original_x, original_y, deformed_x, deformed_y
+        if maximum_point is None or maximum <= 1.0e-15:
+            return
+        _, _point, original_x, original_y, deformed_x, deformed_y = maximum_point
+        exaggeration = max(span_x, span_y) * 0.12 / maximum
+        marker = screen(original_x + (deformed_x - original_x) * exaggeration, original_y + (deformed_y - original_y) * exaggeration)
+        painter.setPen(QPen(QColor("#be123c"), 1.7))
+        painter.setBrush(QColor("#ffffff"))
+        painter.drawEllipse(marker, 5.0, 5.0)
+        label = f"Max |Delta| = {self._units.format_displacement(maximum)} {self._units.length_unit}"
+        painter.setPen(QColor("#9f1239"))
+        painter.drawText(marker + QPointF(8.0, -10.0), label)
 
     def _draw_legend(self, painter: QPainter) -> None:
         super()._draw_legend(painter)
+        if self._diagram_mode != "n_kg":
+            return
         painter.setPen(QPen(QColor("#15803d"), 3.4))
         painter.drawLine(18, 48, 42, 48)
         painter.setPen(QColor("#334155"))

@@ -88,6 +88,11 @@ class TrussMainWindow(MainWindow):
 
     def _configure_truss_ui(self) -> None:
         self.results_panel._tool_buttons["member_load"].hide()
+        for preset, button in self.load_tool_buttons.items():
+            button.setVisible(preset == "nodal_force")
+        self._set_modeling_widget_visible(self.results_panel._tool_buttons["member_load"], False)
+        for preset, button in self.load_tool_buttons.items():
+            self._set_modeling_widget_visible(button, preset == "nodal_force")
         for mode in ("v_kg", "m_kg_m", "all"):
             button = self.diagram_buttons[mode]
             button.hide()
@@ -118,6 +123,12 @@ class TrussMainWindow(MainWindow):
         self.results_panel.member_results.setHorizontalHeaderItem(1, self.results_panel.member_results.horizontalHeaderItem(1).clone())
         self.results_panel.member_results.horizontalHeaderItem(1).setText("Axial N at I")
         self.results_panel.member_results.horizontalHeaderItem(4).setText("Axial N at J")
+
+    def _set_modeling_widget_visible(self, widget, visible: bool) -> None:  # type: ignore[no-untyped-def]
+        for action in self.modeling_toolbar.actions():
+            if self.modeling_toolbar.widgetForAction(action) is widget:
+                action.setVisible(visible)
+                return
 
     def _add_truss_actions(self) -> None:
         menu = self.menuBar().addMenu("Truss")

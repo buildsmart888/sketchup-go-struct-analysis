@@ -367,11 +367,13 @@ class MainWindow(QMainWindow):
             button.setIcon(style.standardIcon(icon_map[key]))
             button.setText("")
             button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            button.setFixedSize(30, 30)
             toolbar.addWidget(button)
         toolbar.addWidget(self.results_panel.support_type)
         self.results_panel.support_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_DriveHDIcon))
         self.results_panel.support_button.setText("")
         self.results_panel.support_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.results_panel.support_button.setFixedSize(30, 30)
         toolbar.addWidget(self.results_panel.support_button)
         toolbar.addWidget(self.results_panel.selection_filter)
         toolbar.addSeparator()
@@ -383,6 +385,7 @@ class MainWindow(QMainWindow):
         self.results_panel.fit_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
         self.results_panel.fit_button.setText("")
         self.results_panel.fit_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.results_panel.fit_button.setFixedSize(30, 30)
         toolbar.addWidget(self.results_panel.fit_button)
 
     def _add_loading_toolbar_controls(self, toolbar: QToolBar) -> None:
@@ -397,6 +400,25 @@ class MainWindow(QMainWindow):
             button.setIcon(style.standardIcon(icon_map[key]))
             button.setText("")
             button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            button.setFixedSize(30, 30)
+            toolbar.addWidget(button)
+        toolbar.addSeparator()
+        self.load_tool_buttons: dict[str, QToolButton] = {}
+        for preset, icon, tooltip in (
+            ("nodal_force", QStyle.StandardPixmap.SP_ArrowDown, "Place nodal force: enter values, then click nodes"),
+            ("nodal_moment", QStyle.StandardPixmap.SP_BrowserReload, "Place nodal moment: enter value, then click nodes"),
+            ("uniform_load", QStyle.StandardPixmap.SP_ArrowUp, "Place uniform member load: enter values, then click members"),
+            ("triangular_load", QStyle.StandardPixmap.SP_ArrowUp, "Place triangular member load: enter values, then click members"),
+            ("point_force", QStyle.StandardPixmap.SP_ArrowDown, "Place member point force: enter value, then click its station"),
+            ("point_moment", QStyle.StandardPixmap.SP_BrowserReload, "Place member point moment: enter value, then click its station"),
+        ):
+            button = QToolButton(toolbar)
+            button.setIcon(style.standardIcon(icon))
+            button.setToolTip(tooltip)
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            button.setFixedSize(30, 30)
+            button.clicked.connect(lambda _checked=False, value=preset: self.results_panel.begin_load_placement(value))
+            self.load_tool_buttons[preset] = button
             toolbar.addWidget(button)
         toolbar.addWidget(self.results_panel.active_section)
 

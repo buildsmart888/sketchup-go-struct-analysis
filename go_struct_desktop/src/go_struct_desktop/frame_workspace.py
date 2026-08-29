@@ -569,7 +569,7 @@ class FrameResultsPanel(QWidget):
 
     def _request_load(self, kind: str, context: Mapping[str, Any]) -> None:
         if kind == "nodal":
-            dialog = LoadDialog("nodal", list(self._model.get("loadcases", [])), parent=self, units=self._units)
+            dialog = LoadDialog("nodal", list(self._model.get("loadcases", [])), parent=self, units=self._units, preset=str(context.get("preset", "generic")))
             if dialog.exec() == dialog.DialogCode.Accepted:
                 self.canvas.add_nodal_load(int(context["node"]), dialog.values())
             return
@@ -581,13 +581,20 @@ class FrameResultsPanel(QWidget):
         first, second = nodes[int(member["n1"])], nodes[int(member["n2"])]
         dx, dy = float(second["x"]) - float(first["x"]), float(second["y"]) - float(first["y"])
         length = math.hypot(dx, dy)
-        dialog = LoadDialog("member", list(self._model.get("loadcases", [])), length, self, self._units)
+        dialog = LoadDialog("member", list(self._model.get("loadcases", [])), length, self, self._units, preset=str(context.get("preset", "generic")))
         requested = context.get("position", (float(first["x"]), float(first["y"])))
         if length > 1.0e-12:
             at_x = max(0.0, min(length, ((float(requested[0]) - float(first["x"])) * dx + (float(requested[1]) - float(first["y"])) * dy) / length))
             dialog.x_m.setValue(at_x)
         if dialog.exec() == dialog.DialogCode.Accepted:
             self.canvas.add_member_load(member_id, dialog.values())
+
+    def begin_load_placement(self, preset: str) -> None:
+        """Configure a typed load first, then place it repeatedly by clicking the canvas."""
+        kind = "nodal" if preset in {"nodal_force", "nodal_moment"} else "member"
+        dialog = LoadDialog(kind, list(self._model.get("loadcases", [])), parent=self, units=self._units, preset=preset)
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            self.canvas.set_pending_load(kind, dialog.values(), preset)
 
     def _edit_load(self, kind: str, context: Mapping[str, Any]) -> None:
         index = int(context["index"])

@@ -12,7 +12,7 @@ from go_struct_core import BeamModel, analyze_beam_data, build_frame_postprocess
 
 from .app import MainWindow, WorkspaceDefinition
 from .beam_canvas import BeamCanvas
-from .beam_templates import cantilever_template, continuous_beam_template, simply_supported_template
+from .beam_templates import cantilever_template, continuous_beam_from_spans, continuous_beam_template, simply_supported_template
 from .examples import BUILT_IN_BEAM_EXAMPLES
 from .template_browser import TemplateBrowserDialog, TemplateOption, TemplateParameter
 
@@ -122,8 +122,8 @@ class BeamMainWindow(MainWindow):
     def _apply_full_span_udl(self) -> None:
         canvas = self.results_panel.canvas
         members = canvas.selection["members"]
-        if len(members) != 1:
-            self.statusBar().showMessage("Select exactly one span before applying a full-span UDL.", 4000)
+        if not members:
+            self.statusBar().showMessage("Select one or more spans before applying a full-span UDL.", 4000)
             return
         cases = list(self.input_panel.model_data().get("loadcases", [])) or ["DL"]
         load_case, accepted = QInputDialog.getItem(self, "Full-span UDL", "Load case", cases, 0, False)
@@ -132,7 +132,7 @@ class BeamMainWindow(MainWindow):
         unit = self.input_panel.unit_system
         load, accepted = QInputDialog.getDouble(self, "Full-span UDL", f"Load ({unit.distributed_label()}, negative is downward)", -10.0, -1.0e9, 1.0e9, 4)
         if accepted:
-            canvas.add_member_load(members[0], {"lcase": load_case, "type": "Distributed", "dir": "Global Y", "w1": load / unit.distributed_factor, "w2": load / unit.distributed_factor})
+            canvas.add_member_loads(members, {"lcase": load_case, "type": "Distributed", "dir": "Global Y", "w1": load / unit.distributed_factor, "w2": load / unit.distributed_factor})
 
     def _new_cantilever(self) -> None:
         self._set_template(cantilever_template, "Cantilever")
@@ -158,9 +158,11 @@ class BeamMainWindow(MainWindow):
             TemplateOption(
                 "continuous",
                 "Continuous Beam",
-                "Continuous spans with intermediate pinned supports and a roller at the right end.",
+                "Independent span lengths with intermediate pinned supports and a roller at the right end.",
                 "continuous",
-                (TemplateParameter("span_count", "Number of spans", 2, 2, 50, integer=True), TemplateParameter("span_m", "Each span (m)", 5.0)),
+                (TemplateParameter("span_count", "Number of spans", 2, 2, 50, integer=True),),
+                TemplateParameter("span_m", "Span {index} (m)", 5.0),
+                "span_count",
             ),
         )
         dialog = TemplateBrowserDialog("Beam Template Catalog", options, self)
@@ -173,7 +175,7 @@ class BeamMainWindow(MainWindow):
         elif key == "simple":
             model = simply_supported_template(float(values["span_m"]))
         elif key == "continuous":
-            model = continuous_beam_template(int(values["span_count"]), float(values["span_m"]))
+            model = continuous_beam_from_spans([float(values[f"span_m_{index}"]) for index in range(1, int(values["span_count"]) + 1)])
         else:
             return
         self.set_model(model)

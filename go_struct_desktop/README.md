@@ -84,8 +84,8 @@ invalid input. Canvas and Nodes-table editing lock every beam node to its common
 Use `Beam > Add Span` to append a span from the right-most node, `Beam > Place ... support` to assign
 supports, `Beam > Edit Selected Span Length` to retain downstream stations while resizing one span, or
 `Beam > Insert Support in Span` to split a span at a station. Use `Beam Loads > Apply Full-Span UDL to
-Selected` for a fast uniform load. The Template Catalog presents a dimensioned beam preview and its
-editable span fields before the model is created. Its continuous-beam starter uses pinned intermediate
+Selected` for a fast uniform load across one or more selected spans. The Template Catalog presents a dimensioned beam preview and its
+editable per-span length fields before the model is created. Its continuous-beam starter uses pinned intermediate
 supports and a roller at the right end.
 
 ## Run the Truss workspace
@@ -100,13 +100,13 @@ Alternatively, activate the virtual environment once with `.\.venv\Scripts\Activ
 run `go-struct-beam` or `go-struct-truss` without the path prefix.
 
 The Truss workspace writes `.gotruss.json` files and uses a dedicated planar pin-jointed solver.
-Members report tension-positive axial `N`; green members are in tension and red members are in
-compression for the active result selection. Apply only nodal `Fx/Fy` loads. Member loads, nodal
+Members report tension-positive axial `N`; its axial-force diagram is green in tension and red in
+compression for the active result selection, while the model members remain neutral. Apply only nodal `Fx/Fy` loads. Member loads, nodal
 moments, self weight, and frame end releases are intentionally unavailable. Truss sections require only
 `E` and `A`; the frame-only `I` and density fields are hidden. Use `Truss > New Template` to start a
 Triangle, Warren, Pratt, Howe, or pitched Roof truss, then choose the span or panel width and height.
 The canvas legend explicitly marks green as tension (`+N`) and red as compression (`-N`). Select `D` in
-the result toolbar or `Deflected Shape` in the diagram view to show the solved truss deformation.
+the result toolbar or `Deflected Shape` in the diagram view to show the solved truss deformation and its maximum displacement marker.
 Use `Truss > Authoring` to assign the active section to a group of selected members, mirror half a
 truss, adjust roof height, or rebuild a standard template with more/fewer panels. To model a roof line
 load, select its chord members, choose `Convert Selected Chord Load to Nodes`, then enter the vertical
@@ -116,7 +116,7 @@ creating the editable model.
 
 ## Canvas authoring
 
-The workspace uses two stable toolbar rows: Modeling and Loading beside the file commands, then Analysis and Results below it. The result diagram selector is a direct `Model`/`N`/`V`/`M`/`D`/`All`/`FBD` mode-button group, rather than a dropdown. Use the modeling tools to switch among Select, Node, Member, Split, support, load, and Pan. Node and Member tools use
+The workspace uses two stable toolbar rows: Modeling and Loading beside the file commands, then Analysis and Results below it. The loading group includes configured icons for nodal force/moment, uniform/triangular member load, point force, and point moment: choose an icon, enter the values, then click one or more targets to place the same load repeatedly. Truss keeps only its compatible nodal-force icon. The result diagram selector is a direct `Model`/`N`/`V`/`M`/`D`/`All`/`FBD` mode-button group, rather than a dropdown. Use the modeling tools to switch among Select, Node, Member, Split, support, load, and Pan. Node and Member tools use
 the configured grid step and can snap to endpoints, member midpoints, or member intersections. Select objects by click or selection
 box; choose Nodes, Members, or Both before selecting. A left-to-right window selects objects fully
 inside it, while a right-to-left window selects crossing members too. Drag a selected node to move,

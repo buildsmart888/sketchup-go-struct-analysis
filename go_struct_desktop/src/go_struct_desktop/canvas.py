@@ -65,6 +65,7 @@ class FrameCanvas(QWidget):
         self._member_start: tuple[float, float] | None = None
         self._member_current: tuple[float, float] | None = None
         self._pending_support = "Pinned"
+        self._pending_load: dict[str, Any] | None = None
         self._node_drag_id: int | None = None
         self._node_drag_position: tuple[float, float] | None = None
         self._view_center = QPointF()
@@ -152,6 +153,8 @@ class FrameCanvas(QWidget):
         return {"nodes": sorted(self._selected_nodes), "members": sorted(self._selected_members)}
 
     def set_tool(self, tool: str) -> None:
+        if tool in {"nodal_load", "member_load"}:
+            self._pending_load = None
         self._tool = tool if tool in {"select", "node", "member", "pan", "support", "nodal_load", "member_load", "split", "zoom_window"} else "select"
         self._member_start = None
         self._member_current = None
@@ -162,6 +165,14 @@ class FrameCanvas(QWidget):
         self.setCursor(Qt.CursorShape.OpenHandCursor if self._tool == "pan" else Qt.CursorShape.ArrowCursor)
         self.tool_changed.emit(self._tool)
         self.update()
+
+    def set_pending_load(self, kind: str, values: Mapping[str, Any], preset: str) -> None:
+        """Arm a configured load so the next canvas click places the chosen load type."""
+        if kind not in {"nodal", "member"}:
+            return
+        self.set_tool("nodal_load" if kind == "nodal" else "member_load")
+        self._pending_load = {"kind": kind, "values": dict(values), "preset": preset}
+        self.authoring_message.emit(f"{preset.replace('_', ' ').title()} ready: click a {'node' if kind == 'nodal' else 'member'} to place it.")
 
     def set_grid_visible(self, visible: bool) -> None:
         self._grid_visible = visible
@@ -358,14 +369,21 @@ class FrameCanvas(QWidget):
                 node = self._node_at(event.position())
                 if node is None:
                     self.authoring_message.emit("Click a node to add a nodal load.")
+                elif self._pending_load and self._pending_load["kind"] == "nodal":
+                    self.add_nodal_load(int(node["id"]), self._pending_load["values"])
                 else:
-                    self.load_requested.emit("nodal", {"node": int(node["id"])})
+                    self.load_requested.emit("nodal", {"node": int(node["id"]), "preset": "generic"})
             elif self._tool == "member_load":
                 member = self._member_at(event.position())
                 if member is None:
                     self.authoring_message.emit("Click a member to add a member load.")
+                elif self._pending_load and self._pending_load["kind"] == "member":
+                    values = dict(self._pending_load["values"])
+                    if values.get("type") in {"Point Force", "Point Moment"}:
+                        values["x_m"] = self._member_station(int(member["id"]), self._screen_to_model(event.position()))
+                    self.add_member_load(int(member["id"]), values)
                 else:
-                    self.load_requested.emit("member", {"member": int(member["id"]), "position": self._screen_to_model(event.position())})
+                    self.load_requested.emit("member", {"member": int(member["id"]), "position": self._screen_to_model(event.position()), "preset": "generic"})
             elif self._tool == "split":
                 member = self._member_at(event.position())
                 if member is None:
@@ -937,15 +955,16 @@ class FrameCanvas(QWidget):
             self._draw_member_diagram(painter, node_by_id, screen, key, amplitude, color, self._diagram_mode == "all")
 
     def _draw_member_diagram(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, key: str, amplitude: float, color: QColor, compact: bool) -> None:
-        pen = QPen(color, 1.7 if compact else 2.2, Qt.PenStyle.DashLine if key == "v_mm" else Qt.PenStyle.SolidLine)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        fill = QColor(color)
-        fill.setAlpha(38 if compact else 62)
         for member in self._diagram_members:
             node = node_by_id.get(member.get("n1"))
             points = member.get("points", [])
             if node is None or len(points) < 2:
                 continue
+            member_color = self._diagram_color(key, self._display_diagram_value(key, float(points[0].get(key, 0.0))), color)
+            pen = QPen(member_color, 1.7 if compact else 2.2, Qt.PenStyle.DashLine if key == "v_mm" else Qt.PenStyle.SolidLine)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            fill = QColor(member_color)
+            fill.setAlpha(38 if compact else 62)
             angle = float(member.get("angle_rad", 0.0))
             direction_x, direction_y = math.cos(angle), math.sin(angle)
             normal_x, normal_y = -direction_y, direction_x
@@ -969,7 +988,11 @@ class FrameCanvas(QWidget):
             painter.setPen(pen)
             painter.drawPolyline(curve)
             if self._show_diagram_values:
-                self._draw_diagram_value_labels(painter, curve, points, key, color)
+                self._draw_diagram_value_labels(painter, curve, points, key, member_color)
+
+    @staticmethod
+    def _diagram_color(_key: str, _value: float, default: QColor) -> QColor:
+        return default
 
     def _draw_diagram_value_labels(self, painter: QPainter, curve: QPolygonF, points: list[Mapping[str, Any]], key: str, color: QColor) -> None:
         indices = {0, len(points) - 1, max(range(len(points)), key=lambda index: abs(float(points[index].get(key, 0.0))))}
@@ -1070,7 +1093,8 @@ class FrameCanvas(QWidget):
                 float(node_i["x"]) + math.cos(angle) * x - math.sin(angle) * offset,
                 float(node_i["y"]) + math.sin(angle) * x + math.cos(angle) * offset,
             )
-            _, color = self._DIAGRAMS[key]
+            _, default_color = self._DIAGRAMS[key]
+            color = self._diagram_color(key, self._display_diagram_value(key, float(point.get(key, 0.0))), default_color)
             painter.setPen(QPen(color, 1.8))
             painter.setBrush(QColor("#ffffff"))
             painter.drawEllipse(location, 4.2, 4.2)
@@ -1465,6 +1489,41 @@ class FrameCanvas(QWidget):
 
     def add_member_load(self, member_id: int, values: Mapping[str, Any]) -> None:
         model = self._mutable_model()
+        model["eloads"].append(self._normalized_member_load(member_id, values))
+        self._set_selection(set(), {member_id})
+        self._emit_model(model)
+
+    def add_member_loads(self, member_ids: list[int], values: Mapping[str, Any]) -> None:
+        """Apply the same member-load definition in one undoable canvas model change."""
+        targets = sorted({int(member_id) for member_id in member_ids})
+        valid = {int(member["id"]) for member in self._model.get("elements", [])}
+        targets = [member_id for member_id in targets if member_id in valid]
+        if not targets:
+            self.authoring_message.emit("Select one or more members before applying a load.")
+            return
+        model = self._mutable_model()
+        model["eloads"].extend(self._normalized_member_load(member_id, values) for member_id in targets)
+        self._set_selection(set(), set(targets))
+        self._emit_model(model)
+        self.authoring_message.emit(f"Applied one {values.get('type', 'Distributed')} load to {len(targets)} member(s).")
+
+    def update_nodal_load(self, index: int, values: Mapping[str, Any]) -> None:
+        model = self._mutable_model()
+        if not 0 <= index < len(model["nloads"]):
+            return
+        model["nloads"][index].update(dict(values))
+        self._emit_model(model)
+
+    def update_member_load(self, index: int, values: Mapping[str, Any]) -> None:
+        model = self._mutable_model()
+        if not 0 <= index < len(model["eloads"]):
+            return
+        current = model["eloads"][index]
+        model["eloads"][index] = self._normalized_member_load(int(current["elem"]), values)
+        self._emit_model(model)
+
+    @staticmethod
+    def _normalized_member_load(member_id: int, values: Mapping[str, Any]) -> dict[str, Any]:
         load = {"elem": member_id, **dict(values)}
         if load.get("type") == "Distributed":
             load.pop("type", None)
@@ -1479,38 +1538,22 @@ class FrameCanvas(QWidget):
             load.pop("w1", None)
             load.pop("w2", None)
             load.pop("p", None)
-        model["eloads"].append(load)
-        self._set_selection(set(), {member_id})
-        self._emit_model(model)
+        return load
 
-    def update_nodal_load(self, index: int, values: Mapping[str, Any]) -> None:
-        model = self._mutable_model()
-        if not 0 <= index < len(model["nloads"]):
-            return
-        model["nloads"][index].update(dict(values))
-        self._emit_model(model)
-
-    def update_member_load(self, index: int, values: Mapping[str, Any]) -> None:
-        model = self._mutable_model()
-        if not 0 <= index < len(model["eloads"]):
-            return
-        current = model["eloads"][index]
-        updated = {"elem": current["elem"], **dict(values)}
-        if updated.get("type") == "Distributed":
-            updated.pop("type", None)
-            updated.pop("x_m", None)
-            updated.pop("p", None)
-            updated.pop("m", None)
-        elif updated.get("type") == "Point Force":
-            updated.pop("w1", None)
-            updated.pop("w2", None)
-            updated.pop("m", None)
-        else:
-            updated.pop("w1", None)
-            updated.pop("w2", None)
-            updated.pop("p", None)
-        model["eloads"][index] = updated
-        self._emit_model(model)
+    def _member_station(self, member_id: int, position: tuple[float, float]) -> float:
+        nodes = {int(node["id"]): node for node in self._model.get("nodes", [])}
+        member = next((item for item in self._model.get("elements", []) if int(item["id"]) == member_id), None)
+        if member is None:
+            return 0.0
+        first, second = nodes.get(int(member["n1"])), nodes.get(int(member["n2"]))
+        if first is None or second is None:
+            return 0.0
+        dx, dy = float(second["x"]) - float(first["x"]), float(second["y"]) - float(first["y"])
+        length_sq = dx * dx + dy * dy
+        if length_sq <= 1.0e-12:
+            return 0.0
+        ratio = max(0.0, min(1.0, ((position[0] - float(first["x"])) * dx + (position[1] - float(first["y"])) * dy) / length_sq))
+        return math.sqrt(length_sq) * ratio
 
     def _endpoint_ids(self, model: dict[str, Any], start: tuple[float, float], end: tuple[float, float]) -> tuple[int, int] | None:
         def find_or_create(position: tuple[float, float]) -> int:

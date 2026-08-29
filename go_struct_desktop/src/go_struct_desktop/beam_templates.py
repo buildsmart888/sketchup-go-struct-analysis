@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 
@@ -38,9 +39,22 @@ def simply_supported_template(span_m: float = 6.0) -> dict[str, Any]:
 def continuous_beam_template(span_count: int = 2, span_m: float = 5.0) -> dict[str, Any]:
     if span_count < 2:
         raise ValueError("Continuous beam requires at least two spans")
+    return continuous_beam_from_spans([span_m] * span_count)
+
+
+def continuous_beam_from_spans(span_lengths: Sequence[float]) -> dict[str, Any]:
+    """Create a continuous beam with independent editable lengths for every span."""
+    spans = [float(length) for length in span_lengths]
+    if len(spans) < 2:
+        raise ValueError("Continuous beam requires at least two spans")
+    if any(length <= 0.0 for length in spans):
+        raise ValueError("Continuous beam span lengths must be greater than zero")
+    stations = [0.0]
+    for length in spans:
+        stations.append(stations[-1] + length)
     nodes = [
-        {"id": index + 1, "x": index * span_m, "y": 0.0, "support": "Pinned" if index < span_count else "RollerX"}
-        for index in range(span_count + 1)
+        {"id": index + 1, "x": station, "y": 0.0, "support": "Pinned" if index < len(spans) else "RollerX"}
+        for index, station in enumerate(stations)
     ]
-    elements = [{"id": index + 1, "n1": index + 1, "n2": index + 2, "sec": 1, "release": "Rigid-Rigid"} for index in range(span_count)]
-    return _base(f"Continuous Beam | {span_count} spans", nodes, elements)
+    elements = [{"id": index + 1, "n1": index + 1, "n2": index + 2, "sec": 1, "release": "Rigid-Rigid"} for index in range(len(spans))]
+    return _base(f"Continuous Beam | {len(spans)} spans", nodes, elements)

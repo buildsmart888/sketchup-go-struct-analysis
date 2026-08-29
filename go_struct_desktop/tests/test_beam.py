@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from go_struct_core import BeamModel, analyze_beam_data, build_frame_postprocess
-from go_struct_desktop.beam_templates import cantilever_template, continuous_beam_template, simply_supported_template
+from go_struct_desktop.beam_templates import cantilever_template, continuous_beam_from_spans, continuous_beam_template, simply_supported_template
 from go_struct_desktop.examples import BUILT_IN_BEAM_EXAMPLES
 
 
@@ -101,3 +101,12 @@ def test_continuous_template_uses_pinned_intermediate_supports() -> None:
     model = continuous_beam_template(3, 4.0)
 
     assert [node["support"] for node in model["nodes"]] == ["Pinned", "Pinned", "Pinned", "RollerX"]
+
+
+def test_continuous_template_accepts_independent_span_lengths() -> None:
+    model = continuous_beam_from_spans([3.0, 4.5, 2.5])
+
+    assert [node["x"] for node in model["nodes"]] == pytest.approx([0.0, 3.0, 7.5, 10.0])
+    assert analyze_beam_data(model)["ok"] is True
+    with pytest.raises(ValueError, match="greater than zero"):
+        continuous_beam_from_spans([3.0, 0.0])

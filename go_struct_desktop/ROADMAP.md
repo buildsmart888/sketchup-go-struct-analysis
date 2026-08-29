@@ -109,6 +109,12 @@ workspace. Beam and Truss remain separate workspaces, not incomplete Frame featu
 - Truss tools assign sections to a selected group, mirror selected geometry, adjust roof height, and
   regenerate Warren/Pratt/Howe/Roof template panel counts. A selected roof chord can convert a vertical
   line load by horizontal projection into equivalent nodal loads with a reported resultant.
+- Truss axial diagrams use green tension (`+N`) and red compression (`-N`) without recolouring the
+  input model, and deflected shapes mark the maximum displacement. Beam catalog previews accept
+  unequal individual continuous-span lengths, while selected Beam members accept one common UDL.
+- Typed load-placement icons configure nodal force/moment, uniform/triangular member load, point
+  force, or point moment before repeated canvas placement; Truss exposes only its compatible nodal
+  force action.
 
 ## Phase 3 exit status
 

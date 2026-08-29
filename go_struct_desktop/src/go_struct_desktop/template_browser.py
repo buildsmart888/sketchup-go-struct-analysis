@@ -38,6 +38,8 @@ class TemplateOption:
     description: str
     preview_kind: str
     parameters: tuple[TemplateParameter, ...]
+    repeated_parameter: TemplateParameter | None = None
+    repeat_count_key: str | None = None
 
 
 class TemplatePreview(QWidget):
@@ -79,13 +81,28 @@ class TemplatePreview(QWidget):
                 painter.drawLine(int(left - 12), int(y + offset), int(left), int(y + offset - 7))
         else:
             panels = max(1, int(self._values.get("span_count", 1)))
-            supports = [left + (right - left) * index / panels for index in range(panels + 1)] if kind == "continuous" else [left, right]
+            span_lengths = self._beam_span_lengths(panels)
+            total_length = sum(span_lengths)
+            supports = [left]
+            if kind == "continuous":
+                for length in span_lengths:
+                    supports.append(supports[-1] + (right - left) * length / total_length)
+            else:
+                supports = [left, right]
             for index, x in enumerate(supports):
-                self._support(painter, x, y, roller=index > 0)
-        self._dimension(painter, left, right, y + 56, "span_m", "Span")
+                self._support(painter, x, y, roller=kind == "continuous" and index == len(supports) - 1)
+        if kind == "continuous":
+            for index, (start, end) in enumerate(zip(supports, supports[1:]), start=1):
+                self._dimension(painter, start, end, y + 56, f"span_{index}_m", f"S{index}")
+        else:
+            self._dimension(painter, left, right, y + 56, "span_m", "Span")
         if kind == "continuous":
             painter.setPen(QColor("#64748b"))
             painter.drawText(12, 24, "Intermediate supports: Pinned")
+
+    def _beam_span_lengths(self, count: int) -> list[float]:
+        default = float(self._values.get("span_m", 5.0))
+        return [max(0.001, float(self._values.get(f"span_{index}_m", default))) for index in range(1, count + 1)]
 
     def _draw_truss(self, painter: QPainter, kind: str) -> None:
         left, right, base = 42.0, float(self.width() - 42), self.height() * 0.72
@@ -157,7 +174,15 @@ class TemplatePreview(QWidget):
         painter.setPen(QPen(QColor("#1e293b"), 3.0))
 
     def _dimension_text(self) -> str:
-        return ", ".join(f"{item.label} = {self._values.get(item.key, item.default):g}" for item in self._option.parameters)
+        parameters = list(self._option.parameters)
+        if self._option.repeated_parameter and self._option.repeat_count_key:
+            count = max(1, int(self._values.get(self._option.repeat_count_key, 1)))
+            repeated = self._option.repeated_parameter
+            parameters.extend(
+                TemplateParameter(f"{repeated.key}_{index}", repeated.label.format(index=index), repeated.default, repeated.minimum, repeated.maximum, repeated.integer)
+                for index in range(1, count + 1)
+            )
+        return ", ".join(f"{item.label} = {self._values.get(item.key, item.default):g}" for item in parameters)
 
 
 class TemplateBrowserDialog(QDialog):
@@ -167,6 +192,7 @@ class TemplateBrowserDialog(QDialog):
         super().__init__(parent)
         self._options = options
         self._editors: dict[str, QDoubleSpinBox | QSpinBox] = {}
+        self._active_option: TemplateOption | None = None
         self.setWindowTitle(title)
         self.resize(900, 540)
         self.listing = QListWidget(self)
@@ -205,33 +231,61 @@ class TemplateBrowserDialog(QDialog):
         return {key: editor.value() for key, editor in self._editors.items()}
 
     def _show_option(self, row: int) -> None:
-        while self.parameters.rowCount():
-            self.parameters.removeRow(0)
-        self._editors.clear()
         if not 0 <= row < len(self._options):
             return
         option = self._options[row]
+        self._active_option = option
         self.description.setText(option.description)
-        values: dict[str, float] = {}
+        self._rebuild_parameter_rows({})
+
+    def _rebuild_parameter_rows(self, previous: dict[str, float | int]) -> None:
+        option = self._active_option
+        if option is None:
+            return
+        while self.parameters.rowCount():
+            self.parameters.removeRow(0)
+        self._editors.clear()
         for parameter in option.parameters:
-            editor: QDoubleSpinBox | QSpinBox
-            if parameter.integer:
-                editor = QSpinBox(self)
-                editor.setRange(round(parameter.minimum), round(parameter.maximum))
-                editor.setValue(round(parameter.default))
-            else:
-                editor = QDoubleSpinBox(self)
-                editor.setDecimals(3)
-                editor.setRange(parameter.minimum, parameter.maximum)
-                editor.setValue(parameter.default)
-                editor.setSingleStep(max(parameter.default / 10.0, 0.1))
-            editor.valueChanged.connect(lambda _value: self._refresh_preview())
-            self.parameters.addRow(parameter.label, editor)
-            self._editors[parameter.key] = editor
-            values[parameter.key] = parameter.default
-        self.preview.set_template(option, values)
+            self._add_parameter(parameter, previous.get(parameter.key, parameter.default))
+        if option.repeated_parameter and option.repeat_count_key:
+            count = max(1, int(self._editors[option.repeat_count_key].value()))
+            repeated = option.repeated_parameter
+            for index in range(1, count + 1):
+                parameter = TemplateParameter(
+                    f"{repeated.key}_{index}",
+                    repeated.label.format(index=index),
+                    repeated.default,
+                    repeated.minimum,
+                    repeated.maximum,
+                    repeated.integer,
+                )
+                self._add_parameter(parameter, previous.get(parameter.key, repeated.default))
+        self._refresh_preview()
+
+    def _add_parameter(self, parameter: TemplateParameter, value: float | int) -> None:
+        editor: QDoubleSpinBox | QSpinBox
+        if parameter.integer:
+            editor = QSpinBox(self)
+            editor.setRange(round(parameter.minimum), round(parameter.maximum))
+            editor.setValue(round(value))
+        else:
+            editor = QDoubleSpinBox(self)
+            editor.setDecimals(3)
+            editor.setRange(parameter.minimum, parameter.maximum)
+            editor.setValue(float(value))
+            editor.setSingleStep(max(parameter.default / 10.0, 0.1))
+        editor.valueChanged.connect(lambda _value, key=parameter.key: self._parameter_changed(key))
+        self.parameters.addRow(parameter.label, editor)
+        self._editors[parameter.key] = editor
+
+    def _parameter_changed(self, key: str) -> None:
+        option = self._active_option
+        if option and key == option.repeat_count_key:
+            values = self.selected_values()
+            self._rebuild_parameter_rows(values)
+            return
+        self._refresh_preview()
 
     def _refresh_preview(self) -> None:
-        row = self.listing.currentRow()
-        if 0 <= row < len(self._options):
-            self.preview.set_template(self._options[row], {key: float(editor.value()) for key, editor in self._editors.items()})
+        if self._active_option is not None:
+            self.preview.set_template(self._active_option, {key: float(editor.value()) for key, editor in self._editors.items()})
