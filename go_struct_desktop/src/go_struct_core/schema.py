@@ -185,10 +185,18 @@ class LoadCombination:
 @dataclass(frozen=True)
 class FrameSettings:
     include_self_weight: bool = False
+    display: dict[str, Any] = field(default_factory=dict)
+    authoring: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "FrameSettings":
-        return cls(include_self_weight=value.get("include_self_weight") is True)
+        display = value.get("display", {})
+        authoring = value.get("authoring", {})
+        return cls(
+            include_self_weight=value.get("include_self_weight") is True,
+            display=dict(display) if isinstance(display, Mapping) else {},
+            authoring=dict(authoring) if isinstance(authoring, Mapping) else {},
+        )
 
 
 @dataclass(frozen=True)
@@ -323,7 +331,11 @@ class FrameModel:
 
         return {
             "projectInfo": dict(self.project_info),
-            "settings": {"include_self_weight": self.settings.include_self_weight},
+            "settings": {
+                "include_self_weight": self.settings.include_self_weight,
+                **({"display": dict(self.settings.display)} if self.settings.display else {}),
+                **({"authoring": dict(self.settings.authoring)} if self.settings.authoring else {}),
+            },
             "nodes": [
                 {"id": node.id, "x": node.x, "y": node.y, "support": node.support}
                 for node in self.nodes

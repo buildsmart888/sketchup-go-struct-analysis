@@ -10,8 +10,8 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable, Mapping
 
-from PySide6.QtCore import QSettings, QStandardPaths, Qt
-from PySide6.QtGui import QAction, QFont, QKeySequence
+from PySide6.QtCore import QPointF, QSettings, QSize, QStandardPaths, Qt
+from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QApplication, QButtonGroup, QDockWidget, QFileDialog, QInputDialog, QMainWindow, QMessageBox, QStyle, QToolBar, QToolButton, QWidget
 
 from go_struct_core import FrameModel, ModelValidationError, analyze_frame_data, build_frame_postprocess
@@ -68,6 +68,7 @@ class MainWindow(QMainWindow):
         self._history: list[dict[str, Any]] = []
         self._history_index = -1
         self._suppress_model_events = False
+        self._applying_project_preferences = False
         self._dirty = False
         self._settings = QSettings("BuildSmart888", f"GOStructDesktop{self._workspace.key.title()}")
         self.input_panel = FrameInputPanel(self)
@@ -82,10 +83,13 @@ class MainWindow(QMainWindow):
         self.inspector.model_change_requested.connect(self._canvas_model_edited)
         self.display_panel.settings_changed.connect(self.results_panel.set_display_settings)
         self.display_panel.settings_changed.connect(self._save_display_settings)
+        self.display_panel.settings_changed.connect(self._project_display_settings_changed)
         self.display_panel.load_case_changed.connect(self.results_panel.canvas.set_load_case)
         self.display_panel.view_mode_changed.connect(self.results_panel.canvas.set_view_mode)
         self.display_panel.view_mode_changed.connect(self._sync_result_view_buttons)
         self.results_panel.set_display_settings(self.display_panel.settings)
+        self.results_panel.canvas.tool_changed.connect(self._remember_authoring_tool)
+        self.results_panel.load_placement_started.connect(self._remember_load_preset)
         self._restore_display_settings()
         self.set_model(self._workspace.default_model())
         self.run_analysis()
@@ -413,7 +417,7 @@ class MainWindow(QMainWindow):
             ("point_moment", QStyle.StandardPixmap.SP_BrowserReload, "Place member point moment: enter value, then click its station"),
         ):
             button = QToolButton(toolbar)
-            button.setIcon(style.standardIcon(icon))
+            button.setIcon(self._load_icon(preset, style.standardIcon(icon)))
             button.setToolTip(tooltip)
             button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
             button.setFixedSize(30, 30)
@@ -421,6 +425,45 @@ class MainWindow(QMainWindow):
             self.load_tool_buttons[preset] = button
             toolbar.addWidget(button)
         toolbar.addWidget(self.results_panel.active_section)
+
+    @staticmethod
+    def _load_icon(preset: str, fallback: QIcon) -> QIcon:
+        """Small structural glyphs make load type recognisable without reading the tooltip."""
+        pixmap = QPixmap(QSize(24, 24))
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        color = QColor("#7c3aed") if preset in {"nodal_moment", "point_moment"} else QColor("#15803d")
+        painter.setPen(QPen(color, 2.0))
+        painter.setBrush(color)
+
+        def arrow(x: float, top: float, bottom: float) -> None:
+            painter.drawLine(round(x), round(top), round(x), round(bottom))
+            painter.drawPolygon(QPolygonF([QPointF(x, bottom), QPointF(x - 3.5, bottom - 6.0), QPointF(x + 3.5, bottom - 6.0)]))
+
+        if preset in {"nodal_force", "point_force"}:
+            arrow(12.0, 3.0, 18.0)
+            if preset == "nodal_force":
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawEllipse(9, 19, 6, 3)
+        elif preset in {"nodal_moment", "point_moment"}:
+            rect = (4, 4, 16, 16)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawArc(*rect, 35 * 16, 285 * 16)
+            painter.setBrush(color)
+            painter.drawPolygon(QPolygonF([QPointF(18.0, 6.0), QPointF(12.5, 6.5), QPointF(16.5, 10.0)]))
+        else:
+            painter.drawLine(3, 19, 21, 19)
+            arrows = (5.0, 10.5, 16.0, 21.0)
+            for index, x in enumerate(arrows):
+                top = 3.0 if preset == "uniform_load" else 4.0 + index * 3.0
+                arrow(x, top, 17.0)
+            if preset == "triangular_load":
+                painter.drawLine(4, 4, 21, 13)
+            else:
+                painter.drawLine(4, 3, 21, 3)
+        painter.end()
+        return QIcon(pixmap) if not pixmap.isNull() else fallback
 
     def _add_analysis_toolbar_controls(self, toolbar: QToolBar, analyze_action: QAction) -> None:
         """Add result navigation and diagram mode icons to the second toolbar row."""
@@ -488,6 +531,7 @@ class MainWindow(QMainWindow):
     def set_model(self, model: Mapping[str, Any]) -> None:
         self._set_input_model(model)
         current_model = self.input_panel.model_data()
+        self._apply_project_preferences(current_model)
         self.inspector.set_model(current_model)
         self.display_panel.set_load_cases(list(current_model.get("loadcases", [])), list(current_model.get("loadcombos", [])))
         self.results_panel.set_model(current_model)
@@ -798,6 +842,41 @@ class MainWindow(QMainWindow):
 
     def _save_display_settings(self, settings) -> None:  # type: ignore[no-untyped-def]
         self._settings.setValue("workspace/display", settings.to_dict())
+
+    def _project_display_settings_changed(self, settings: DisplaySettings) -> None:
+        if self._applying_project_preferences:
+            return
+        self.input_panel.set_display_preferences(settings.to_dict())
+
+    def _remember_authoring_tool(self, tool: str) -> None:
+        if self._applying_project_preferences:
+            return
+        authoring = dict(self.input_panel.model_data().get("settings", {}).get("authoring", {}))
+        authoring["last_tool"] = tool
+        self.input_panel.set_authoring_preferences(authoring)
+
+    def _remember_load_preset(self, preset: str) -> None:
+        authoring = dict(self.input_panel.model_data().get("settings", {}).get("authoring", {}))
+        authoring["last_load_preset"] = preset
+        self.input_panel.set_authoring_preferences(authoring)
+
+    def _apply_project_preferences(self, model: Mapping[str, Any]) -> None:
+        settings = model.get("settings", {})
+        display = settings.get("display", {}) if isinstance(settings, Mapping) else {}
+        authoring = settings.get("authoring", {}) if isinstance(settings, Mapping) else {}
+        if not (isinstance(display, Mapping) and display) and not (isinstance(authoring, Mapping) and authoring):
+            return
+        self._applying_project_preferences = True
+        try:
+            if isinstance(display, Mapping) and display:
+                self.display_panel._apply_settings(DisplaySettings.from_mapping(display))
+                self.results_panel.set_display_settings(self.display_panel.settings)
+            if isinstance(authoring, Mapping) and authoring:
+                tool = str(authoring.get("last_tool", ""))
+                if tool:
+                    self.results_panel.canvas.set_tool(tool)
+        finally:
+            self._applying_project_preferences = False
 
     def _restore_display_settings(self) -> None:
         saved = self._settings.value("workspace/display", {})

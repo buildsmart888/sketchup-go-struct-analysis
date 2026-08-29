@@ -66,6 +66,7 @@ class FrameCanvas(QWidget):
         self._member_current: tuple[float, float] | None = None
         self._pending_support = "Pinned"
         self._pending_load: dict[str, Any] | None = None
+        self._pending_load_position: QPointF | None = None
         self._node_drag_id: int | None = None
         self._node_drag_position: tuple[float, float] | None = None
         self._view_center = QPointF()
@@ -155,6 +156,7 @@ class FrameCanvas(QWidget):
     def set_tool(self, tool: str) -> None:
         if tool in {"nodal_load", "member_load"}:
             self._pending_load = None
+            self._pending_load_position = None
         self._tool = tool if tool in {"select", "node", "member", "pan", "support", "nodal_load", "member_load", "split", "zoom_window"} else "select"
         self._member_start = None
         self._member_current = None
@@ -173,6 +175,14 @@ class FrameCanvas(QWidget):
         self.set_tool("nodal_load" if kind == "nodal" else "member_load")
         self._pending_load = {"kind": kind, "values": dict(values), "preset": preset}
         self.authoring_message.emit(f"{preset.replace('_', ' ').title()} ready: click a {'node' if kind == 'nodal' else 'member'} to place it.")
+
+    def clear_pending_load(self) -> None:
+        if self._pending_load is None:
+            return
+        self._pending_load = None
+        self._pending_load_position = None
+        self.authoring_message.emit("Load placement cancelled.")
+        self.update()
 
     def set_grid_visible(self, visible: bool) -> None:
         self._grid_visible = visible
@@ -347,6 +357,9 @@ class FrameCanvas(QWidget):
 
     def mousePressEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         self.setFocus()
+        if event.button() == Qt.MouseButton.RightButton and self._pending_load is not None:
+            self.clear_pending_load()
+            return
         if event.button() == Qt.MouseButton.MiddleButton or (event.button() == Qt.MouseButton.LeftButton and self._tool == "pan"):
             self._drag_origin = event.position().toPoint()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
@@ -417,6 +430,9 @@ class FrameCanvas(QWidget):
             self.update()
         else:
             self._pointer_moved(event.position())
+            if self._pending_load is not None and self._tool in {"nodal_load", "member_load"}:
+                self._pending_load_position = event.position()
+                self.update()
             if self._tool == "member" and self._member_start is not None:
                 self._member_current = self._snap_position(event.position())
                 self.update()
@@ -465,6 +481,9 @@ class FrameCanvas(QWidget):
             self._request_delete_selection()
             return
         if event.key() == Qt.Key.Key_Escape:
+            if self._pending_load is not None:
+                self.clear_pending_load()
+                return
             self._member_start = None
             self._member_current = None
             self._selection_origin = None
@@ -534,6 +553,7 @@ class FrameCanvas(QWidget):
         self._draw_node_move_preview(painter, node_by_id, screen)
         self._draw_member_preview(painter, screen)
         self._draw_member_annotations(painter, node_by_id, screen)
+        self._draw_pending_load_preview(painter, node_by_id, screen)
         if self._view_mode == "fbd":
             self._draw_fbd(painter, node_by_id, screen)
         elif self._view_mode == "results":
@@ -543,6 +563,76 @@ class FrameCanvas(QWidget):
         self._draw_nodes_and_supports(painter, nodes, screen)
         self._draw_selection_rect(painter)
         self._draw_legend(painter)
+
+    def _draw_pending_load_preview(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen) -> None:
+        if self._pending_load is None or self._pending_load_position is None:
+            return
+        values = self._pending_load["values"]
+        preset = str(self._pending_load["preset"]).replace("_", " ").title()
+        color = QColor("#7c3aed")
+        painter.setPen(QPen(color, 1.2, Qt.PenStyle.DashLine))
+        painter.setBrush(QColor(255, 255, 255, 220))
+        message = f"Active: {preset} | click to place | Esc/right-click to cancel"
+        text_rect = QRectF(16.0, 44.0, painter.fontMetrics().horizontalAdvance(message) + 14.0, painter.fontMetrics().height() + 8.0)
+        painter.drawRect(text_rect)
+        painter.setPen(color)
+        painter.drawText(text_rect.adjusted(7.0, 0.0, 0.0, 0.0), Qt.AlignmentFlag.AlignVCenter, message)
+        if self._pending_load["kind"] == "nodal":
+            node = self._node_at(self._pending_load_position)
+            if node is None:
+                return
+            point = screen(float(node["x"]), float(node["y"]))
+            fx, fy, mz = float(values.get("fx", 0.0)), float(values.get("fy", 0.0)), float(values.get("mz", 0.0))
+            if abs(fy) > 1.0e-12:
+                self._draw_force_arrow(painter, screen, float(node["x"]), float(node["y"]), 0.0, math.copysign(32.0 / self._view_scale, fy), color)
+            elif abs(fx) > 1.0e-12:
+                self._draw_force_arrow(painter, screen, float(node["x"]), float(node["y"]), math.copysign(32.0 / self._view_scale, fx), 0.0, color)
+            elif abs(mz) > 1.0e-12:
+                self._draw_moment_arrow(painter, point, mz, color)
+            else:
+                painter.setPen(QPen(color, 1.8, Qt.PenStyle.DashLine))
+                painter.drawEllipse(point, 10.0, 10.0)
+            return
+
+        member = self._member_at(self._pending_load_position)
+        if member is None:
+            return
+        first, second = node_by_id.get(member.get("n1")), node_by_id.get(member.get("n2"))
+        if first is None or second is None:
+            return
+        dx, dy = float(second["x"]) - float(first["x"]), float(second["y"]) - float(first["y"])
+        length = math.hypot(dx, dy)
+        if length <= 1.0e-12:
+            return
+        painter.setPen(QPen(color, 3.0, Qt.PenStyle.DashLine))
+        painter.drawLine(screen(float(first["x"]), float(first["y"])), screen(float(second["x"]), float(second["y"])))
+        cosine, sine = dx / length, dy / length
+        load_type = str(values.get("type", "Distributed"))
+        if load_type == "Distributed":
+            for fraction in (0.0, 0.2, 0.4, 0.6, 0.8, 1.0):
+                value = float(values.get("w1", 0.0)) + (float(values.get("w2", values.get("w1", 0.0))) - float(values.get("w1", 0.0))) * fraction
+                direction_x, direction_y = self._preview_load_direction(str(values.get("dir", "Local Y")), value, cosine, sine)
+                self._draw_force_arrow(painter, screen, float(first["x"]) + dx * fraction, float(first["y"]) + dy * fraction, direction_x * 28.0 / self._view_scale, direction_y * 28.0 / self._view_scale, color)
+            return
+        station = self._member_station(int(member["id"]), self._screen_to_model(self._pending_load_position))
+        x = float(first["x"]) + cosine * station
+        y = float(first["y"]) + sine * station
+        if load_type == "Point Moment":
+            self._draw_moment_arrow(painter, screen(x, y), float(values.get("m", 0.0)) or 1.0, color)
+        else:
+            direction_x, direction_y = self._preview_load_direction(str(values.get("dir", "Local Y")), float(values.get("p", 0.0)), cosine, sine)
+            self._draw_force_arrow(painter, screen, x, y, direction_x * 36.0 / self._view_scale, direction_y * 36.0 / self._view_scale, color)
+
+    @staticmethod
+    def _preview_load_direction(direction: str, value: float, cosine: float, sine: float) -> tuple[float, float]:
+        sign = math.copysign(1.0, value if abs(value) > 1.0e-12 else -1.0)
+        if direction == "Local X":
+            return cosine * sign, sine * sign
+        if direction == "Local Y":
+            return -sine * sign, cosine * sign
+        if direction == "Global X":
+            return sign, 0.0
+        return 0.0, sign
 
     def _draw_grid(self, painter: QPainter, screen, min_x: float, max_x: float, min_y: float, max_y: float) -> None:
         grid_step = self._nice_step(max(max_x - min_x, max_y - min_y) / 6.0)
@@ -1506,6 +1596,31 @@ class FrameCanvas(QWidget):
         self._set_selection(set(), set(targets))
         self._emit_model(model)
         self.authoring_message.emit(f"Applied one {values.get('type', 'Distributed')} load to {len(targets)} member(s).")
+
+    def add_member_loads_at_ratio(self, member_ids: list[int], values: Mapping[str, Any], ratio: float) -> None:
+        """Apply a point action at a common relative location on every selected member."""
+        ratio = max(0.0, min(1.0, float(ratio)))
+        targets = sorted({int(member_id) for member_id in member_ids})
+        model = self._mutable_model()
+        nodes = {int(node["id"]): node for node in model.get("nodes", [])}
+        members = {int(member["id"]): member for member in model.get("elements", [])}
+        loads: list[dict[str, Any]] = []
+        for member_id in targets:
+            member = members.get(member_id)
+            if member is None:
+                continue
+            first, second = nodes.get(int(member["n1"])), nodes.get(int(member["n2"]))
+            if first is None or second is None:
+                continue
+            length = math.hypot(float(second["x"]) - float(first["x"]), float(second["y"]) - float(first["y"]))
+            loads.append(self._normalized_member_load(member_id, {**dict(values), "x_m": length * ratio}))
+        if not loads:
+            self.authoring_message.emit("Select one or more valid members before applying a point action.")
+            return
+        model["eloads"].extend(loads)
+        self._set_selection(set(), {int(load["elem"]) for load in loads})
+        self._emit_model(model)
+        self.authoring_message.emit(f"Applied one {values.get('type', 'Point Force')} at {ratio * 100.0:g}% of {len(loads)} member(s).")
 
     def update_nodal_load(self, index: int, values: Mapping[str, Any]) -> None:
         model = self._mutable_model()

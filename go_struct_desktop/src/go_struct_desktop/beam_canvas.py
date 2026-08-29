@@ -6,6 +6,7 @@ import math
 from typing import Any, Mapping
 
 from PySide6.QtCore import QPointF
+from PySide6.QtGui import QColor, QPainter, QPen
 
 from .canvas import FrameCanvas
 
@@ -135,3 +136,59 @@ class BeamCanvas(FrameCanvas):
         if inserted is not None:
             self._apply_support(int(inserted["id"]), support)
             self.authoring_message.emit(f"Inserted {support} support at x = {x:g} m.")
+
+    def _draw_member_annotations(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen) -> None:
+        super()._draw_member_annotations(painter, node_by_id, screen)
+        if not self._display.show_member_ids:
+            return
+        painter.setPen(QColor("#64748b"))
+        for member in self._model.get("elements", []):
+            first, second = node_by_id.get(member.get("n1")), node_by_id.get(member.get("n2"))
+            if first is None or second is None:
+                continue
+            length = abs(float(second["x"]) - float(first["x"]))
+            midpoint = screen((float(first["x"]) + float(second["x"])) / 2.0, self._beam_y())
+            painter.drawText(midpoint + QPointF(-30.0, 28.0), f"L = {self._units.length(length):g} {self._units.length_unit}")
+
+    def _draw_nodes_and_supports(self, painter: QPainter, nodes: list[Mapping[str, Any]], screen) -> None:
+        super()._draw_nodes_and_supports(painter, nodes, screen)
+        if self._view_mode != "results" or not self._result:
+            return
+        reactions = {int(node["id"]): node for node in self._result.get("nodes", [])}
+        painter.setPen(QPen(QColor("#9f1239"), 1.0))
+        for node in nodes:
+            if node.get("support", "Free") == "Free":
+                continue
+            reaction = reactions.get(int(node["id"]))
+            if reaction is None or abs(float(reaction.get("fy", 0.0))) <= 1.0e-12:
+                continue
+            point = screen(float(node["x"]), float(node["y"]))
+            painter.drawText(point + QPointF(10.0, 38.0), f"Ry {self._units.force(float(reaction['fy'])):,.3g}")
+
+    def _draw_deformed_member_curves(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, span_x: float, span_y: float) -> None:
+        super()._draw_deformed_member_curves(painter, node_by_id, screen, span_x, span_y)
+        maximum = 0.0
+        maximum_point: tuple[float, float, float, float] | None = None
+        for member in self._deformed_members:
+            node = node_by_id.get(member.get("n1"))
+            if node is None:
+                continue
+            for point in member.get("points", []):
+                original_x = float(node["x"]) + float(point.get("x_m", 0.0))
+                original_y = float(node["y"])
+                deformed_x = float(point.get("x_deformed_m", original_x))
+                deformed_y = float(point.get("y_deformed_m", original_y))
+                displacement = math.hypot(deformed_x - original_x, deformed_y - original_y)
+                if displacement > maximum:
+                    maximum = displacement
+                    maximum_point = original_x, original_y, deformed_x, deformed_y
+        if maximum_point is None or maximum <= 1.0e-15:
+            return
+        original_x, original_y, deformed_x, deformed_y = maximum_point
+        exaggeration = max(span_x, span_y) * 0.12 / maximum
+        marker = screen(original_x + (deformed_x - original_x) * exaggeration, original_y + (deformed_y - original_y) * exaggeration)
+        painter.setPen(QPen(QColor("#0f766e"), 1.7))
+        painter.setBrush(QColor("#ffffff"))
+        painter.drawEllipse(marker, 5.0, 5.0)
+        painter.setPen(QColor("#0f766e"))
+        painter.drawText(marker + QPointF(8.0, -10.0), f"Max |v| = {self._units.format_displacement(maximum)} {self._units.length_unit}")

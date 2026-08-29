@@ -69,13 +69,22 @@ class BeamMainWindow(MainWindow):
         loads = menu.addMenu("Beam Loads")
         full_udl = QAction("Apply Full-Span UDL to Selected", self)
         full_udl.triggered.connect(self._apply_full_span_udl)
+        triangular = QAction("Apply Triangular Load to Selected", self)
+        triangular.triggered.connect(self._apply_triangular_load)
         point_force = QAction("Place Point Force", self)
         point_force.triggered.connect(lambda: self.results_panel.canvas.set_tool("member_load"))
         point_moment = QAction("Place Point Moment", self)
         point_moment.triggered.connect(lambda: self.results_panel.canvas.set_tool("member_load"))
+        batch_point_force = QAction("Apply Point Force at Ratio to Selected", self)
+        batch_point_force.triggered.connect(lambda: self._apply_point_action("Point Force"))
+        batch_point_moment = QAction("Apply Point Moment at Ratio to Selected", self)
+        batch_point_moment.triggered.connect(lambda: self._apply_point_action("Point Moment"))
         loads.addAction(full_udl)
+        loads.addAction(triangular)
         loads.addAction(point_force)
         loads.addAction(point_moment)
+        loads.addAction(batch_point_force)
+        loads.addAction(batch_point_moment)
         menu.addSeparator()
         for support in ("Fixed", "Pinned", "RollerX"):
             action = QAction(f"Place {support} support", self)
@@ -133,6 +142,43 @@ class BeamMainWindow(MainWindow):
         load, accepted = QInputDialog.getDouble(self, "Full-span UDL", f"Load ({unit.distributed_label()}, negative is downward)", -10.0, -1.0e9, 1.0e9, 4)
         if accepted:
             canvas.add_member_loads(members, {"lcase": load_case, "type": "Distributed", "dir": "Global Y", "w1": load / unit.distributed_factor, "w2": load / unit.distributed_factor})
+
+    def _apply_triangular_load(self) -> None:
+        members = self.results_panel.canvas.selection["members"]
+        if not members:
+            self.statusBar().showMessage("Select one or more spans before applying a triangular load.", 4000)
+            return
+        cases = list(self.input_panel.model_data().get("loadcases", [])) or ["DL"]
+        load_case, accepted = QInputDialog.getItem(self, "Triangular load", "Load case", cases, 0, False)
+        if not accepted:
+            return
+        unit = self.input_panel.unit_system
+        start, accepted = QInputDialog.getDouble(self, "Triangular load", f"Start W1 ({unit.distributed_label()})", 0.0, -1.0e9, 1.0e9, 4)
+        if not accepted:
+            return
+        end, accepted = QInputDialog.getDouble(self, "Triangular load", f"End W2 ({unit.distributed_label()})", -10.0, -1.0e9, 1.0e9, 4)
+        if accepted:
+            self.results_panel.canvas.add_member_loads(members, {"lcase": load_case, "type": "Distributed", "dir": "Global Y", "w1": start / unit.distributed_factor, "w2": end / unit.distributed_factor})
+
+    def _apply_point_action(self, load_type: str) -> None:
+        members = self.results_panel.canvas.selection["members"]
+        if not members:
+            self.statusBar().showMessage(f"Select one or more spans before applying a {load_type.lower()}.", 4000)
+            return
+        cases = list(self.input_panel.model_data().get("loadcases", [])) or ["DL"]
+        load_case, accepted = QInputDialog.getItem(self, load_type, "Load case", cases, 0, False)
+        if not accepted:
+            return
+        ratio, accepted = QInputDialog.getDouble(self, load_type, "Position ratio from I (0.0 to 1.0)", 0.5, 0.0, 1.0, 3)
+        if not accepted:
+            return
+        unit = self.input_panel.unit_system
+        label = unit.force_label() if load_type == "Point Force" else unit.moment_label()
+        value, accepted = QInputDialog.getDouble(self, load_type, f"Value ({label})", -10.0 if load_type == "Point Force" else 10.0, -1.0e9, 1.0e9, 4)
+        if not accepted:
+            return
+        values = {"lcase": load_case, "type": load_type, "dir": "Global Y", "p": value / unit.force_factor, "m": value / unit.moment_factor}
+        self.results_panel.canvas.add_member_loads_at_ratio(members, values, ratio)
 
     def _new_cantilever(self) -> None:
         self._set_template(cantilever_template, "Cantilever")

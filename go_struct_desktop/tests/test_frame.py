@@ -148,6 +148,17 @@ def test_schema_round_trips_to_go_frame_json_shape() -> None:
     assert json.loads(json.dumps(serialized)) == serialized
 
 
+def test_schema_preserves_project_display_and_authoring_preferences() -> None:
+    model = load_portal()
+    model["settings"]["display"] = {"show_grid": False, "moment_positive": "top_tension"}
+    model["settings"]["authoring"] = {"last_tool": "member", "last_load_preset": "uniform_load"}
+
+    serialized = FrameModel.from_dict(model).to_dict()
+
+    assert serialized["settings"]["display"] == model["settings"]["display"]
+    assert serialized["settings"]["authoring"] == model["settings"]["authoring"]
+
+
 def test_member_point_force_matches_cantilever_closed_form_and_diagram_jump() -> None:
     model = cantilever_model()
     model["nodes"][1] = {"id": 2, "x": 6.0, "y": 0.0, "support": "Free"}

@@ -172,6 +172,18 @@ def test_truss_uses_tension_compression_colours_for_the_n_diagram_and_marks_defl
     window.close()
 
 
+def test_truss_member_force_filter_groups_tension_and_compression(app: QApplication) -> None:
+    window = TrussMainWindow()
+    table = window.results_panel.member_results
+    states = {table.item(row, 2).text() for row in range(table.rowCount())}
+
+    assert states.issubset({"Tension", "Compression", "Zero"})
+    window.force_filter.setCurrentIndex(window.force_filter.findData("tension"))
+    app.processEvents()
+    assert all(table.isRowHidden(row) == (table.item(row, 2).text() != "Tension") for row in range(table.rowCount()))
+    window.close()
+
+
 def test_template_catalog_draws_a_dimensioned_preview_and_collects_parameters(app: QApplication) -> None:
     option = TemplateOption(
         "simple",
@@ -239,6 +251,30 @@ def test_canvas_places_a_configured_load_and_beam_batch_loads_selected_spans(app
     created = window.input_panel.model_data()["eloads"][-1]
     assert created["type"] == "Point Force"
     assert created["x_m"] == pytest.approx((end["x"] - start["x"]) / 2.0)
+    window.close()
+
+
+def test_configured_load_preview_cancels_and_batch_point_actions_use_span_ratio(app: QApplication) -> None:
+    window = BeamMainWindow()
+    window.show()
+    canvas = window.results_panel.canvas
+    canvas.set_pending_load("member", {"lcase": "DL", "type": "Point Force", "dir": "Global Y", "p": -6.0}, "point_force")
+    canvas._pending_load_position = QPointF(40.0, 40.0)
+    assert not canvas.grab().isNull()
+    canvas.setFocus()
+    QTest.keyClick(canvas, Qt.Key.Key_Escape)
+    assert canvas._pending_load is None
+
+    members = [member["id"] for member in window.input_panel.model_data()["elements"]]
+    canvas.add_member_loads_at_ratio(members, {"lcase": "DL", "type": "Point Moment", "m": 8.0}, 0.25)
+    model = window.input_panel.model_data()
+    nodes = {node["id"]: node for node in model["nodes"]}
+    created = model["eloads"][-len(members) :]
+    for load in created:
+        member = next(item for item in model["elements"] if item["id"] == load["elem"])
+        length = abs(nodes[member["n2"]]["x"] - nodes[member["n1"]]["x"])
+        assert load["type"] == "Point Moment"
+        assert load["x_m"] == pytest.approx(length * 0.25)
     window.close()
 
 
@@ -606,6 +642,24 @@ def test_input_panel_preserves_dynamic_load_case_values(app: QApplication) -> No
 
     assert stored["nloads"][0]["lcase"] == "LL"
     assert stored["eloads"][0]["lcase"] == "DL"
+
+
+def test_project_preferences_round_trip_through_the_input_panel_and_window(app: QApplication) -> None:
+    model = default_frame_model()
+    model["settings"]["display"] = {"show_grid": False, "diagram_fill": False, "moment_positive": "top_tension"}
+    model["settings"]["authoring"] = {"last_tool": "member", "last_load_preset": "point_force"}
+    panel = FrameInputPanel()
+    panel.set_model(model)
+
+    assert panel.model_data()["settings"]["display"]["show_grid"] is False
+    assert panel.model_data()["settings"]["authoring"]["last_load_preset"] == "point_force"
+
+    window = MainWindow()
+    window.set_model(model)
+    assert window.display_panel.settings.show_grid is False
+    assert window.display_panel.settings.moment_positive == "top_tension"
+    assert window.results_panel.canvas.tool == "member"
+    window.close()
 
 
 def test_project_units_convert_editor_values_but_keep_solver_payload_canonical(app: QApplication) -> None:

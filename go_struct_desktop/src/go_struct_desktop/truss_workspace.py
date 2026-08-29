@@ -6,7 +6,7 @@ import sys
 from typing import Any
 
 from PySide6.QtGui import QAction, QFont
-from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox
+from PySide6.QtWidgets import QApplication, QComboBox, QInputDialog, QMessageBox
 
 from go_struct_core import TrussModel, analyze_truss_data, build_frame_postprocess
 
@@ -118,17 +118,36 @@ class TrussMainWindow(MainWindow):
         self.inspector.node_mz.setEnabled(False)
         self.inspector.member_release.setEnabled(False)
         self.inspector.batch_release.setEnabled(False)
-        for column in (2, 3, 5, 6):
+        for column in (3, 5, 6):
             self.results_panel.member_results.setColumnHidden(column, True)
         self.results_panel.member_results.setHorizontalHeaderItem(1, self.results_panel.member_results.horizontalHeaderItem(1).clone())
         self.results_panel.member_results.horizontalHeaderItem(1).setText("Axial N at I")
+        self.results_panel.member_results.horizontalHeaderItem(2).setText("State")
         self.results_panel.member_results.horizontalHeaderItem(4).setText("Axial N at J")
+        self.results_panel.diagram_values_toggle.setChecked(True)
+        self.force_filter = QComboBox(self)
+        self.force_filter.addItem("N: All", "all")
+        self.force_filter.addItem("N: Tension", "tension")
+        self.force_filter.addItem("N: Compression", "compression")
+        self.force_filter.setToolTip("Filter Truss member-force rows by tension or compression")
+        self.force_filter.currentIndexChanged.connect(self._apply_force_filter)
+        self.results_panel.result_selector.currentIndexChanged.connect(self._apply_force_filter)
+        self.analysis_toolbar.addWidget(self.force_filter)
+        self._apply_force_filter()
 
     def _set_modeling_widget_visible(self, widget, visible: bool) -> None:  # type: ignore[no-untyped-def]
         for action in self.modeling_toolbar.actions():
             if self.modeling_toolbar.widgetForAction(action) is widget:
                 action.setVisible(visible)
                 return
+
+    def _apply_force_filter(self) -> None:
+        target = str(self.force_filter.currentData() or "all")
+        table = self.results_panel.member_results
+        for row in range(table.rowCount()):
+            item = table.item(row, 2)
+            state = item.text().lower() if item is not None else ""
+            table.setRowHidden(row, target != "all" and state != target)
 
     def _add_truss_actions(self) -> None:
         menu = self.menuBar().addMenu("Truss")

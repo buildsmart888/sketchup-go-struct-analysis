@@ -83,6 +83,8 @@ class FrameInputPanel(QWidget):
         self._synchronizing_cases = False
         self._changing_units = False
         self._unit_key = "legacy_kg_m"
+        self._display_preferences: dict[str, Any] = {}
+        self._authoring_preferences: dict[str, Any] = {}
         self.project = ProjectEditor(self)
         self.self_weight = QCheckBox("Include self weight", self)
         self.nodes = TableEditor(
@@ -157,6 +159,8 @@ class FrameInputPanel(QWidget):
         parsed = FrameModel.from_dict(model).to_dict()
         self._changing_units = True
         self._unit_key = str(parsed.get("projectInfo", {}).get("units", "legacy_kg_m"))
+        self._display_preferences = dict(parsed.get("settings", {}).get("display", {}))
+        self._authoring_preferences = dict(parsed.get("settings", {}).get("authoring", {}))
         self.project.set_values(parsed.get("projectInfo", {}))
         self.self_weight.blockSignals(True)
         self.self_weight.setChecked(parsed.get("settings", {}).get("include_self_weight") is True)
@@ -177,12 +181,22 @@ class FrameInputPanel(QWidget):
     def model_data(self) -> dict[str, Any]:
         return self._model_data_for_units(self._unit_key)
 
+    def set_display_preferences(self, values: Mapping[str, Any]) -> None:
+        self._display_preferences = dict(values)
+
+    def set_authoring_preferences(self, values: Mapping[str, Any]) -> None:
+        self._authoring_preferences = dict(values)
+
     def _model_data_for_units(self, unit_key: str) -> dict[str, Any]:
         project_info = self.project.values()
         project_info["units"] = unit_key
         return {
             "projectInfo": project_info,
-            "settings": {"include_self_weight": self.self_weight.isChecked()},
+            "settings": {
+                "include_self_weight": self.self_weight.isChecked(),
+                **({"display": dict(self._display_preferences)} if self._display_preferences else {}),
+                **({"authoring": dict(self._authoring_preferences)} if self._authoring_preferences else {}),
+            },
             "nodes": self._canonical_rows(self.nodes.values(), "nodes", unit_key),
             "elements": self.elements.values(),
             "sections": self._canonical_rows(self.sections.values(), "sections", unit_key),
@@ -296,6 +310,7 @@ class FrameResultsPanel(QWidget):
 
     model_change_requested = Signal(object)
     canvas_status_changed = Signal(str)
+    load_placement_started = Signal(str)
     delete_requested = Signal(object)
 
     def __init__(self, parent: QWidget | None = None, canvas_class: type[FrameCanvas] = FrameCanvas) -> None:
@@ -595,6 +610,7 @@ class FrameResultsPanel(QWidget):
         dialog = LoadDialog(kind, list(self._model.get("loadcases", [])), parent=self, units=self._units, preset=preset)
         if dialog.exec() == dialog.DialogCode.Accepted:
             self.canvas.set_pending_load(kind, dialog.values(), preset)
+            self.load_placement_started.emit(preset)
 
     def _edit_load(self, kind: str, context: Mapping[str, Any]) -> None:
         index = int(context["index"])
@@ -662,6 +678,10 @@ class FrameResultsPanel(QWidget):
             values = (member["id"], self._units.force(float(first["axial"])), self._units.force(float(first["shear"])), self._units.moment(float(first["moment"])), self._units.force(float(second["axial"])), self._units.force(float(second["shear"])), self._units.moment(float(second["moment"])))
             for column, value in enumerate(values):
                 self.member_results.setItem(row, column, QTableWidgetItem(str(value) if column == 0 else f"{float(value):,.4f}"))
+            if analysis_type == "truss":
+                axial = float(first["axial"])
+                state = "Tension" if axial > 1.0e-12 else "Compression" if axial < -1.0e-12 else "Zero"
+                self.member_results.setItem(row, 2, QTableWidgetItem(state))
 
     def _summary_headers(self, units: UnitSystem) -> list[str]:
         analysis_type = str(self._model.get("projectInfo", {}).get("analysisType", "Frame")).lower()
