@@ -24,7 +24,13 @@ def resolve_workspace(arguments: Sequence[str]) -> tuple[str, list[str]]:
 
 
 def main() -> int:
-    workspace, remaining = resolve_workspace(sys.argv[1:])
+    arguments = list(sys.argv[1:])
+    if "--smoke-test" in arguments:
+        arguments.remove("--smoke-test")
+        sys.argv = [sys.argv[0], *arguments]
+        return _run_smoke_test()
+
+    workspace, remaining = resolve_workspace(arguments)
     runners: dict[str, Callable[[], int]] = {
         "frame": _run_frame,
         "beam": _run_beam,
@@ -50,6 +56,16 @@ def _run_truss() -> int:
     from go_struct_desktop.truss_workspace import main as run
 
     return run()
+
+
+def _run_smoke_test() -> int:
+    """Import every installed workspace so packaging failures return non-zero."""
+
+    import go_struct_desktop.app  # noqa: F401
+    import go_struct_desktop.beam_workspace  # noqa: F401
+    import go_struct_desktop.truss_workspace  # noqa: F401
+
+    return 0
 
 
 if __name__ == "__main__":

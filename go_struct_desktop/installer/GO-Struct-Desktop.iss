@@ -35,6 +35,12 @@ UninstallDisplayName=GO Struct Desktop {#ReleaseLabel}
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
+[InstallDelete]
+; Prevent Qt DLLs from an older beta remaining beside the pinned runtime.
+Type: filesandordirs; Name: "{app}\_internal"
+Type: filesandordirs; Name: "{app}\icons"
+Type: files; Name: "{app}\GO-Struct-Desktop.exe"
+
 [Files]
 Source: "{#PayloadRoot}\GO-Struct-Desktop\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SourceRoot}\docs\MANUAL.html"; DestDir: "{app}\Manual"; Flags: ignoreversion

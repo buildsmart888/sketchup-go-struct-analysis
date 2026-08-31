@@ -117,6 +117,8 @@ recipient does not need Python installed. From this project folder, run:
 The output is `release\installer\GO-Struct-Desktop-Beta-0.1-Setup.exe`. The installer creates Start
 Menu shortcuts for each workspace and includes the illustrated HTML manual. Pass `-SkipTests` only for
 an intentionally quick local packaging iteration; the default build runs the full test suite first.
+The beta installer pins PySide6 6.8.3, runs a packaged-runtime smoke test, and replaces the previous
+Qt runtime during upgrades so incompatible DLLs cannot remain in the install folder.
 Warehouse remains a source-only experimental workspace. OpenSeesPy and pymoo remain optional
 developer integrations rather than installed binary dependencies.
 

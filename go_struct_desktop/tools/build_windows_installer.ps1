@@ -27,8 +27,8 @@ if (-not (Test-Path -LiteralPath $frameIcon)) {
 
 Push-Location $projectRoot
 try {
-    & $python -m pip install "PyInstaller>=6.10,<7"
-    if ($LASTEXITCODE -ne 0) { throw "Unable to install PyInstaller." }
+    & $python -m pip install --upgrade "PySide6==6.8.3" "PyInstaller>=6.10,<7"
+    if ($LASTEXITCODE -ne 0) { throw "Unable to install the pinned packaging runtime." }
 
     if (-not $SkipTests) {
         & $python -m pytest -q
@@ -55,6 +55,19 @@ try {
         --specpath $workPath `
         "src\go_struct_desktop\launcher.py"
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller did not complete successfully." }
+
+    $packagedExe = Join-Path $payload "GO-Struct-Desktop\GO-Struct-Desktop.exe"
+    if (-not (Test-Path -LiteralPath $packagedExe)) {
+        throw "Packaged executable was not found: $packagedExe"
+    }
+    $smokeTest = Start-Process -FilePath $packagedExe -ArgumentList "--smoke-test" -WindowStyle Hidden -PassThru
+    if (-not $smokeTest.WaitForExit(15000)) {
+        Stop-Process -Id $smokeTest.Id -Force
+        throw "Packaged runtime smoke test timed out; the installer was not created."
+    }
+    if ($smokeTest.ExitCode -ne 0) {
+        throw "Packaged runtime smoke test failed with exit code $($smokeTest.ExitCode)."
+    }
 
     & $iscc "/DSourceRoot=$projectRoot" "/DPayloadRoot=$payload" "/DAppVersion=$Version" "/DReleaseLabel=$ReleaseLabel" $installerScript
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup did not complete successfully." }
