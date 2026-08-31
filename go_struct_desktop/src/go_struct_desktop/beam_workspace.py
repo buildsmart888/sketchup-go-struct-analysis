@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import Any, Mapping
 
-from PySide6.QtGui import QAction, QFont
+from PySide6.QtGui import QAction, QFont, QIcon
 from PySide6.QtWidgets import QApplication, QInputDialog
 
 from go_struct_core import BeamModel, analyze_beam_data, build_frame_postprocess
@@ -237,8 +238,10 @@ class BeamMainWindow(MainWindow):
 def main() -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("GO Struct Beam")
+    app.setWindowIcon(QIcon(str(Path(__file__).parent / "assets" / "icons" / "beam.ico")))
     app.setFont(QFont("Segoe UI", 10))
     window = BeamMainWindow()
+    window.setWindowIcon(app.windowIcon())
     window.show()
     return app.exec()
 

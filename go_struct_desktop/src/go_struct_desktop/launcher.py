@@ -35,20 +35,22 @@ def main() -> int:
 
 
 def _run_frame() -> int:
-    from .app import main as run
+    from go_struct_desktop.app import main as run
 
     return run()
 
 
 def _run_beam() -> int:
-    from .beam_workspace import main as run
+    from go_struct_desktop.beam_workspace import main as run
 
     return run()
 
 
 def _run_truss() -> int:
-    from .truss_workspace import main as run
+    from go_struct_desktop.truss_workspace import main as run
 
     return run()
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

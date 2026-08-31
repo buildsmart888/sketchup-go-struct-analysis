@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import Any
 
-from PySide6.QtGui import QAction, QFont
+from PySide6.QtGui import QAction, QFont, QIcon
 from PySide6.QtWidgets import QApplication, QComboBox, QInputDialog, QMessageBox
 
 from go_struct_core import TrussModel, analyze_truss_data, build_frame_postprocess
@@ -389,8 +390,10 @@ class TrussMainWindow(MainWindow):
 def main() -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("GO Struct Truss")
+    app.setWindowIcon(QIcon(str(Path(__file__).parent / "assets" / "icons" / "truss.ico")))
     app.setFont(QFont("Segoe UI", 10))
     window = TrussMainWindow()
+    window.setWindowIcon(app.windowIcon())
     window.show()
     return app.exec()
 

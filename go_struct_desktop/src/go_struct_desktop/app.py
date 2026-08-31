@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+from pathlib import Path
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -1493,8 +1494,10 @@ class MainWindow(QMainWindow):
 def main() -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("GO Struct Desktop")
+    app.setWindowIcon(QIcon(str(Path(__file__).parent / "assets" / "icons" / "frame.ico")))
     app.setFont(QFont("Segoe UI", 10))
     window = MainWindow()
+    window.setWindowIcon(app.windowIcon())
     window.show()
     return app.exec()
 

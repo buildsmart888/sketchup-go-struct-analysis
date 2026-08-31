@@ -40,13 +40,14 @@ Source: "{#PayloadRoot}\GO-Struct-Desktop\*"; DestDir: "{app}"; Flags: ignorever
 Source: "{#SourceRoot}\docs\MANUAL.html"; DestDir: "{app}\Manual"; Flags: ignoreversion
 Source: "{#SourceRoot}\docs\images\*"; DestDir: "{app}\Manual\images"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SourceRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceRoot}\src\go_struct_desktop\assets\icons\*.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\GO Struct Frame"; Filename: "{app}\GO-Struct-Desktop.exe"; Parameters: "--workspace frame"; WorkingDir: "{userdocs}"
-Name: "{group}\GO Struct Beam"; Filename: "{app}\GO-Struct-Desktop.exe"; Parameters: "--workspace beam"; WorkingDir: "{userdocs}"
-Name: "{group}\GO Struct Truss"; Filename: "{app}\GO-Struct-Desktop.exe"; Parameters: "--workspace truss"; WorkingDir: "{userdocs}"
+Name: "{group}\GO Struct Frame"; Filename: "{app}\GO-Struct-Desktop.exe"; Parameters: "--workspace frame"; WorkingDir: "{userdocs}"; IconFilename: "{app}\icons\frame.ico"
+Name: "{group}\GO Struct Beam"; Filename: "{app}\GO-Struct-Desktop.exe"; Parameters: "--workspace beam"; WorkingDir: "{userdocs}"; IconFilename: "{app}\icons\beam.ico"
+Name: "{group}\GO Struct Truss"; Filename: "{app}\GO-Struct-Desktop.exe"; Parameters: "--workspace truss"; WorkingDir: "{userdocs}"; IconFilename: "{app}\icons\truss.ico"
 Name: "{group}\Manual"; Filename: "{app}\Manual\MANUAL.html"; WorkingDir: "{app}\Manual"
-Name: "{autodesktop}\GO Struct Frame"; Filename: "{app}\GO-Struct-Desktop.exe"; Parameters: "--workspace frame"; WorkingDir: "{userdocs}"; Tasks: desktopicon
+Name: "{autodesktop}\GO Struct Frame"; Filename: "{app}\GO-Struct-Desktop.exe"; Parameters: "--workspace frame"; WorkingDir: "{userdocs}"; IconFilename: "{app}\icons\frame.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\GO-Struct-Desktop.exe"; Parameters: "--workspace frame"; Description: "Launch GO Struct Frame"; Flags: nowait postinstall skipifsilent

@@ -13,12 +13,16 @@ $buildStamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $payload = Join-Path $projectRoot "release\payload\$Version-$buildStamp"
 $workPath = Join-Path $projectRoot "release\build\$Version-$buildStamp"
 $installerScript = Join-Path $projectRoot "installer\GO-Struct-Desktop.iss"
+$frameIcon = Join-Path $projectRoot "src\go_struct_desktop\assets\icons\frame.ico"
 
 if (-not (Test-Path -LiteralPath $python)) {
     throw "Missing virtual environment: $python"
 }
 if (-not (Test-Path -LiteralPath $iscc)) {
     throw "Inno Setup 6 was not found at: $iscc"
+}
+if (-not (Test-Path -LiteralPath $frameIcon)) {
+    throw "Frame icon was not found at: $frameIcon"
 }
 
 Push-Location $projectRoot
@@ -34,6 +38,7 @@ try {
     & $python -m PyInstaller `
         --noconfirm --clean --windowed `
         --name "GO-Struct-Desktop" `
+        --icon $frameIcon `
         --paths "src" `
         --collect-data "go_struct_desktop" `
         --hidden-import "go_struct_desktop.app" `
