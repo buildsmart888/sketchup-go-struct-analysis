@@ -37,10 +37,11 @@ from .inspector import LoadDialog
 from .units import UnitSystem, get_unit_system
 
 
-SUPPORTS = ("Free", "Pinned", "Fixed", "RollerX", "RollerY")
+SUPPORTS = ("Free", "Pinned", "Fixed", "RollerX", "RollerY", "Spring")
 RELEASES = ("Rigid-Rigid", "Pin-Rigid", "Rigid-Pin", "Pin-Pin")
 DIRECTIONS = ("Local X", "Local Y", "Global X", "Global Y")
 MEMBER_LOAD_TYPES = ("Distributed", "Point Force", "Point Moment")
+MEMBER_TYPES = ("Frame", "Truss")
 
 
 def default_frame_model() -> dict[str, Any]:
@@ -88,15 +89,15 @@ class FrameInputPanel(QWidget):
         self.project = ProjectEditor(self)
         self.self_weight = QCheckBox("Include self weight", self)
         self.nodes = TableEditor(
-            [Column("ID", "id", 1, as_int), Column("X (m)", "x", 0.0, as_float), Column("Y (m)", "y", 0.0, as_float), Column("Support", "support", "Free", choices=SUPPORTS)],
+            [Column("ID", "id", 1, as_int), Column("X (m)", "x", 0.0, as_float), Column("Y (m)", "y", 0.0, as_float), Column("Support", "support", "Free", choices=SUPPORTS), Column("Kx", "kx", 0.0, as_float), Column("Ky", "ky", 0.0, as_float), Column("Kr", "kr", 0.0, as_float)],
             self,
         )
         self.elements = TableEditor(
-            [Column("ID", "id", 1, as_int), Column("Node I", "n1", 1, as_int), Column("Node J", "n2", 2, as_int), Column("Section", "sec", 1, as_int), Column("Release", "release", "Rigid-Rigid", choices=RELEASES)],
+            [Column("ID", "id", 1, as_int), Column("Node I", "n1", 1, as_int), Column("Node J", "n2", 2, as_int), Column("Section", "sec", 1, as_int), Column("Release", "release", "Rigid-Rigid", choices=RELEASES), Column("Type", "memberType", "Frame", choices=MEMBER_TYPES)],
             self,
         )
         self.sections = TableEditor(
-            [Column("ID", "id", 1, as_int), Column("E (kg/m2)", "e", 2.0e9, as_float), Column("A (cm2)", "a", 900.0, as_float), Column("I (cm4)", "i", 67500.0, as_float), Column("Density (kg/m3)", "density", 0.0, as_float)],
+            [Column("ID", "id", 1, as_int), Column("E (kg/m2)", "e", 2.0e9, as_float), Column("A (cm2)", "a", 900.0, as_float), Column("I (cm4)", "i", 67500.0, as_float), Column("Density (kg/m3)", "density", 0.0, as_float), Column("Name", "name", ""), Column("Material", "material", ""), Column("b (cm)", "width_cm", 0.0, as_float), Column("h (cm)", "depth_cm", 0.0, as_float)],
             self,
         )
         self.load_cases = TableEditor([Column("Load case", "name", "DL")], self)
@@ -116,6 +117,8 @@ class FrameInputPanel(QWidget):
                 Column("M (kg-m)", "m", 0.0, as_float),
                 Column("W1 (kg/m)", "w1", 0.0, as_float),
                 Column("W2 (kg/m)", "w2", 0.0, as_float),
+                Column("Start x (m)", "x1_m", 0.0, as_float),
+                Column("End x (m, 0=full)", "x2_m", 0.0, as_float),
             ],
             self,
         )
@@ -243,6 +246,8 @@ class FrameInputPanel(QWidget):
                 row["fx"], row["fy"], row["mz"] = unit.force(float(row["fx"])), unit.force(float(row["fy"])), unit.moment(float(row["mz"]))
             elif kind == "eloads":
                 row["x_m"] = unit.length(float(row.get("x_m", 0.0)))
+                row["x1_m"] = unit.length(float(row.get("x1_m", 0.0)))
+                row["x2_m"] = unit.length(float(row.get("x2_m", 0.0)))
                 row["p"] = unit.force(float(row.get("p", 0.0)))
                 row["m"] = unit.moment(float(row.get("m", 0.0)))
                 row["w1"] = unit.distributed(float(row.get("w1", 0.0)))
@@ -265,6 +270,11 @@ class FrameInputPanel(QWidget):
                 row["fx"], row["fy"], row["mz"] = float(row["fx"]) / unit.force_factor, float(row["fy"]) / unit.force_factor, float(row["mz"]) / unit.moment_factor
             elif kind == "eloads":
                 row["x_m"] = float(row.get("x_m", 0.0)) / unit.length_factor
+                row["x1_m"] = float(row.get("x1_m", 0.0)) / unit.length_factor
+                row["x2_m"] = float(row.get("x2_m", 0.0)) / unit.length_factor
+                if row["x2_m"] <= 0.0:
+                    row.pop("x1_m", None)
+                    row.pop("x2_m", None)
                 row["p"] = float(row.get("p", 0.0)) / unit.force_factor
                 row["m"] = float(row.get("m", 0.0)) / unit.moment_factor
                 row["w1"] = float(row.get("w1", 0.0)) / unit.distributed_factor
@@ -282,6 +292,8 @@ class FrameInputPanel(QWidget):
         self.nodal_loads.set_column_title("fy", f"Fy ({unit.force_label()})")
         self.nodal_loads.set_column_title("mz", f"Mz ({unit.moment_label()})")
         self.element_loads.set_column_title("x_m", f"At x ({unit.length_unit})")
+        self.element_loads.set_column_title("x1_m", f"Start x ({unit.length_unit})")
+        self.element_loads.set_column_title("x2_m", f"End x ({unit.length_unit}, 0=full)")
         self.element_loads.set_column_title("p", f"P ({unit.force_label()})")
         self.element_loads.set_column_title("m", f"M ({unit.moment_label()})")
         self.element_loads.set_column_title("w1", f"W1 ({unit.distributed_label()})")
@@ -312,6 +324,7 @@ class FrameResultsPanel(QWidget):
     canvas_status_changed = Signal(str)
     load_placement_started = Signal(str)
     delete_requested = Signal(object)
+    member_results_changed = Signal(object)
 
     def __init__(self, parent: QWidget | None = None, canvas_class: type[FrameCanvas] = FrameCanvas) -> None:
         super().__init__(parent)
@@ -365,6 +378,8 @@ class FrameResultsPanel(QWidget):
         self.support_button.setText("Support")
         self.support_button.setToolTip("Assign the selected support type by clicking a node")
         self.active_section = QComboBox(self)
+        self.active_member_type = QComboBox(self)
+        self.active_member_type.addItems(MEMBER_TYPES)
         self.fit_button = QToolButton(self)
         self.fit_button.setText("Fit")
         self.fit_button.setToolTip("Fit model to canvas")
@@ -401,6 +416,7 @@ class FrameResultsPanel(QWidget):
         self.grid_spacing.valueChanged.connect(self._grid_spacing_changed)
         self.selection_filter.currentIndexChanged.connect(self._selection_filter_changed)
         self.active_section.currentIndexChanged.connect(self._active_section_changed)
+        self.active_member_type.currentIndexChanged.connect(lambda: self.canvas.set_active_member_type(self.active_member_type.currentText()))
         self.fit_button.clicked.connect(self.canvas.fit_view)
         self.canvas.model_change_requested.connect(self.model_change_requested)
         self.canvas.selection_changed.connect(self._canvas_selection_changed)
@@ -471,6 +487,7 @@ class FrameResultsPanel(QWidget):
         self.result_selector.blockSignals(False)
         self.canvas.set_result(None)
         self.canvas.set_diagram_members([])
+        self.member_results_changed.emit([])
         self.summary.setRowCount(0)
         self.node_results.setRowCount(0)
         self.member_results.setRowCount(0)
@@ -524,7 +541,9 @@ class FrameResultsPanel(QWidget):
         self.canvas.set_result_selection(str(selection))
         self.canvas.set_deformed_members(selected_postprocess.get("members", []))
         self.canvas.set_diagram_members(selected_postprocess.get("members", []))
+        self.canvas.set_stress_members(selected_postprocess.get("members", []))
         self.diagrams.set_members(selected_postprocess.get("members", []))
+        self.member_results_changed.emit(selected_postprocess.get("members", []))
         self._populate_tables(selected)
         self._populate_calculation_details(str(selection), selected_postprocess)
         self.steps.setPlainText("\n".join(self._analysis.get("steps", [])))

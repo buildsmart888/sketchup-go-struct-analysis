@@ -1,0 +1,6 @@
+# Reproducible Windows packaging outputs.
+release/
+build/
+dist/
+*.spec
+tmp/

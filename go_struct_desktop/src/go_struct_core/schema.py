@@ -9,8 +9,9 @@ from typing import Any, Mapping, Sequence
 from .errors import ModelValidationError
 
 
-SUPPORT_TYPES = frozenset({"Free", "Fixed", "Pinned", "RollerX", "RollerY"})
+SUPPORT_TYPES = frozenset({"Free", "Fixed", "Pinned", "RollerX", "RollerY", "Spring"})
 RELEASE_TYPES = frozenset({"Rigid-Rigid", "Pin-Rigid", "Rigid-Pin", "Pin-Pin"})
+MEMBER_TYPES = frozenset({"Frame", "Truss"})
 LOAD_DIRECTIONS = frozenset({"Local X", "Local Y", "Global X", "Global Y"})
 
 
@@ -56,6 +57,9 @@ class FrameNode:
     x: float
     y: float
     support: str = "Free"
+    kx: float = 0.0
+    ky: float = 0.0
+    kr: float = 0.0
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any], path: str) -> "FrameNode":
@@ -65,6 +69,9 @@ class FrameNode:
             x=_number(value.get("x"), f"{path}.x"),
             y=_number(value.get("y"), f"{path}.y"),
             support=support,
+            kx=_number(value.get("kx"), f"{path}.kx", 0.0),
+            ky=_number(value.get("ky"), f"{path}.ky", 0.0),
+            kr=_number(value.get("kr"), f"{path}.kr", 0.0),
         )
 
 
@@ -75,6 +82,10 @@ class FrameSection:
     a: float
     i: float
     density: float = 0.0
+    name: str = ""
+    material: str = ""
+    depth_cm: float = 0.0
+    width_cm: float = 0.0
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any], path: str) -> "FrameSection":
@@ -84,6 +95,10 @@ class FrameSection:
             a=_number(value.get("a"), f"{path}.a"),
             i=_number(value.get("i"), f"{path}.i"),
             density=_number(value.get("density"), f"{path}.density", 0.0),
+            name=str(value.get("name", "")).strip(),
+            material=str(value.get("material", "")).strip(),
+            depth_cm=_number(value.get("depth_cm"), f"{path}.depth_cm", 0.0),
+            width_cm=_number(value.get("width_cm"), f"{path}.width_cm", 0.0),
         )
 
     @property
@@ -102,15 +117,19 @@ class FrameElement:
     n2: int
     sec: int
     release: str = "Rigid-Rigid"
+    member_type: str = "Frame"
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any], path: str) -> "FrameElement":
+        raw_member_type = _text(value.get("memberType", value.get("member_type", "Frame")), f"{path}.memberType", "Frame")
+        member_type = {"frame": "Frame", "truss": "Truss"}.get(raw_member_type.lower(), raw_member_type)
         return cls(
             id=_integer(value.get("id"), f"{path}.id"),
             n1=_integer(value.get("n1"), f"{path}.n1"),
             n2=_integer(value.get("n2"), f"{path}.n2"),
             sec=_integer(value.get("sec"), f"{path}.sec"),
             release=_text(value.get("release"), f"{path}.release", "Rigid-Rigid"),
+            member_type=member_type,
         )
 
 
@@ -144,6 +163,8 @@ class ElementLoad:
     x_m: float = 0.0
     p: float = 0.0
     m: float = 0.0
+    x1_m: float = 0.0
+    x2_m: float | None = None
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any], path: str) -> "ElementLoad":
@@ -158,6 +179,8 @@ class ElementLoad:
             x_m=_number(value.get("x_m", value.get("x", value.get("at", 0.0))), f"{path}.x_m"),
             p=_number(value.get("p", value.get("value", 0.0)), f"{path}.p"),
             m=_number(value.get("m", value.get("mz", value.get("value", 0.0))), f"{path}.m"),
+            x1_m=_number(value.get("x1_m", value.get("start_x_m", 0.0)), f"{path}.x1_m", 0.0),
+            x2_m=_number(value.get("x2_m", value.get("end_x_m")), f"{path}.x2_m") if value.get("x2_m", value.get("end_x_m")) is not None else None,
         )
 
 
@@ -283,11 +306,17 @@ class FrameModel:
         for node in self.nodes:
             if node.support not in SUPPORT_TYPES:
                 errors.append(f"node {node.id} has unsupported support type {node.support!r}")
+            if min(node.kx, node.ky, node.kr) < 0.0:
+                errors.append(f"node {node.id} spring stiffness cannot be negative")
+            if node.support == "Spring" and node.kx + node.ky + node.kr <= 0.0:
+                errors.append(f"spring support at node {node.id} requires positive kx, ky, or kr")
         for section in self.sections:
             if section.e <= 0 or section.a <= 0 or section.i <= 0:
                 errors.append(f"section {section.id} requires positive e, a, and i")
             if section.density < 0:
                 errors.append(f"section {section.id} density cannot be negative")
+            if section.depth_cm < 0 or section.width_cm < 0:
+                errors.append(f"section {section.id} dimensions cannot be negative")
         for element in self.elements:
             if element.n1 not in node_id_set or element.n2 not in node_id_set:
                 errors.append(f"element {element.id} references a missing node")
@@ -297,6 +326,10 @@ class FrameModel:
                 errors.append(f"element {element.id} references a missing section")
             if element.release not in RELEASE_TYPES:
                 errors.append(f"element {element.id} has unsupported release {element.release!r}")
+            if element.member_type not in MEMBER_TYPES:
+                errors.append(f"element {element.id} has unsupported memberType {element.member_type!r}")
+            if element.member_type == "Truss" and element.release != "Rigid-Rigid":
+                errors.append(f"truss member {element.id} cannot use a frame end release")
         for load in self.nodal_loads:
             if load.node not in node_id_set:
                 errors.append(f"nodal load references missing node {load.node}")
@@ -309,6 +342,9 @@ class FrameModel:
                 errors.append(f"element load references missing load case {load.lcase!r}")
             if load.type not in {"Distributed", "Point Force", "Point Moment"}:
                 errors.append(f"element load has unsupported type {load.type!r}")
+            target_element = next((item for item in self.elements if item.id == load.elem), None)
+            if target_element is not None and target_element.member_type == "Truss":
+                errors.append(f"member loads on truss member {load.elem} are not supported; apply equivalent loads at nodes")
             if load.type != "Point Moment" and load.direction not in LOAD_DIRECTIONS:
                 errors.append(f"element load has unsupported direction {load.direction!r}")
             if load.type in {"Point Force", "Point Moment"}:
@@ -319,6 +355,14 @@ class FrameModel:
                     length = math.hypot(node_j.x - node_i.x, node_j.y - node_i.y)
                     if load.x_m < 0.0 or load.x_m > length:
                         errors.append(f"element load on element {load.elem} requires x_m between 0 and {length:g} m")
+            if load.type == "Distributed":
+                element = next((item for item in self.elements if item.id == load.elem), None)
+                if element is not None and load.x2_m is not None:
+                    node_i = next(node for node in self.nodes if node.id == element.n1)
+                    node_j = next(node for node in self.nodes if node.id == element.n2)
+                    length = math.hypot(node_j.x - node_i.x, node_j.y - node_i.y)
+                    if load.x1_m < -1.0e-9 or load.x2_m > length + 1.0e-9 or load.x2_m <= load.x1_m + 1.0e-9:
+                        errors.append(f"distributed load on element {load.elem} requires 0 <= x1_m < x2_m <= {length:g} m")
         for combo in self.load_combinations:
             for load_case in combo.factors:
                 if load_case not in load_case_set:
@@ -337,7 +381,7 @@ class FrameModel:
                 **({"authoring": dict(self.settings.authoring)} if self.settings.authoring else {}),
             },
             "nodes": [
-                {"id": node.id, "x": node.x, "y": node.y, "support": node.support}
+                {"id": node.id, "x": node.x, "y": node.y, "support": node.support, **({"kx": node.kx, "ky": node.ky, "kr": node.kr} if node.support == "Spring" else {})}
                 for node in self.nodes
             ],
             "elements": [
@@ -347,6 +391,7 @@ class FrameModel:
                     "n2": element.n2,
                     "sec": element.sec,
                     "release": element.release,
+                    **({"memberType": element.member_type} if element.member_type != "Frame" else {}),
                 }
                 for element in self.elements
             ],
@@ -357,6 +402,10 @@ class FrameModel:
                     "a": section.a,
                     "i": section.i,
                     "density": section.density,
+                    **({"name": section.name} if section.name else {}),
+                    **({"material": section.material} if section.material else {}),
+                    **({"depth_cm": section.depth_cm} if section.depth_cm > 0 else {}),
+                    **({"width_cm": section.width_cm} if section.width_cm > 0 else {}),
                 }
                 for section in self.sections
             ],
@@ -375,7 +424,7 @@ class FrameModel:
             ],
             "eloads": [
                 (
-                    {"elem": load.elem, "lcase": load.lcase, "dir": load.direction, "w1": load.w1, "w2": load.w2}
+                    {"elem": load.elem, "lcase": load.lcase, "dir": load.direction, "w1": load.w1, "w2": load.w2, **({"x1_m": load.x1_m, "x2_m": load.x2_m} if load.x2_m is not None else {})}
                     if load.type == "Distributed"
                     else {
                         "elem": load.elem,

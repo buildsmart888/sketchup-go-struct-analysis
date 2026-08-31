@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GO Struct Desktop Manual</title>
+  <style>
+    :root { color-scheme: light; font-family: "Segoe UI", Arial, sans-serif; color: #172033; background: #f6f8fb; }
+    body { margin: 0; line-height: 1.55; }
+    header { background: #0f766e; color: #fff; padding: 32px max(24px, calc((100vw - 1120px) / 2)); }
+    header p { margin: 6px 0 0; opacity: .9; }
+    main { max-width: 1120px; margin: 0 auto; padding: 30px 24px 52px; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+    nav a { color: #0f766e; border: 1px solid #99d6cc; background: #fff; border-radius: 4px; padding: 5px 10px; text-decoration: none; }
+    section { margin: 32px 0; }
+    h2 { margin-bottom: 8px; color: #0f172a; }
+    figure { margin: 18px 0; border: 1px solid #cbd5e1; background: #fff; padding: 12px; }
+    figure img { display: block; width: 100%; max-width: 900px; height: auto; margin: 0 auto; }
+    figcaption { color: #475569; font-size: .92rem; padding: 9px 2px 0; }
+    table { width: 100%; border-collapse: collapse; background: #fff; }
+    th, td { padding: 10px; border: 1px solid #cbd5e1; text-align: left; vertical-align: top; }
+    th { background: #e2e8f0; }
+    code { background: #e2e8f0; padding: 1px 4px; border-radius: 3px; }
+    footer { color: #475569; font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>GO Struct Desktop Manual</h1>
+    <p>Frame, Beam, Truss, and Hybrid Frame-Truss workflows.</p>
+  </header>
+  <main>
+    <nav>
+      <a href="#frame">Frame</a><a href="#beam">Beam</a><a href="#truss">Truss</a>
+      <a href="#hybrid">Hybrid</a><a href="#results">Results</a><a href="#reports">Reports</a>
+    </nav>
+
+    <section id="frame">
+      <h2>Frame Workspace</h2>
+      <p>Create nodes and members with the Model tools, then place supports and loads. Run Analysis and choose <code>N</code>, <code>V</code>, <code>M</code>, <code>D</code>, <code>All</code>, or <code>FBD</code>. A Fixed support is a hatched wall; a Pin is a triangle.</p>
+      <figure><img src="images/frame-workspace.png" alt="GO Struct Frame canvas with applied load and result diagrams"><figcaption>Frame canvas after analysis.</figcaption></figure>
+    </section>
+
+    <section id="beam">
+      <h2>Beam Workspace</h2>
+      <p>Beam authoring locks nodes to one horizontal baseline. Start with Cantilever, Simply Supported, or Continuous templates. Use Beam commands to add spans, insert supports, and resize the selected span. Intermediate supports in a continuous beam are Pinned by default. Select multiple spans to apply one load in one action.</p>
+      <figure><img src="images/beam-workspace.png" alt="GO Struct Beam canvas with beam result diagram"><figcaption>Beam canvas and member results.</figcaption></figure>
+    </section>
+
+    <section id="truss">
+      <h2>Truss Workspace</h2>
+      <p>Truss members are pin-jointed and accept nodal <code>Fx/Fy</code> loads. Solver convention is <code>+N = tension</code>. The standard Truss N view uses green for tension and red for compression, while the Contour palette menu also provides Signed Blue/Red and Spectrum choices. The canvas and report identify the governing tension and compression members.</p>
+      <figure><img src="images/truss-workspace.png" alt="GO Struct Truss canvas with tension and compression highlighting"><figcaption>Truss axial-force result with governing-member emphasis.</figcaption></figure>
+    </section>
+
+    <section id="hybrid">
+      <h2>Hybrid Frame-Truss Workspace</h2>
+      <p>Use <code>Model &gt; Hybrid Frame-Truss Templates</code> to create Frame columns with Truss chords and webs at shared joints. Frame members carry <code>N/V/M</code>; Truss members carry axial <code>N</code> only. Current templates are planar 2D and retain metadata for a future 3D generator.</p>
+      <figure><img src="images/hybrid-workspace.png" alt="GO Struct Hybrid Frame-Truss canvas"><figcaption>Hybrid frame and gable truss model after analysis.</figcaption></figure>
+    </section>
+
+    <section id="results">
+      <h2>Results and Contours</h2>
+      <table>
+        <thead><tr><th>Control</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td>N / V / M / D / All / FBD</td><td>Changes the displayed result, without changing solver signs or numerical values.</td></tr>
+          <tr><td>Contour</td><td>Fills the active result diagram. The Palette control offers Signed Blue/Red, Spectrum, and Truss axial Green/Red.</td></tr>
+          <tr><td>Global / Member</td><td>Uses one range for the whole model or normalises each individual member for comparison.</td></tr>
+          <tr><td>Values and hover crosshair</td><td>Shows sampled values and the exact internal action at the current station.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="reports">
+      <h2>Reports</h2>
+      <p>Choose <code>Report &gt; Export HTML Report</code> or <code>Export PDF Report</code>. The content dialog can export the current result, all cases and combinations, or all combinations. Canvas figures may be omitted, captured only from the current canvas result, included as a summary (Model, D, FBD), included in full, or picked view by view. Figure capture shows progress and can be cancelled before the report is written. Truss omits V/M because they do not apply. Figures are constrained to the A4 printable width. N/V/M values use four decimals; geometry is metres and translational displacement is millimetres to four decimals. Envelope is not used for FBD equilibrium.</p>
+    </section>
+
+    <footer>To refresh these screenshots after a visual change, run <code>.venv\Scripts\python.exe tools\generate_manual_images.py</code>.</footer>
+  </main>
+</body>
+</html>

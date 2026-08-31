@@ -120,7 +120,52 @@ workspace. Beam and Truss remain separate workspaces, not incomplete Frame featu
 
 Beam and Truss now have dedicated authoring workflows rather than only specialised solvers. Both provide
 a template catalog, editable templates, workspace-specific result summaries, and regression coverage.
-The next planned deliverable is Phase 4 report, PDF, and data-export packages.
+## Completed: Hybrid Frame-Truss foundation
+
+- The common Frame JSON schema now records a per-member `memberType`: legacy projects default to
+  `Frame`, while `Truss` members use axial-only stiffness embedded in the shared 2D DOF system.
+- Frame and Truss members can share nodes. Truss member loads and frame end releases are rejected;
+  a load on an unstiffened rotational Truss DOF reports a direct diagnostic instead of a misleading result.
+- Post-processing, contour results, selected-member charts, and the Matrix & DOF viewer retain the
+  member type. Truss V/M values are zero by definition; Frame members retain full N/V/M behaviour.
+- `Model > Hybrid Frame-Truss Templates` creates Flat, Sloping Flat, Mono, Gable, Raised Bottom-Chord,
+  and Curved panel trusses on Steel or Concrete Frame columns. Both catalogs show a dimensioned preview
+  and expose Pratt, Howe, Warren, and X-braced web patterns.
+- Template metadata records `dimension: 2D`, `support_placement: bottom_chord`, and `joint_model: pinned`.
+  This is an explicit migration path for a future 3D truss generator, not a claim that the current solver is 3D.
+- Solver signs are immutable in the UI: N/V/M graph-side controls transform only drawing placement. Hybrid
+  Truss axial diagrams and contour fills use green tension (`+N`) and red compression (`-N`).
+
+## Completed: Phase 4.2 Contour result visualisation
+
+- Global contour renderer for N, V, M, and FE-deflection diagrams with an on-canvas numeric legend.
+- Signed blue-negative/red-positive and sequential spectrum palettes; presentation sign conventions
+  remain independent from native solver signs.
+- Global and per-member colour ranges, with a selected-member range represented explicitly in the legend.
+- Linked Selected Member Results dock with compact N/V/M/deflection/elastic-stress charts.
+- Auto, Detail, and Fast rendering modes. These reduce canvas sample bands only, preserving sampled
+  results, crosshair precision, export data, and solver output.
+
+## Completed: Canvas scalability foundation
+
+- Cached model-space spatial index for node/member/load hit testing plus midpoint/intersection snap
+  candidates; intersections are rebuilt with model changes instead of recalculated on every mouse move.
+- Interaction rendering is throttled to 60 fps and temporarily draws only grid, member geometry, and
+  nodes. Full labels, loads, diagrams, contours, fills, deformed shape, and crosshair return after
+  150 ms idle; diagram hover is throttled to 30 fps.
+- LOD policy keeps full detail through 300 members, hides labels and limits hover to selected members
+  through 2,000, then requires selected members for expensive result overlays. The present renderer
+  remains QPainter; a future OpenGL backend can replace only the renderer.
+
+## Completed: Report selection and truss governing-member presentation
+
+- Report content dialog selects the current result, all cases/combinations, or all combinations, and
+  independently includes canvas snapshots, input schedules, node results, and member results in HTML/PDF.
+- Each report canvas snapshot is captured after selecting its matching Case or Combination; the report
+  records project units and the immutable native solver sign convention.
+- The canvas and report identify maximum tension and maximum compression Truss members for pure Truss
+  and Hybrid Frame-Truss projects. Fixed supports use a distinct hatched-wall symbol rather than the Pin glyph.
+- Illustrated `docs/MANUAL.md` and `docs/MANUAL.html` documents Frame, Beam, Truss, Hybrid, and report workflows.
 
 ## Later: Phase 4
 
@@ -130,3 +175,23 @@ The next planned deliverable is Phase 4 report, PDF, and data-export packages.
 
 - SketchUp Ruby-to-Python bridge.
 - Steel and concrete design-code checks.
+
+## Completed: Warehouse3D preliminary vertical slice
+
+- Independent SI Warehouse schema and parametric generators for Warren, Pratt, Howe, and pitched
+  roof-truss warehouses, including columns, purlins, roof/wall bracing, and ground beams.
+- Native first-order 3D direct-stiffness backend with six nodal DOF, space-frame/truss members,
+  self-weight, gravity/wind load cases, combinations, reactions, member demand, and envelopes.
+- Preliminary yield/Euler/slenderness/displacement/drift screens plus auditable steel, fabrication,
+  erection, coating, conceptual connection, and conceptual foundation cost allowances.
+- Deterministic mixed-variable Pareto search with candidate hashes, cache, cancellation hook, fixed
+  seed, optional worker count, and cost/mass/utilization objectives.
+- Dedicated `go-struct-warehouse` PySide6 + Qt Quick 3D workspace with orbit controller, model
+  generation, analysis/cost tabs, Pareto output, JSON save/open, and CSV BOQ export.
+- Warehouse UX hardening: centred camera pivot; ISO/elevation/plan camera controls; visibility
+  layers; member selection; utilization, axial, and exaggerated-deflection display modes; and
+  explicit colour legends. The analysis audit now exposes global force/moment equilibrium and the
+  equivalent nodal load-distribution trace for every solved case/combination.
+
+Warehouse3D remains preliminary-only until independently benchmarked against a qualified 3D solver
+and paired with a selected national design-code pack, connection module, and foundation module.

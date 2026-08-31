@@ -26,11 +26,20 @@ class DisplaySettings:
     show_equilibrium: bool = True
     diagram_fill: bool = True
     diagram_placement: str = "local_positive"
+    # These three names are retained for saved-project compatibility. Solver sign conventions are
+    # fixed; graph orientation lives in the dedicated *_graph_orientation fields below.
     axial_positive: str = "tension"
     shear_positive: str = "clockwise"
     moment_positive: str = "bottom_tension"
+    axial_graph_orientation: str = "native"
+    shear_graph_orientation: str = "native"
+    moment_graph_orientation: str = "native"
     diagram_scale_mode: str = "auto"
     diagram_scale_multiplier: float = 1.0
+    contour_enabled: bool = False
+    contour_palette: str = "signed"
+    contour_scale: str = "global"
+    contour_detail: str = "auto"
     fbd_reference_x: float = 0.0
     fbd_reference_y: float = 0.0
 
@@ -38,6 +47,16 @@ class DisplaySettings:
     def from_mapping(cls, value: Mapping[str, Any] | None) -> "DisplaySettings":
         value = value or {}
         valid = {field: value[field] for field in cls.__dataclass_fields__ if field in value}
+        # Older projects used these settings to invert numeric values. Preserve the visual direction
+        # they chose, but restore the solver's native N/V/M values for labels, tables, and exports.
+        legacy_orientation = {
+            "axial_positive": ("compression", "axial_graph_orientation"),
+            "shear_positive": ("counter_clockwise", "shear_graph_orientation"),
+            "moment_positive": ("top_tension", "moment_graph_orientation"),
+        }
+        for legacy_key, (legacy_value, orientation_key) in legacy_orientation.items():
+            if orientation_key not in valid and value.get(legacy_key) == legacy_value:
+                valid[orientation_key] = "flipped"
         return cls(**valid)
 
     def to_dict(self) -> dict[str, Any]:
@@ -76,15 +95,15 @@ class DisplayPanel(QWidget):
         self.diagram_placement = QComboBox(self)
         self.diagram_placement.addItem("Positive on local +Y", "local_positive")
         self.diagram_placement.addItem("Positive on local -Y", "local_negative")
-        self.axial_positive = QComboBox(self)
-        self.axial_positive.addItem("Tension positive", "tension")
-        self.axial_positive.addItem("Compression positive", "compression")
-        self.shear_positive = QComboBox(self)
-        self.shear_positive.addItem("Clockwise positive", "clockwise")
-        self.shear_positive.addItem("Counter-clockwise positive", "counter_clockwise")
-        self.moment_positive = QComboBox(self)
-        self.moment_positive.addItem("Bottom fibre tension", "bottom_tension")
-        self.moment_positive.addItem("Top fibre tension", "top_tension")
+        self.axial_orientation = QComboBox(self)
+        self.axial_orientation.addItem("Native graph side", "native")
+        self.axial_orientation.addItem("Flip graph side", "flipped")
+        self.shear_orientation = QComboBox(self)
+        self.shear_orientation.addItem("Native graph side", "native")
+        self.shear_orientation.addItem("Flip graph side", "flipped")
+        self.moment_orientation = QComboBox(self)
+        self.moment_orientation.addItem("Native graph side", "native")
+        self.moment_orientation.addItem("Flip graph side", "flipped")
         self.diagram_scale_mode = QComboBox(self)
         self.diagram_scale_mode.addItem("Auto", "auto")
         self.diagram_scale_mode.addItem("Manual", "manual")
@@ -92,6 +111,18 @@ class DisplayPanel(QWidget):
         self.diagram_scale_multiplier.setRange(0.1, 10.0)
         self.diagram_scale_multiplier.setSingleStep(0.1)
         self.diagram_scale_multiplier.setValue(1.0)
+        self.contour_enabled = QCheckBox("Colour contour", self)
+        self.contour_palette = QComboBox(self)
+        self.contour_palette.addItem("Signed: blue - / red +", "signed")
+        self.contour_palette.addItem("Spectrum: low to high", "spectrum")
+        self.contour_palette.addItem("Truss axial: green tension / red compression", "truss_axial")
+        self.contour_scale = QComboBox(self)
+        self.contour_scale.addItem("Global model range", "global")
+        self.contour_scale.addItem("Per-member range", "member")
+        self.contour_detail = QComboBox(self)
+        self.contour_detail.addItem("Auto", "auto")
+        self.contour_detail.addItem("Detail", "detail")
+        self.contour_detail.addItem("Fast for large models", "fast")
         self.fbd_reference_x = QDoubleSpinBox(self)
         self.fbd_reference_x.setRange(-1.0e6, 1.0e6)
         self.fbd_reference_x.setDecimals(3)
@@ -103,10 +134,10 @@ class DisplayPanel(QWidget):
         for control in (
             self.grid, self.nodes, self.node_ids, self.member_ids, self.supports, self.local_axes,
             self.loads, self.load_values, self.load_directions, self.reactions, self.equilibrium,
-            self.diagram_fill,
+            self.diagram_fill, self.contour_enabled,
         ):
             control.toggled.connect(self._emit_settings)
-        for control in (self.diagram_placement, self.axial_positive, self.shear_positive, self.moment_positive, self.diagram_scale_mode):
+        for control in (self.diagram_placement, self.axial_orientation, self.shear_orientation, self.moment_orientation, self.diagram_scale_mode, self.contour_palette, self.contour_scale, self.contour_detail):
             control.currentIndexChanged.connect(self._emit_settings)
         self.diagram_scale_multiplier.valueChanged.connect(self._emit_settings)
         self.fbd_reference_x.valueChanged.connect(self._emit_settings)
@@ -169,11 +200,16 @@ class DisplayPanel(QWidget):
         layout.addRow("Canvas view", self.view_mode)
         layout.addRow(self.diagram_fill)
         layout.addRow("Placement", self.diagram_placement)
-        layout.addRow("Axial N", self.axial_positive)
-        layout.addRow("Shear V", self.shear_positive)
-        layout.addRow("Moment M", self.moment_positive)
+        layout.addRow(QLabel("Solver signs: N tension + | V clockwise + | M bottom fibre tension", tab))
+        layout.addRow("N graph", self.axial_orientation)
+        layout.addRow("V graph", self.shear_orientation)
+        layout.addRow("M graph", self.moment_orientation)
         layout.addRow("Diagram scale", self.diagram_scale_mode)
         layout.addRow("Scale factor", self.diagram_scale_multiplier)
+        layout.addRow(self.contour_enabled)
+        layout.addRow("Contour colours", self.contour_palette)
+        layout.addRow("Contour scale", self.contour_scale)
+        layout.addRow("Contour detail", self.contour_detail)
         return tab
 
     def reset_diagram_scale(self) -> None:
@@ -204,11 +240,15 @@ class DisplayPanel(QWidget):
             show_equilibrium=self.equilibrium.isChecked(),
             diagram_fill=self.diagram_fill.isChecked(),
             diagram_placement=str(self.diagram_placement.currentData()),
-            axial_positive=str(self.axial_positive.currentData()),
-            shear_positive=str(self.shear_positive.currentData()),
-            moment_positive=str(self.moment_positive.currentData()),
+            axial_graph_orientation=str(self.axial_orientation.currentData()),
+            shear_graph_orientation=str(self.shear_orientation.currentData()),
+            moment_graph_orientation=str(self.moment_orientation.currentData()),
             diagram_scale_mode=str(self.diagram_scale_mode.currentData()),
             diagram_scale_multiplier=self.diagram_scale_multiplier.value(),
+            contour_enabled=self.contour_enabled.isChecked(),
+            contour_palette=str(self.contour_palette.currentData()),
+            contour_scale=str(self.contour_scale.currentData()),
+            contour_detail=str(self.contour_detail.currentData()),
             fbd_reference_x=self.fbd_reference_x.value(),
             fbd_reference_y=self.fbd_reference_y.value(),
         )
@@ -229,10 +269,14 @@ class DisplayPanel(QWidget):
         self.equilibrium.setChecked(settings.show_equilibrium)
         self.diagram_fill.setChecked(settings.diagram_fill)
         self.diagram_placement.setCurrentIndex(self.diagram_placement.findData(settings.diagram_placement))
-        self.axial_positive.setCurrentIndex(self.axial_positive.findData(settings.axial_positive))
-        self.shear_positive.setCurrentIndex(self.shear_positive.findData(settings.shear_positive))
-        self.moment_positive.setCurrentIndex(self.moment_positive.findData(settings.moment_positive))
+        self.axial_orientation.setCurrentIndex(self.axial_orientation.findData(settings.axial_graph_orientation))
+        self.shear_orientation.setCurrentIndex(self.shear_orientation.findData(settings.shear_graph_orientation))
+        self.moment_orientation.setCurrentIndex(self.moment_orientation.findData(settings.moment_graph_orientation))
         self.diagram_scale_mode.setCurrentIndex(self.diagram_scale_mode.findData(settings.diagram_scale_mode))
         self.diagram_scale_multiplier.setValue(settings.diagram_scale_multiplier)
+        self.contour_enabled.setChecked(settings.contour_enabled)
+        self.contour_palette.setCurrentIndex(self.contour_palette.findData(settings.contour_palette))
+        self.contour_scale.setCurrentIndex(self.contour_scale.findData(settings.contour_scale))
+        self.contour_detail.setCurrentIndex(self.contour_detail.findData(settings.contour_detail))
         self.fbd_reference_x.setValue(settings.fbd_reference_x)
         self.fbd_reference_y.setValue(settings.fbd_reference_y)

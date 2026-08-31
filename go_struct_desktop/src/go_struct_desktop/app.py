@@ -10,11 +10,13 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable, Mapping
 
-from PySide6.QtCore import QPointF, QSettings, QSize, QStandardPaths, Qt
-from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence, QPainter, QPen, QPixmap, QPolygonF
-from PySide6.QtWidgets import QApplication, QButtonGroup, QDockWidget, QFileDialog, QInputDialog, QMainWindow, QMessageBox, QStyle, QToolBar, QToolButton, QWidget
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QPointF, QSettings, QSize, QStandardPaths, Qt
+from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence, QPainter, QPageSize, QPdfWriter, QPen, QPixmap, QPolygonF, QTextDocument
+from PySide6.QtSvg import QSvgGenerator
+from PySide6.QtWidgets import QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox, QProgressDialog, QStyle, QToolBar, QToolButton, QVBoxLayout, QWidget
 
-from go_struct_core import FrameModel, ModelValidationError, analyze_frame_data, build_frame_postprocess
+from go_struct_core import FrameModel, ModelValidationError, analyze_frame_data, build_frame_matrix_view, build_frame_postprocess
+from go_struct_core.preflight import check_frame_model
 
 from .frame_workspace import FrameInputPanel, FrameResultsPanel, default_frame_model
 from .canvas import FrameCanvas
@@ -22,6 +24,22 @@ from .display import DisplayPanel, DisplaySettings
 from .engilab import EngiLabImportError, import_engilab_frame, installed_example_files
 from .examples import BUILT_IN_FRAME_EXAMPLES, ENGILAB_REFERENCE_EXAMPLES, FrameExample
 from .inspector import PropertyInspector
+from .hybrid_templates import hybrid_truss_on_columns_template
+from .matrix_viewer import MatrixViewerPanel
+from .member_result_inspector import MemberResultInspector
+from .template_browser import TemplateBrowserDialog, TemplateOption, TemplateParameter
+from .reporting import ReportOptions, available_report_selections, build_html_report, write_csv_bundle, write_html_report, write_xlsx
+from .section_view import SectionViewPanel
+from .workflow import DefineHubDialog, ModelCheckDialog, ProjectStartDialog, SectionCatalogDialog
+
+
+# QTextDocument maps an embedded PNG's native pixels to page units. Keep report
+# canvases smaller than the A4 printable width before turning them into data URIs.
+REPORT_CANVAS_IMAGE_WIDTH_PX = 460
+
+
+class ReportCaptureCancelled(Exception):
+    """Raised when the user cancels a potentially large canvas capture."""
 
 
 @dataclass(frozen=True)
@@ -39,6 +57,87 @@ class WorkspaceDefinition:
     file_extension: str
     canvas_class: type[FrameCanvas] = FrameCanvas
     engilab_import: bool = False
+
+
+class ReportOptionsDialog(QDialog):
+    """Choose audited report content before a portable HTML or PDF export."""
+
+    def __init__(self, analysis: Mapping[str, Any], current_selection: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Report content")
+        self.setMinimumWidth(390)
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.coverage = QComboBox(self)
+        self.coverage.addItem(f"Current result ({current_selection})", "current")
+        self.coverage.addItem("All load cases and combinations", "all")
+        if analysis.get("combos"):
+            self.coverage.addItem("All combinations", "combos")
+        form.addRow("Results", self.coverage)
+        layout.addLayout(form)
+        self.figure_scope = QComboBox(self)
+        self.figure_scope.addItem("No canvas figures", "none")
+        self.figure_scope.addItem("Current canvas result only - full figures", "current_full")
+        self.figure_scope.addItem("Every selected result - summary (Model, D, FBD)", "selected_summary")
+        self.figure_scope.addItem("Every selected result - full (Model, N, V, M, D, FBD)", "selected_full")
+        self.figure_scope.addItem("Every selected result - choose views", "selected_views")
+        self.figure_scope.setCurrentIndex(self.figure_scope.findData("selected_full"))
+        form.addRow("Canvas figures", self.figure_scope)
+        self.include_model = QCheckBox("Include model, section, load and combination schedules", self)
+        self.include_model.setChecked(True)
+        self.include_nodes = QCheckBox("Include node displacement and reaction table", self)
+        self.include_nodes.setChecked(True)
+        self.include_members = QCheckBox("Include member end-force table", self)
+        self.include_members.setChecked(True)
+        self.figure_views_group = QGroupBox("Selected canvas views", self)
+        figure_layout = QGridLayout(self.figure_views_group)
+        self.figure_view_checks: dict[str, QCheckBox] = {}
+        for index, label in enumerate(("Model", "N", "V", "M", "D", "FBD")):
+            control = QCheckBox(label, self.figure_views_group)
+            control.setChecked(True)
+            figure_layout.addWidget(control, index // 3, index % 3)
+            self.figure_view_checks[label] = control
+        layout.addWidget(self.figure_views_group)
+        for control in (self.include_model, self.include_nodes, self.include_members):
+            layout.addWidget(control)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok, self)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self._analysis = analysis
+        self._current_selection = current_selection
+        self.figure_scope.currentIndexChanged.connect(self._sync_figure_view_controls)
+        self._sync_figure_view_controls()
+
+    def _sync_figure_view_controls(self) -> None:
+        self.figure_views_group.setEnabled(str(self.figure_scope.currentData()) == "selected_views")
+
+    def options(self) -> ReportOptions:
+        mode = str(self.coverage.currentData())
+        if mode == "all":
+            selections = available_report_selections(self._analysis)
+        elif mode == "combos":
+            selections = tuple(selection for selection in available_report_selections(self._analysis) if selection.startswith("combo:"))
+        else:
+            selections = (self._current_selection,)
+        figure_scope = str(self.figure_scope.currentData())
+        if figure_scope == "none":
+            figure_views: tuple[str, ...] = ()
+        elif figure_scope == "selected_summary":
+            figure_views = ("Model", "D", "FBD")
+        elif figure_scope == "selected_views":
+            figure_views = tuple(label for label, control in self.figure_view_checks.items() if control.isChecked())
+        else:
+            figure_views = ("Model", "N", "V", "M", "D", "FBD")
+        return ReportOptions(
+            selections=selections or (self._current_selection,),
+            include_canvas=bool(figure_views),
+            include_model_input=self.include_model.isChecked(),
+            include_node_results=self.include_nodes.isChecked(),
+            include_member_results=self.include_members.isChecked(),
+            figure_scope=figure_scope,
+            figure_views=figure_views,
+        )
 
 
 FRAME_WORKSPACE = WorkspaceDefinition(
@@ -70,18 +169,28 @@ class MainWindow(QMainWindow):
         self._suppress_model_events = False
         self._applying_project_preferences = False
         self._dirty = False
+        self._workflow_state = "Edit"
         self._settings = QSettings("BuildSmart888", f"GOStructDesktop{self._workspace.key.title()}")
         self.input_panel = FrameInputPanel(self)
         self.results_panel = FrameResultsPanel(self, canvas_class=self._workspace.canvas_class)
         self.inspector = PropertyInspector(self)
+        self.matrix_panel = MatrixViewerPanel(self)
+        self.section_view_panel = SectionViewPanel(self)
+        self.member_result_panel = MemberResultInspector(self)
         self._build_window()
         self.input_panel.model_changed.connect(self._model_edited)
         self.results_panel.model_change_requested.connect(self._canvas_model_edited)
         self.results_panel.canvas_status_changed.connect(self.statusBar().showMessage)
         self.results_panel.canvas.selection_changed.connect(self.inspector.set_selection)
+        self.results_panel.canvas.selection_changed.connect(lambda selection: self.section_view_panel.set_model_and_selection(self.input_panel.model_data(), selection))
+        self.results_panel.canvas.selection_changed.connect(self.member_result_panel.set_selection)
+        self.results_panel.member_results_changed.connect(self.member_result_panel.set_members)
+        self.input_panel.units_changed.connect(self.member_result_panel.set_unit_system)
         self.results_panel.delete_requested.connect(self._confirm_delete)
         self.inspector.model_change_requested.connect(self._canvas_model_edited)
+        self.results_panel.result_selector.currentIndexChanged.connect(lambda _index: self.matrix_panel.set_result_selection(str(self.results_panel.result_selector.currentData() or "")))
         self.display_panel.settings_changed.connect(self.results_panel.set_display_settings)
+        self.display_panel.settings_changed.connect(self._sync_contour_controls)
         self.display_panel.settings_changed.connect(self._save_display_settings)
         self.display_panel.settings_changed.connect(self._project_display_settings_changed)
         self.display_panel.load_case_changed.connect(self.results_panel.canvas.set_load_case)
@@ -91,6 +200,7 @@ class MainWindow(QMainWindow):
         self.results_panel.canvas.tool_changed.connect(self._remember_authoring_tool)
         self.results_panel.load_placement_started.connect(self._remember_load_preset)
         self._restore_display_settings()
+        self._sync_contour_controls(self.display_panel.settings)
         self.set_model(self._workspace.default_model())
         self.run_analysis()
 
@@ -132,6 +242,19 @@ class MainWindow(QMainWindow):
         self.inspector_dock.setMaximumWidth(360)
         self.inspector_dock.resize(320, 700)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.inspector_dock)
+        self.matrix_dock = self._create_dock("Matrix & DOF", "matrixDock", self.matrix_panel)
+        self.matrix_dock.setMinimumWidth(420)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.matrix_dock)
+        self.matrix_dock.hide()
+        self.section_view_dock = self._create_dock("Section View", "sectionViewDock", self.section_view_panel)
+        self.section_view_dock.setMinimumWidth(280)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.section_view_dock)
+        self.section_view_dock.hide()
+        self.member_result_dock = self._create_dock("Selected Member Results", "memberResultDock", self.member_result_panel)
+        self.member_result_dock.setMinimumWidth(330)
+        self.member_result_dock.setMaximumWidth(460)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.member_result_dock)
+        self.member_result_dock.hide()
         self.resizeDocks([self.input_dock], [360], Qt.Orientation.Horizontal)
         self.resizeDocks([self.results_dock], [170], Qt.Orientation.Vertical)
         self._build_actions()
@@ -178,6 +301,19 @@ class MainWindow(QMainWindow):
         export_action.setToolTip("Export the normalized model, analysis, and diagrams")
         export_action.triggered.connect(self.export_analysis)
 
+        export_html_action = QAction("Export HTML Report", self)
+        export_html_action.triggered.connect(self.export_html_report)
+        export_pdf_action = QAction("Export PDF Report", self)
+        export_pdf_action.triggered.connect(self.export_pdf_report)
+        export_csv_action = QAction("Export CSV Tables", self)
+        export_csv_action.triggered.connect(self.export_csv_tables)
+        export_xlsx_action = QAction("Export Excel Workbook", self)
+        export_xlsx_action.triggered.connect(self.export_excel_workbook)
+        export_png_action = QAction("Export Canvas PNG", self)
+        export_png_action.triggered.connect(self.export_canvas_png)
+        export_svg_action = QAction("Export Canvas SVG", self)
+        export_svg_action.triggered.connect(self.export_canvas_svg)
+
         recover_action = QAction("Recover Autosave", self)
         recover_action.setToolTip("Recover the most recent unsaved model snapshot")
         recover_action.triggered.connect(self.recover_autosave)
@@ -196,6 +332,7 @@ class MainWindow(QMainWindow):
         analyze_action.setShortcut(QKeySequence("F5"))
         analyze_action.setToolTip(f"Run 2D {self._workspace.model_name} analysis")
         analyze_action.triggered.connect(lambda: self.run_analysis(show_completion=True))
+        self._analyze_action = analyze_action
 
         delete_action = QAction("Delete", self)
         delete_action.setShortcut(QKeySequence.StandardKey.Delete)
@@ -271,8 +408,19 @@ class MainWindow(QMainWindow):
         model_menu.addAction(node_tool_action)
         model_menu.addAction(member_tool_action)
         model_menu.addAction(split_tool_action)
+        geometry_action = QAction("Draw Member by Length / Angle", self)
+        geometry_action.triggered.connect(self.draw_member_by_length_angle)
+        model_menu.addAction(geometry_action)
+        section_catalog_action = QAction("Section / Material Catalog", self)
+        section_catalog_action.triggered.connect(self.open_section_catalog)
+        model_menu.addAction(section_catalog_action)
+        if self._workspace.key == "frame":
+            hybrid_catalog_action = QAction("Hybrid Frame-Truss Templates", self)
+            hybrid_catalog_action.setToolTip("Create a truss roof carried by steel or concrete Frame columns")
+            hybrid_catalog_action.triggered.connect(self.open_hybrid_template_catalog)
+            model_menu.addAction(hybrid_catalog_action)
         support_menu = model_menu.addMenu("Support")
-        for support in ("Free", "Pinned", "Fixed", "RollerX", "RollerY"):
+        for support in ("Free", "Pinned", "Fixed", "RollerX", "RollerY", "Spring"):
             action = QAction(support, self)
             action.triggered.connect(lambda _checked=False, value=support: self.results_panel.canvas.set_pending_support(value))
             support_menu.addAction(action)
@@ -313,12 +461,22 @@ class MainWindow(QMainWindow):
             action.triggered.connect(lambda _checked=False, value=title: self.input_panel.activate_tab(value))
             loads_menu.addAction(action)
         analysis_menu = self.menuBar().addMenu("Analysis")
+        define_action = QAction("Define Project Data", self)
+        define_action.triggered.connect(self.open_define_hub)
+        check_action = QAction("Check Model", self)
+        check_action.setShortcut(QKeySequence("Ctrl+Shift+C"))
+        check_action.triggered.connect(self.check_model)
+        analysis_menu.addAction(define_action)
+        analysis_menu.addAction(check_action)
         analysis_menu.addAction(analyze_action)
         view_menu = self.menuBar().addMenu("View")
         view_menu.addAction(self.input_dock.toggleViewAction())
         view_menu.addAction(self.results_dock.toggleViewAction())
         view_menu.addAction(self.display_dock.toggleViewAction())
         view_menu.addAction(self.inspector_dock.toggleViewAction())
+        view_menu.addAction(self.matrix_dock.toggleViewAction())
+        view_menu.addAction(self.section_view_dock.toggleViewAction())
+        view_menu.addAction(self.member_result_dock.toggleViewAction())
         view_menu.addAction(fit_selection_action)
         view_menu.addAction(zoom_window_action)
         view_menu.addAction(fit_diagram_action)
@@ -331,7 +489,15 @@ class MainWindow(QMainWindow):
         fbd_action = QAction("Free Body Diagram", self)
         fbd_action.triggered.connect(lambda: self.display_panel.view_mode.setCurrentIndex(self.display_panel.view_mode.findData("fbd")))
         results_menu.addAction(fbd_action)
-        self.menuBar().addMenu("Report")
+        report_menu = self.menuBar().addMenu("Report")
+        report_menu.addAction(export_html_action)
+        report_menu.addAction(export_pdf_action)
+        report_menu.addSeparator()
+        report_menu.addAction(export_csv_action)
+        report_menu.addAction(export_xlsx_action)
+        report_menu.addSeparator()
+        report_menu.addAction(export_png_action)
+        report_menu.addAction(export_svg_action)
         self.modeling_toolbar = self.addToolBar("Modeling and Loading")
         self.modeling_toolbar.setObjectName("modelingToolbar")
         self.modeling_toolbar.setMovable(False)
@@ -354,6 +520,9 @@ class MainWindow(QMainWindow):
         self.analysis_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.addToolBar(self.analysis_toolbar)
         self._add_analysis_toolbar_controls(self.analysis_toolbar, analyze_action)
+        self.workflow_badge = QLabel("Edit", self.analysis_toolbar)
+        self.workflow_badge.setStyleSheet("color: #0f766e; font-weight: 700; padding: 3px 8px;")
+        self.analysis_toolbar.addWidget(self.workflow_badge)
         self._update_history_actions()
 
     def _add_modeling_toolbar_controls(self, toolbar: QToolBar) -> None:
@@ -425,6 +594,9 @@ class MainWindow(QMainWindow):
             self.load_tool_buttons[preset] = button
             toolbar.addWidget(button)
         toolbar.addWidget(self.results_panel.active_section)
+        if self._workspace.key == "frame":
+            self.results_panel.active_member_type.setToolTip("New member behaviour: Frame carries N/V/M; Truss carries axial N only")
+            toolbar.addWidget(self.results_panel.active_member_type)
 
     @staticmethod
     def _load_icon(preset: str, fallback: QIcon) -> QIcon:
@@ -513,7 +685,72 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
         toolbar.addWidget(self.results_panel.diagram_values_toggle)
         toolbar.addWidget(self.results_panel.deformed_toggle)
+        self.deformation_animation_button = QToolButton(toolbar)
+        self.deformation_animation_button.setText("Animate")
+        self.deformation_animation_button.setCheckable(True)
+        self.deformation_animation_button.setToolTip("Animate the exaggerated deformed shape")
+        self.deformation_animation_button.toggled.connect(self.results_panel.canvas.set_deformation_animation)
+        toolbar.addWidget(self.deformation_animation_button)
+        self.stress_button = QToolButton(toolbar)
+        self.stress_button.setText("Stress")
+        self.stress_button.setCheckable(True)
+        self.stress_button.setToolTip("Show an approximate elastic top/bottom fibre stress contour; red is positive, blue is negative")
+        self.stress_button.toggled.connect(self.results_panel.canvas.set_show_stress)
+        toolbar.addWidget(self.stress_button)
+        self.contour_button = QToolButton(toolbar)
+        self.contour_button.setText("Contour")
+        self.contour_button.setCheckable(True)
+        self.contour_button.setToolTip("Fill the active N, V, M, or deflection diagram with signed result colours")
+        self.contour_button.toggled.connect(self._set_contour_enabled)
+        toolbar.addWidget(self.contour_button)
+        self.contour_palette_button = QToolButton(toolbar)
+        self.contour_palette_button.setText("Palette")
+        self.contour_palette_button.setToolTip("Choose signed blue/red, spectrum, or truss axial contour colours")
+        self.contour_palette_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        palette_menu = QMenu(self.contour_palette_button)
+        for label, value in (
+            ("Signed: blue - / red +", "signed"),
+            ("Spectrum: low to high", "spectrum"),
+            ("Truss N: green tension / red compression", "truss_axial"),
+        ):
+            action = palette_menu.addAction(label)
+            action.triggered.connect(lambda _checked=False, palette=value: self._set_contour_palette(palette))
+        self.contour_palette_button.setMenu(palette_menu)
+        toolbar.addWidget(self.contour_palette_button)
+        self.contour_scale_button = QToolButton(toolbar)
+        self.contour_scale_button.setToolTip("Switch contour scale between the global model range and each member range")
+        self.contour_scale_button.clicked.connect(self._toggle_contour_scale)
+        toolbar.addWidget(self.contour_scale_button)
         toolbar.addWidget(self.results_panel.selection_label)
+
+    def _set_contour_enabled(self, enabled: bool) -> None:
+        if enabled and self.results_panel.canvas.diagram_mode in {"all", "none"}:
+            selector = self.results_panel.canvas_diagram_selector
+            target = "n_kg" if self._workspace.key == "truss" else "m_kg_m"
+            selector.setCurrentIndex(selector.findData(target))
+        self.display_panel.contour_enabled.setChecked(enabled)
+
+    def _set_contour_palette(self, palette: str) -> None:
+        selector = self.display_panel.contour_palette
+        index = selector.findData(palette)
+        if index >= 0:
+            selector.setCurrentIndex(index)
+
+    def _toggle_contour_scale(self) -> None:
+        current = str(self.display_panel.contour_scale.currentData() or "global")
+        target = "member" if current == "global" else "global"
+        self.display_panel.contour_scale.setCurrentIndex(self.display_panel.contour_scale.findData(target))
+
+    def _sync_contour_controls(self, settings: DisplaySettings) -> None:
+        if not hasattr(self, "contour_button"):
+            return
+        self.contour_button.blockSignals(True)
+        self.contour_button.setChecked(settings.contour_enabled)
+        self.contour_button.blockSignals(False)
+        if hasattr(self, "contour_palette_button"):
+            palette_text = {"signed": "Blue/Red", "spectrum": "Spectrum", "truss_axial": "Truss N"}
+            self.contour_palette_button.setText(palette_text.get(settings.contour_palette, "Palette"))
+        self.contour_scale_button.setText("Member" if settings.contour_scale == "member" else "Global")
 
     def _sync_diagram_buttons(self, _index: int | None = None) -> None:
         if str(self.display_panel.view_mode.currentData() or "results") == "fbd":
@@ -536,17 +773,160 @@ class MainWindow(QMainWindow):
         self.display_panel.set_load_cases(list(current_model.get("loadcases", [])), list(current_model.get("loadcombos", [])))
         self.results_panel.set_model(current_model)
         self.results_panel.clear_analysis()
+        self._set_workflow_state("Edit")
         self._history = [copy.deepcopy(current_model)]
         self._history_index = 0
         self._update_history_actions()
         self._set_dirty(False)
 
     def new_model(self) -> None:
+        dialog = ProjectStartDialog(self._workspace.model_name, self._workspace.examples, self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        example = dialog.selected_example()
+        if example is not None:
+            self.load_example(example)
+            return
         self._current_path = None
         self._clear_autosave()
         self.set_model(self._workspace.default_model())
         self.run_analysis()
         self.statusBar().showMessage(f"New {self._workspace.model_name} model")
+
+    def open_define_hub(self) -> None:
+        self.input_dock.show()
+        DefineHubDialog(self.input_panel.activate_tab, self).exec()
+
+    def open_section_catalog(self) -> None:
+        dialog = SectionCatalogDialog(self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        model = self.input_panel.model_data()
+        section_id = self.results_panel.active_section.currentData()
+        target = next((section for section in model.get("sections", []) if int(section.get("id", -1)) == int(section_id)), None)
+        if target is None:
+            self.statusBar().showMessage("Choose an active section before applying a catalogue profile.")
+            return
+        target.update(dialog.values())
+        self._canvas_model_edited(model)
+        self.input_panel.activate_tab("Sections")
+        self.input_dock.show()
+
+    def open_hybrid_template_catalog(self) -> None:
+        """Offer roof-truss forms that remain editable Frame/Truss members after creation."""
+
+        parameters = (
+            TemplateParameter(
+                "web_pattern",
+                "Web pattern",
+                "pratt",
+                choices=(
+                    ("Pratt | diagonals toward centre", "pratt"),
+                    ("Howe | diagonals away from centre", "howe"),
+                    ("Warren | alternating diagonals", "warren"),
+                    ("X-braced | both diagonals per panel", "x"),
+                ),
+            ),
+            TemplateParameter(
+                "column_material",
+                "Column material",
+                "Steel",
+                choices=(("Steel", "Steel"), ("Concrete", "Concrete")),
+            ),
+            TemplateParameter("panel_count", "Number of panels", 4, 2, 40, integer=True),
+            TemplateParameter("panel_m", "Panel width (m)", 3.0),
+            TemplateParameter("depth_m", "Truss depth (m)", 1.5),
+            TemplateParameter("rise_m", "Top-chord rise (m)", 1.5, 0.0),
+            TemplateParameter("bottom_rise_m", "Bottom-chord rise (m)", 0.75, 0.0),
+            TemplateParameter("column_height_m", "Column height (m)", 5.0),
+        )
+        labels = {
+            "flat": ("Flat", "Parallel horizontal top and bottom chords."),
+            "sloping": ("Sloping Flat", "Parallel sloping chords; the bottom chord follows the roof line."),
+            "mono": ("Mono", "Single-pitch top chord over a level bottom chord."),
+            "gable": ("Gable", "Symmetric pitched top chord over a level bottom chord."),
+            "raised_bottom": ("Raised Bottom", "Both chords rise toward the apex; useful where the ceiling follows the roof."),
+            "curved": ("Curved", "Panelled approximation of a curved top chord."),
+        }
+        options = tuple(
+            TemplateOption(
+                kind,
+                f"{label} Truss",
+                f"{description} Choose its web pattern and Steel or Concrete columns at right.",
+                f"hybrid_{kind}",
+                parameters,
+            )
+            for kind, (label, description) in labels.items()
+        )
+        dialog = TemplateBrowserDialog("Hybrid Frame-Truss Template Catalog", options, self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        key = dialog.selected_key()
+        if not key:
+            return
+        values = dialog.selected_values()
+        kind = key
+        material = str(values["column_material"])
+        try:
+            model = hybrid_truss_on_columns_template(
+                kind=kind,
+                panel_count=int(values["panel_count"]),
+                panel_m=float(values["panel_m"]),
+                depth_m=float(values["depth_m"]),
+                rise_m=float(values["rise_m"]),
+                bottom_rise_m=float(values["bottom_rise_m"]),
+                column_height_m=float(values["column_height_m"]),
+                column_material=material,
+                web_pattern=str(values["web_pattern"]),
+            )
+        except ValueError as exc:
+            self._show_error("Hybrid template", str(exc))
+            return
+        self._current_path = None
+        self._clear_autosave()
+        self.set_model(model)
+        self.run_analysis(show_completion=True)
+        self.input_panel.activate_tab("Members")
+        self.input_dock.show()
+        self.statusBar().showMessage(
+            f"Created Hybrid {kind.replace('_', ' ')} {values['web_pattern']} truss on {material.title()} columns."
+        )
+
+    def check_model(self) -> bool:
+        """Open preflight findings and return whether no blocking errors were found."""
+        try:
+            model = self._workspace.normalize_model(self.input_panel.model_data())
+        except (ModelValidationError, ValueError) as exc:
+            self._show_error("Model needs attention", str(exc))
+            return False
+        issues = check_frame_model(model) if self._workspace.key == "frame" else [{"severity": "info", "message": "This workspace validates its model during analysis.", "nodes": [], "members": []}]
+        dialog = ModelCheckDialog(issues, self)
+        dialog.issue_selected.connect(self._select_preflight_issue)
+        dialog.exec()
+        errors = [issue for issue in issues if str(issue.get("severity", "")).lower() == "error"]
+        self._set_workflow_state("Check failed" if errors else "Checked")
+        self.statusBar().showMessage("Model check found blocking errors." if errors else "Model check complete. No blocking errors.")
+        return not errors
+
+    def _select_preflight_issue(self, issue: Mapping[str, Any]) -> None:
+        nodes = {int(value) for value in issue.get("nodes", [])}
+        members = {int(value) for value in issue.get("members", [])}
+        if nodes or members:
+            self.results_panel.canvas._set_selection(nodes, members)
+            self.results_panel.canvas.fit_selection()
+
+    def draw_member_by_length_angle(self) -> None:
+        selection = self.results_panel.canvas.selection.get("nodes", [])
+        if len(selection) != 1:
+            self.statusBar().showMessage("Select one start node, then choose length and angle.")
+            return
+        units = self.input_panel.unit_system
+        length, accepted = QInputDialog.getDouble(self, "Draw Member", f"Length ({units.length_unit})", 1.0, 0.001, 1.0e9, 3)
+        if not accepted:
+            return
+        angle, accepted = QInputDialog.getDouble(self, "Draw Member", "Angle (degrees)", 0.0, -360.0, 360.0, 2)
+        if accepted:
+            self.results_panel.canvas.create_member_by_geometry(int(selection[0]), length / units.length_factor, angle)
 
     def load_example(self, example: FrameExample) -> None:
         """Load an analysis-ready teaching model without treating it as a saved project."""
@@ -633,6 +1013,183 @@ class MainWindow(QMainWindow):
             return
         self.statusBar().showMessage(f"Exported {Path(path).name}")
 
+    def _export_context(self) -> tuple[dict[str, Any], Mapping[str, Any], str] | None:
+        if self.results_panel.analysis is None:
+            self._show_error("No analysis to export", "Run analysis before exporting results.")
+            return None
+        try:
+            return self._workspace.normalize_model(self.input_panel.model_data()), self.results_panel.analysis, str(self.results_panel.result_selector.currentData() or "envelope")
+        except (ModelValidationError, ValueError) as exc:
+            self._show_error("Unable to prepare export", str(exc))
+            return None
+
+    def _report_context(self) -> tuple[dict[str, Any], Mapping[str, Any], ReportOptions, dict[str, dict[str, str]]] | None:
+        context = self._export_context()
+        if context is None:
+            return None
+        model, analysis, current_selection = context
+        dialog = ReportOptionsDialog(analysis, current_selection, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        options = dialog.options()
+        if not options.include_canvas:
+            return model, analysis, options, {}
+        figure_selections = (current_selection,) if options.figure_scope == "current_full" else options.selections
+        try:
+            images = self._report_canvas_images(figure_selections, options.figure_views)
+        except ReportCaptureCancelled:
+            self.statusBar().showMessage("Report export cancelled")
+            return None
+        return model, analysis, options, images
+
+    def _report_canvas_images(
+        self,
+        selections: tuple[str, ...],
+        figure_views: tuple[str, ...] = ("Model", "N", "V", "M", "D", "FBD"),
+    ) -> dict[str, dict[str, str]]:
+        """Capture a page-safe model/result figure set for every selected Case or Combo."""
+
+        selector = self.results_panel.result_selector
+        previous_index = selector.currentIndex()
+        view_selector = self.display_panel.view_mode
+        load_selector = self.display_panel.load_case
+        canvas = self.results_panel.canvas
+        previous_view = view_selector.currentIndex()
+        previous_load = load_selector.currentIndex()
+        previous_diagram = canvas.diagram_mode
+        images: dict[str, dict[str, str]] = {}
+        analysis_type = str(self.input_panel.model_data().get("projectInfo", {}).get("analysisType", "Frame")).lower()
+        views = [("Model", "model", "none"), ("N", "results", "n_kg")]
+        if analysis_type != "truss":
+            views.extend((("V", "results", "v_kg"), ("M", "results", "m_kg_m")))
+        views.append(("D", "results", "v_mm"))
+        capture_plan: list[tuple[str, str, str, str]] = []
+        for selection in selections:
+            selected_views = views if selection == "envelope" else [*views, ("FBD", "fbd", "none")]
+            for label, view_mode, diagram in selected_views:
+                if label in figure_views:
+                    capture_plan.append((selection, label, view_mode, diagram))
+        progress = QProgressDialog("Preparing report figures...", "Cancel", 0, len(capture_plan), self)
+        progress.setWindowTitle("Preparing report")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(False)
+        progress.show()
+        try:
+            for step, (selection, label, view_mode, diagram) in enumerate(capture_plan, start=1):
+                if progress.wasCanceled():
+                    raise ReportCaptureCancelled()
+                progress.setLabelText(f"Capturing {label}: {selection} ({step}/{len(capture_plan)})")
+                index = selector.findData(selection)
+                if index < 0:
+                    continue
+                selector.setCurrentIndex(index)
+                load_index = load_selector.findData(selection)
+                if load_index >= 0:
+                    load_selector.setCurrentIndex(load_index)
+                images.setdefault(selection, {})
+                view_index = view_selector.findData(view_mode)
+                if view_index >= 0:
+                    view_selector.setCurrentIndex(view_index)
+                canvas.set_diagram_mode(diagram)
+                QApplication.processEvents()
+                data = QByteArray()
+                buffer = QBuffer(data)
+                buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+                snapshot = canvas.grab()
+                if snapshot.width() > REPORT_CANVAS_IMAGE_WIDTH_PX:
+                    snapshot = snapshot.scaledToWidth(
+                        REPORT_CANVAS_IMAGE_WIDTH_PX,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                snapshot.save(buffer, "PNG")
+                buffer.close()
+                images[selection][label] = bytes(data.toBase64()).decode("ascii")
+                progress.setValue(step)
+                QApplication.processEvents()
+                if progress.wasCanceled():
+                    raise ReportCaptureCancelled()
+        finally:
+            progress.close()
+            selector.setCurrentIndex(previous_index)
+            view_selector.setCurrentIndex(previous_view)
+            load_selector.setCurrentIndex(previous_load)
+            canvas.set_diagram_mode(previous_diagram)
+            QApplication.processEvents()
+        return images
+
+    def export_html_report(self) -> None:
+        context = self._report_context()
+        if context is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Export HTML Report", str(self._current_path or Path.home() / "GOStructReport.html"), "HTML Report (*.html)")
+        if path:
+            try:
+                model, analysis, options, images = context
+                write_html_report(Path(path), model, analysis, options.selections, options=options, canvas_images=images)
+                self.statusBar().showMessage(f"Exported {Path(path).name}")
+            except OSError as exc:
+                self._show_error("Unable to export HTML report", str(exc))
+
+    def export_pdf_report(self) -> None:
+        context = self._report_context()
+        if context is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Export PDF Report", str(self._current_path or Path.home() / "GOStructReport.pdf"), "PDF Report (*.pdf)")
+        if path:
+            try:
+                writer = QPdfWriter(path)
+                writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+                document = QTextDocument(self)
+                model, analysis, options, images = context
+                document.setHtml(build_html_report(model, analysis, options.selections, options=options, canvas_images=images))
+                document.print_(writer)
+                self.statusBar().showMessage(f"Exported {Path(path).name}")
+            except OSError as exc:
+                self._show_error("Unable to export PDF report", str(exc))
+
+    def export_csv_tables(self) -> None:
+        context = self._export_context()
+        if context is None:
+            return
+        directory = QFileDialog.getExistingDirectory(self, "Export CSV Tables", str(self._current_path.parent if self._current_path else Path.home()))
+        if directory:
+            try:
+                written = write_csv_bundle(Path(directory), *context)
+                self.statusBar().showMessage(f"Exported {len(written)} CSV tables to {Path(directory).name}")
+            except OSError as exc:
+                self._show_error("Unable to export CSV tables", str(exc))
+
+    def export_excel_workbook(self) -> None:
+        context = self._export_context()
+        if context is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Export Excel Workbook", str(self._current_path or Path.home() / "GOStructResults.xlsx"), "Excel Workbook (*.xlsx)")
+        if path:
+            try:
+                write_xlsx(Path(path), *context)
+                self.statusBar().showMessage(f"Exported {Path(path).name}")
+            except OSError as exc:
+                self._show_error("Unable to export Excel workbook", str(exc))
+
+    def export_canvas_png(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(self, "Export Canvas PNG", str(self._current_path or Path.home() / "GOStructCanvas.png"), "PNG Image (*.png)")
+        if path and self.results_panel.canvas.grab().save(path, "PNG"):
+            self.statusBar().showMessage(f"Exported {Path(path).name}")
+
+    def export_canvas_svg(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(self, "Export Canvas SVG", str(self._current_path or Path.home() / "GOStructCanvas.svg"), "SVG Image (*.svg)")
+        if not path:
+            return
+        generator = QSvgGenerator()
+        generator.setFileName(path)
+        generator.setSize(self.results_panel.canvas.size())
+        generator.setViewBox(self.results_panel.canvas.rect())
+        painter = QPainter(generator)
+        self.results_panel.canvas.render(painter)
+        painter.end()
+        self.statusBar().showMessage(f"Exported {Path(path).name}")
+
     def run_analysis(self, show_completion: bool = False) -> None:
         started_at = perf_counter()
         try:
@@ -640,19 +1197,41 @@ class MainWindow(QMainWindow):
         except (ModelValidationError, ValueError) as exc:
             self._show_error("Model needs attention", str(exc))
             return
+        if self._workspace.key == "frame":
+            issues = check_frame_model(model)
+            errors = [issue for issue in issues if str(issue.get("severity", "")).lower() == "error"]
+            if errors:
+                self._set_workflow_state("Check failed")
+                self._show_error("Model check failed", "\n".join(str(issue["message"]) for issue in errors))
+                return
+        self._set_workflow_state("Analyzing…")
+        self._analyze_action.setEnabled(False)
+        QApplication.processEvents()
         result = self._workspace.analyze(model)
+        self._analyze_action.setEnabled(True)
         self.results_panel.set_model(model)
         if not result.get("ok"):
             self.results_panel.clear_analysis()
+            self._set_workflow_state("Analysis failed")
             self._show_error("Analysis failed", str(result.get("error", "Unknown error")))
             return
         self.results_panel.set_analysis(result, self._workspace.postprocess(model, result))
+        if self._workspace.key == "frame":
+            self.matrix_panel.set_matrix_data(build_frame_matrix_view(model, result))
+        self._set_workflow_state("Results")
         elapsed_seconds = perf_counter() - started_at
         self.statusBar().showMessage(
             f"Analysis complete: {len(model['nodes'])} nodes, {len(model['elements'])} members ({elapsed_seconds:.2f} s)"
         )
         if show_completion:
             self._show_analysis_complete(model, elapsed_seconds)
+
+    def _set_workflow_state(self, state: str) -> None:
+        self._workflow_state = state
+        if hasattr(self, "workflow_badge"):
+            colour = "#15803d" if state == "Results" else "#b45309" if state in {"Stale", "Check failed", "Analysis failed"} else "#0f766e"
+            self.workflow_badge.setText(state)
+            self.workflow_badge.setStyleSheet(f"color: {colour}; font-weight: 700; padding: 3px 8px;")
 
     def _show_analysis_complete(self, model: Mapping[str, Any], elapsed_seconds: float) -> None:
         QMessageBox.information(
@@ -676,6 +1255,7 @@ class MainWindow(QMainWindow):
             return
         self._record_history(model)
         self.results_panel.clear_analysis()
+        self._set_workflow_state("Stale")
         self._set_dirty(True)
         self._autosave_model(model)
         self.statusBar().showMessage("Model changed. Run analysis to refresh results.")
@@ -718,6 +1298,12 @@ class MainWindow(QMainWindow):
 
     def _set_canvas_diagram(self, mode: str) -> None:
         self.display_panel.view_mode.setCurrentIndex(self.display_panel.view_mode.findData("results"))
+        # Direct N/V/M/D/All buttons intentionally restore the familiar solid-colour diagrams.
+        # Contour is opt-in from its own toggle after choosing the quantity to inspect.
+        if self.display_panel.settings.contour_enabled:
+            self.display_panel.contour_enabled.setChecked(False)
+        if not self.display_panel.settings.diagram_fill:
+            self.display_panel.diagram_fill.setChecked(True)
         selector = self.results_panel.canvas_diagram_selector
         selector.setCurrentIndex(selector.findData(mode))
 
@@ -764,6 +1350,7 @@ class MainWindow(QMainWindow):
         self._set_input_model(self._history[self._history_index])
         self.results_panel.set_model(self.input_panel.model_data())
         self.results_panel.clear_analysis()
+        self._set_workflow_state("Stale")
         self._set_dirty(True)
         self._autosave_model(self.input_panel.model_data())
         self._update_history_actions()

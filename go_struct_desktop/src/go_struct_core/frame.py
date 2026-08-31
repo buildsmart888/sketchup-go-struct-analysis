@@ -100,6 +100,18 @@ def _local_stiffness(section: FrameSection, length: float, release: str) -> np.n
     return stiffness
 
 
+def _truss_local_stiffness(section: FrameSection, length: float) -> np.ndarray:
+    """Six-DOF embedding of a pin-jointed bar: axial translations only."""
+
+    stiffness = np.zeros((6, 6), dtype=float)
+    axial = section.e * section.area_m2 / length
+    stiffness[0, 0] = axial
+    stiffness[0, 3] = -axial
+    stiffness[3, 0] = -axial
+    stiffness[3, 3] = axial
+    return stiffness
+
+
 def _fixed_end_forces(wx1: float, wx2: float, wy1: float, wy2: float, length: float, release: str) -> np.ndarray:
     forces = np.zeros(6, dtype=float)
     delta_x = wx2 - wx1
@@ -168,6 +180,58 @@ def _point_load_fixed_end(
     return forces
 
 
+def _distributed_load_fixed_end(
+    wx1: float,
+    wx2: float,
+    wy1: float,
+    wy2: float,
+    length: float,
+    release: str,
+    x1_m: float = 0.0,
+    x2_m: float | None = None,
+) -> np.ndarray:
+    """Consistent nodal load vector for an arbitrary linear distributed-load segment."""
+    if x2_m is None or (abs(x1_m) <= 1.0e-12 and abs(x2_m - length) <= 1.0e-12):
+        return _fixed_end_forces(wx1, wx2, wy1, wy2, length, release)
+    start, end = max(0.0, x1_m), min(length, x2_m)
+    if end <= start:
+        return np.zeros(6, dtype=float)
+    roots, weights = np.polynomial.legendre.leggauss(4)
+    external = np.zeros(6, dtype=float)
+    for root, weight in zip(roots, weights, strict=True):
+        x_m = (end + start) / 2.0 + root * (end - start) / 2.0
+        ratio = x_m / length
+        interpolation = (x_m - start) / (end - start)
+        qx = wx1 + (wx2 - wx1) * interpolation
+        qy = wy1 + (wy2 - wy1) * interpolation
+        axial = (1.0 - ratio, ratio)
+        bend = (
+            1.0 - 3.0 * ratio**2 + 2.0 * ratio**3,
+            length * (ratio - 2.0 * ratio**2 + ratio**3),
+            3.0 * ratio**2 - 2.0 * ratio**3,
+            length * (-ratio**2 + ratio**3),
+        )
+        scale = weight * (end - start) / 2.0
+        external[0] += axial[0] * qx * scale
+        external[3] += axial[1] * qx * scale
+        external[1] += bend[0] * qy * scale
+        external[2] += bend[1] * qy * scale
+        external[4] += bend[2] * qy * scale
+        external[5] += bend[3] * qy * scale
+    released = {"Rigid-Rigid": (), "Pin-Rigid": (2,), "Rigid-Pin": (5,), "Pin-Pin": (2, 5)}[release]
+    if not released:
+        return -external
+    active = tuple(index for index in range(6) if index not in released)
+    rigid_stiffness = _local_stiffness(section=FrameSection(id=0, e=1.0, a=1.0, i=1.0), length=length, release="Rigid-Rigid")
+    # The stiffness ratios in the release condensation are independent of material scale.
+    coupling = rigid_stiffness[np.ix_(active, released)]
+    released_stiffness = rigid_stiffness[np.ix_(released, released)]
+    condensed = external[list(active)] - coupling @ np.linalg.solve(released_stiffness, external[list(released)])
+    result = np.zeros(6, dtype=float)
+    result[list(active)] = -condensed
+    return result
+
+
 def resolve_combination_factors(combination: LoadCombination) -> dict[str, float]:
     """Return factor objects or parse the legacy ``eq`` expression without mutation."""
     if combination.factors:
@@ -198,6 +262,7 @@ def _empty_element_results(model: FrameModel) -> list[dict[str, Any]]:
             "id": element.id,
             "n1": element.n1,
             "n2": element.n2,
+            "memberType": element.member_type,
             "n1_forces": {"axial": 0.0, "shear": 0.0, "moment": 0.0},
             "n2_forces": {"axial": 0.0, "shear": 0.0, "moment": 0.0},
         }
@@ -252,7 +317,7 @@ def _analyze(model: FrameModel) -> dict[str, Any]:
             return {"ok": False, "error": f"Element {element.id} has zero length."}
         angle = math.atan2(dy, dx)
         transform = _transform(angle)
-        local_stiffness = _local_stiffness(section_by_id[element.sec], length, element.release)
+        local_stiffness = _truss_local_stiffness(section_by_id[element.sec], length) if element.member_type == "Truss" else _local_stiffness(section_by_id[element.sec], length, element.release)
         dofs = (n1_index * 3, n1_index * 3 + 1, n1_index * 3 + 2, n2_index * 3, n2_index * 3 + 1, n2_index * 3 + 2)
         state = _ElementState(
             element=element,
@@ -279,8 +344,16 @@ def _analyze(model: FrameModel) -> dict[str, Any]:
             fixed_dofs.append(index * 3 + 1)
         elif node.support == "RollerY":
             fixed_dofs.append(index * 3)
+        elif node.support == "Spring":
+            global_stiffness[index * 3, index * 3] += node.kx
+            global_stiffness[index * 3 + 1, index * 3 + 1] += node.ky
+            global_stiffness[index * 3 + 2, index * 3 + 2] += node.kr
     fixed_dof_set = set(fixed_dofs)
 
+    inactive_dofs = tuple(
+        dof for dof in range(total_dofs)
+        if abs(global_stiffness[dof, dof]) < 1.0e-9 and dof not in fixed_dof_set
+    )
     constrained_stiffness = global_stiffness.copy()
     for dof in range(total_dofs):
         if abs(constrained_stiffness[dof, dof]) < 1.0e-9 and dof not in fixed_dof_set:
@@ -308,7 +381,7 @@ def _analyze(model: FrameModel) -> dict[str, Any]:
         for element in model.elements:
             state = states[element.id]
             fixed_end = np.zeros(6, dtype=float)
-            if load_case == "DL" and model.settings.include_self_weight and state.section.density > 0:
+            if element.member_type == "Frame" and load_case == "DL" and model.settings.include_self_weight and state.section.density > 0:
                 weight = state.section.area_m2 * state.section.density
                 fixed_end += _fixed_end_forces(
                     -weight * math.sin(state.angle),
@@ -321,6 +394,8 @@ def _analyze(model: FrameModel) -> dict[str, Any]:
             for load in element_by_case[load_case]:
                 if load.elem != element.id:
                     continue
+                if element.member_type == "Truss":
+                    return {"ok": False, "error": f"Truss member {element.id} cannot carry member loads; apply equivalent loads at nodes."}
                 if load.type == "Point Force":
                     px = py = 0.0
                     if load.direction == "Local X":
@@ -349,12 +424,19 @@ def _analyze(model: FrameModel) -> dict[str, Any]:
                 elif load.direction == "Global Y":
                     wx1, wy1 = load.w1 * math.sin(state.angle), load.w1 * math.cos(state.angle)
                     wx2, wy2 = load.w2 * math.sin(state.angle), load.w2 * math.cos(state.angle)
-                fixed_end += _fixed_end_forces(wx1, wx2, wy1, wy2, state.length, element.release)
+                fixed_end += _distributed_load_fixed_end(wx1, wx2, wy1, wy2, state.length, element.release, load.x1_m, load.x2_m)
             fixed_end_by_element[element.id] = fixed_end
             if np.any(np.abs(fixed_end) > 1.0e-9):
                 force_vector[list(state.dofs)] -= state.transform_transpose @ fixed_end
 
         force_vector[list(fixed_dof_set)] = 0.0
+        unsupported = [dof for dof in inactive_dofs if abs(force_vector[dof]) > 1.0e-9]
+        if unsupported:
+            labels = []
+            for dof in unsupported:
+                node = model.nodes[dof // 3].id
+                labels.append(f"N{node} {'Rz' if dof % 3 == 2 else ('Ux' if dof % 3 == 0 else 'Uy')}")
+            return {"ok": False, "error": f"Load acts on unsupported hybrid DOF(s): {', '.join(labels)}. Add a Frame member or remove the action."}
         try:
             displacements = np.linalg.solve(constrained_stiffness, force_vector)
         except np.linalg.LinAlgError as exc:
@@ -376,6 +458,7 @@ def _analyze(model: FrameModel) -> dict[str, Any]:
                     "id": element.id,
                     "n1": element.n1,
                     "n2": element.n2,
+                    "memberType": element.member_type,
                     "n1_forces": {"axial": float(local_forces[0]), "shear": float(local_forces[1]), "moment": float(local_forces[2])},
                     "n2_forces": {"axial": float(local_forces[3]), "shear": float(local_forces[4]), "moment": float(local_forces[5])},
                 }
@@ -398,6 +481,11 @@ def _analyze(model: FrameModel) -> dict[str, Any]:
                 case_nodes[index]["fy"] -= load.fy
             if index * 3 + 2 in fixed_dof_set:
                 case_nodes[index]["mz"] -= load.mz
+        for index, node in enumerate(model.nodes):
+            if node.support == "Spring":
+                case_nodes[index]["fx"] += -node.kx * displacements[index * 3]
+                case_nodes[index]["fy"] += -node.ky * displacements[index * 3 + 1]
+                case_nodes[index]["mz"] += -node.kr * displacements[index * 3 + 2]
         results_by_case[load_case] = {"nodes": case_nodes, "elements": case_elements}
 
     combination_results = {
@@ -431,7 +519,9 @@ def _analyze(model: FrameModel) -> dict[str, Any]:
         f"  Total Combinations Evaluated: {len(model.load_combinations)}",
         "  Analysis Complete.",
     ]
-    return {"ok": True, **envelope, "steps": steps, "cases": results_by_case, "combos": combination_results}
+    member_types = {element.member_type for element in model.elements}
+    analysis_type = "Hybrid Frame-Truss" if len(member_types) > 1 else next(iter(member_types), "Frame")
+    return {"ok": True, "analysisType": analysis_type, **envelope, "steps": steps, "cases": results_by_case, "combos": combination_results}
 
 
 def analyze_frame_data(data: Mapping[str, Any] | FrameModel) -> dict[str, Any]:

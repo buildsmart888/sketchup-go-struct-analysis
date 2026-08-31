@@ -69,15 +69,16 @@ def _selection_postprocess(
         if member_result is None:
             continue
         members.append(
-            _member_diagram(
-                element,
+                _member_diagram(
+                    element,
+                    next(section for section in model.sections if section.id == element.sec),
                 nodes[element.n1],
                 nodes[element.n2],
                 result_by_node[element.n1],
                 result_by_node[element.n2],
                 member_result,
-                _distributed_loads(model, element, load_factors),
-                _point_loads(model, element, load_factors),
+                _distributed_loads(model, element, load_factors) if element.member_type == "Frame" else [],
+                _point_loads(model, element, load_factors) if element.member_type == "Frame" else [],
                 sample_count,
             )
         )
@@ -86,6 +87,7 @@ def _selection_postprocess(
 
 def _member_diagram(
     element: FrameElement,
+    section,
     node_i,
     node_j,
     result_i: Mapping[str, Any],
@@ -104,6 +106,9 @@ def _member_diagram(
     start_n, end_n = float(n1["axial"]), -float(n2["axial"])
     start_v, end_v = float(n1["shear"]), -float(n2["shear"])
     start_m, end_m = -float(n1["moment"]), float(n2["moment"])
+    is_truss = element.member_type == "Truss"
+    if is_truss:
+        start_v = end_v = start_m = end_m = 0.0
     qx1 = sum(float(load["qx1"]) for load in loads)
     qx2 = sum(float(load["qx2"]) for load in loads)
     qy1 = sum(float(load["qy1"]) for load in loads)
@@ -116,9 +121,9 @@ def _member_diagram(
     points: list[dict[str, float]] = []
     for x in sorted(positions):
         ratio = x / length
-        axial = start_n + qx1 * x + (qx2 - qx1) * x**2 / (2.0 * length)
-        shear = start_v + qy1 * x + (qy2 - qy1) * x**2 / (2.0 * length)
-        moment = start_m + start_v * x + qy1 * x**2 / 2.0 + (qy2 - qy1) * x**3 / (6.0 * length)
+        axial = start_n + sum(_partial_linear_resultant(load, x, "qx") for load in loads)
+        shear = start_v + sum(_partial_linear_resultant(load, x, "qy") for load in loads)
+        moment = start_m + start_v * x + sum(_partial_linear_moment(load, x, "qy") for load in loads)
         for load in point_loads:
             if x + 1.0e-10 < float(load["x_m"]):
                 continue
@@ -127,9 +132,12 @@ def _member_diagram(
             shear += float(load["py_kg"])
             moment += float(load["py_kg"]) * (x - load_x) - float(load["mz_kg_m"])
         local_u = (1.0 - ratio) * u_i + ratio * u_j
-        local_v = _hermite_transverse_displacement(ratio, length, v_i, theta_i, v_j, theta_j)
+        local_v = (1.0 - ratio) * v_i + ratio * v_j if is_truss else _hermite_transverse_displacement(ratio, length, v_i, theta_i, v_j, theta_j)
         global_dx = cosine * local_u - sine * local_v
         global_dy = sine * local_u + cosine * local_v
+        depth_cm = section.depth_cm if section.depth_cm > 0.0 else math.sqrt(max(12.0 * section.i / section.a, 1.0e-12))
+        axial_stress = axial / section.a
+        bending_stress = 0.0 if is_truss else moment * 100.0 * (depth_cm / 2.0) / section.i
         points.append(
             {
                 "x_m": x,
@@ -140,6 +148,9 @@ def _member_diagram(
                 "v_mm": local_v * 1000.0,
                 "x_deformed_m": node_i.x + cosine * x + global_dx,
                 "y_deformed_m": node_i.y + sine * x + global_dy,
+                "stress_top_kg_cm2": axial_stress - bending_stress,
+                "stress_bottom_kg_cm2": axial_stress + bending_stress,
+                "shear_stress_kg_cm2": 0.0 if is_truss else 1.5 * shear / section.a,
             }
         )
     return {
@@ -149,6 +160,7 @@ def _member_diagram(
         "length_m": length,
         "angle_rad": angle,
         "release": element.release,
+        "memberType": element.member_type,
         "end_actions": {"n_i": start_n, "v_i": start_v, "m_i": start_m, "n_j": end_n, "v_j": end_v, "m_j": end_m},
         "distributed_load": {"qx1_kg_m": qx1, "qx2_kg_m": qx2, "qy1_kg_m": qy1, "qy2_kg_m": qy2},
         "point_loads": point_loads,
@@ -158,6 +170,8 @@ def _member_diagram(
             "v_kg": _extrema(points, "v_kg"),
             "m_kg_m": _extrema(points, "m_kg_m"),
             "v_mm": _extrema(points, "v_mm"),
+            "stress_top_kg_cm2": _extrema(points, "stress_top_kg_cm2"),
+            "stress_bottom_kg_cm2": _extrema(points, "stress_bottom_kg_cm2"),
         },
         "endpoint_residual": {
             "n_kg": axial - end_n,
@@ -176,15 +190,16 @@ def _distributed_loads(model: FrameModel, element: FrameElement, factors: Mappin
     dl_factor = float(factors.get("DL", 0.0))
     if model.settings.include_self_weight and dl_factor and section.density > 0.0:
         weight = section.area_m2 * section.density * dl_factor
-        loads.append({"case": "DL", "qx1": -weight * math.sin(angle), "qx2": -weight * math.sin(angle), "qy1": -weight * math.cos(angle), "qy2": -weight * math.cos(angle)})
+        length = math.hypot(node_j.x - node_i.x, node_j.y - node_i.y)
+        loads.append({"case": "DL", "qx1": -weight * math.sin(angle), "qx2": -weight * math.sin(angle), "qy1": -weight * math.cos(angle), "qy2": -weight * math.cos(angle), "x1_m": 0.0, "x2_m": length})
     for load in model.element_loads:
         factor = float(factors.get(load.lcase, 0.0))
         if load.type != "Distributed" or load.elem != element.id or not factor:
             continue
         if load.direction == "Local X":
-            loads.append({"case": load.lcase, "qx1": load.w1 * factor, "qx2": load.w2 * factor, "qy1": 0.0, "qy2": 0.0})
+            loads.append({"case": load.lcase, "qx1": load.w1 * factor, "qx2": load.w2 * factor, "qy1": 0.0, "qy2": 0.0, "x1_m": load.x1_m, "x2_m": load.x2_m if load.x2_m is not None else math.hypot(node_j.x - node_i.x, node_j.y - node_i.y)})
         elif load.direction == "Local Y":
-            loads.append({"case": load.lcase, "qx1": 0.0, "qx2": 0.0, "qy1": load.w1 * factor, "qy2": load.w2 * factor})
+            loads.append({"case": load.lcase, "qx1": 0.0, "qx2": 0.0, "qy1": load.w1 * factor, "qy2": load.w2 * factor, "x1_m": load.x1_m, "x2_m": load.x2_m if load.x2_m is not None else math.hypot(node_j.x - node_i.x, node_j.y - node_i.y)})
         elif load.direction == "Global X":
             loads.append(
                 {
@@ -192,7 +207,7 @@ def _distributed_loads(model: FrameModel, element: FrameElement, factors: Mappin
                     "qx1": load.w1 * factor * math.cos(angle),
                     "qx2": load.w2 * factor * math.cos(angle),
                     "qy1": -load.w1 * factor * math.sin(angle),
-                    "qy2": -load.w2 * factor * math.sin(angle),
+                    "qy2": -load.w2 * factor * math.sin(angle), "x1_m": load.x1_m, "x2_m": load.x2_m if load.x2_m is not None else math.hypot(node_j.x - node_i.x, node_j.y - node_i.y),
                 }
             )
         else:
@@ -202,10 +217,33 @@ def _distributed_loads(model: FrameModel, element: FrameElement, factors: Mappin
                     "qx1": load.w1 * factor * math.sin(angle),
                     "qx2": load.w2 * factor * math.sin(angle),
                     "qy1": load.w1 * factor * math.cos(angle),
-                    "qy2": load.w2 * factor * math.cos(angle),
+                    "qy2": load.w2 * factor * math.cos(angle), "x1_m": load.x1_m, "x2_m": load.x2_m if load.x2_m is not None else math.hypot(node_j.x - node_i.x, node_j.y - node_i.y),
                 }
             )
     return loads
+
+
+def _partial_linear_resultant(load: Mapping[str, float | str], x_m: float, key: str) -> float:
+    start, end = float(load.get("x1_m", 0.0)), float(load.get("x2_m", x_m))
+    upper = min(x_m, end)
+    if upper <= start or end <= start:
+        return 0.0
+    distance = upper - start
+    first, second = float(load[f"{key}1"]), float(load[f"{key}2"])
+    return first * distance + (second - first) * distance**2 / (2.0 * (end - start))
+
+
+def _partial_linear_moment(load: Mapping[str, float | str], x_m: float, key: str) -> float:
+    start, end = float(load.get("x1_m", 0.0)), float(load.get("x2_m", x_m))
+    upper = min(x_m, end)
+    if upper <= start or end <= start:
+        return 0.0
+    distance = upper - start
+    first, second = float(load[f"{key}1"]), float(load[f"{key}2"])
+    slope = (second - first) / (end - start)
+    resultant = first * distance + slope * distance**2 / 2.0
+    first_moment = first * (start * distance + distance**2 / 2.0) + slope * (start * distance**2 / 2.0 + distance**3 / 3.0)
+    return x_m * resultant - first_moment
 
 
 def _point_loads(model: FrameModel, element: FrameElement, factors: Mapping[str, float]) -> list[dict[str, float | str]]:
@@ -285,7 +323,7 @@ def _envelope_postprocess(combos: Mapping[str, Mapping[str, Any]], model: FrameM
         points: list[dict[str, Any]] = []
         for index, base_point in enumerate(base["points"]):
             point: dict[str, Any] = {"x_m": base_point["x_m"]}
-            for field in ("n_kg", "v_kg", "m_kg_m", "u_mm", "v_mm"):
+            for field in ("n_kg", "v_kg", "m_kg_m", "u_mm", "v_mm", "stress_top_kg_cm2", "stress_bottom_kg_cm2", "shear_stress_kg_cm2"):
                 governing_name, governing_member = max(candidates, key=lambda item: abs(item[1]["points"][index][field]))
                 point[field] = governing_member["points"][index][field]
                 point[f"{field}_combo"] = governing_name
@@ -296,9 +334,9 @@ def _envelope_postprocess(combos: Mapping[str, Mapping[str, Any]], model: FrameM
             points.append(point)
         members.append(
             {
-                **{key: base[key] for key in ("id", "n1", "n2", "length_m", "angle_rad", "release")},
+                **{key: base[key] for key in ("id", "n1", "n2", "length_m", "angle_rad", "release", "memberType")},
                 "points": points,
-                "extrema": {field: _extrema(points, field) for field in ("n_kg", "v_kg", "m_kg_m", "v_mm")},
+                "extrema": {field: _extrema(points, field) for field in ("n_kg", "v_kg", "m_kg_m", "v_mm", "stress_top_kg_cm2", "stress_bottom_kg_cm2")},
                 "end_actions": {},
                 "distributed_load": {},
                 "point_loads": [],

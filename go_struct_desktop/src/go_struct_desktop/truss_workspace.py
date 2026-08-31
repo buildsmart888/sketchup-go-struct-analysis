@@ -13,7 +13,7 @@ from go_struct_core import TrussModel, analyze_truss_data, build_frame_postproce
 from .app import MainWindow, WorkspaceDefinition
 from .examples import FrameExample
 from .truss_canvas import TrussCanvas
-from .truss_templates import howe_truss_template, pratt_truss_template, roof_truss_template, triangle_truss_template, warren_truss_template
+from .truss_templates import fink_truss_template, howe_truss_template, king_post_truss_template, pratt_truss_template, profiled_truss_template, roof_truss_template, triangle_truss_template, warren_truss_template
 from .template_browser import TemplateBrowserDialog, TemplateOption, TemplateParameter
 
 
@@ -112,12 +112,15 @@ class TrussMainWindow(MainWindow):
         self.input_panel.tabs.setTabVisible(member_load_tab, False)
         self.input_panel.nodal_loads.table.setColumnHidden(4, True)
         self.input_panel.elements.table.setColumnHidden(4, True)
+        self.input_panel.elements.table.setColumnHidden(5, True)
         self.input_panel.sections.table.setColumnHidden(3, True)
         self.input_panel.sections.table.setColumnHidden(4, True)
         self.input_panel.self_weight.setVisible(False)
         self.inspector.node_mz.setEnabled(False)
         self.inspector.member_release.setEnabled(False)
+        self.inspector.member_type.setEnabled(False)
         self.inspector.batch_release.setEnabled(False)
+        self.inspector.batch_member_type.setEnabled(False)
         for column in (3, 5, 6):
             self.results_panel.member_results.setColumnHidden(column, True)
         self.results_panel.member_results.setHorizontalHeaderItem(1, self.results_panel.member_results.horizontalHeaderItem(1).clone())
@@ -152,7 +155,7 @@ class TrussMainWindow(MainWindow):
     def _add_truss_actions(self) -> None:
         menu = self.menuBar().addMenu("Truss")
         templates = menu.addMenu("New Template")
-        for title, action in (("Triangle", self._new_triangle), ("Warren", self._new_warren), ("Pratt", self._new_pratt), ("Howe", self._new_howe), ("Roof", self._new_roof)):
+        for title, action in (("Triangle", self._new_triangle), ("Warren", self._new_warren), ("Pratt", self._new_pratt), ("Howe", self._new_howe), ("Roof", self._new_roof), ("King Post", self._new_king_post), ("Fink", self._new_fink)):
             item = QAction(title, self)
             item.triggered.connect(action)
             templates.addAction(item)
@@ -213,6 +216,17 @@ class TrussMainWindow(MainWindow):
             panels, panel_m, height_m = dimensions
             self._load_template(roof_truss_template(panels, panel_m, height_m), f"Roof truss: {panels} panels")
 
+    def _new_king_post(self) -> None:
+        dimensions = self._dimensions("King-post truss", 6.0, 3.0)
+        if dimensions:
+            self._load_template(king_post_truss_template(*dimensions), "king-post truss")
+
+    def _new_fink(self) -> None:
+        dimensions = self._panel_dimensions("Fink truss", 3.0, even_panels=True)
+        if dimensions:
+            panels, panel_m, height_m = dimensions
+            self._load_template(fink_truss_template(panels, panel_m, height_m), f"Fink truss: {panels} panels")
+
     def _set_roof_height(self) -> None:
         unit = self.input_panel.unit_system
         height, accepted = QInputDialog.getDouble(self, "Set roof height", f"Roof height ({unit.length_unit})", 3.0, 0.001, 10000.0, 3)
@@ -238,12 +252,31 @@ class TrussMainWindow(MainWindow):
             self.results_panel.canvas.distribute_roof_load(intensity / unit.distributed_factor, load_case)
 
     def _show_template_catalog(self) -> None:
+        web_pattern = TemplateParameter(
+            "web_pattern",
+            "Web pattern",
+            "pratt",
+            choices=(
+                ("Pratt | diagonals toward centre", "pratt"),
+                ("Howe | diagonals away from centre", "howe"),
+                ("Warren | alternating diagonals", "warren"),
+                ("X-braced | both diagonals per panel", "x"),
+            ),
+        )
         options = (
             TemplateOption("triangle", "Triangle Truss", "Three-bar truss for a compact, determinate system.", "triangle", (TemplateParameter("span_m", "Span (m)", 6.0), TemplateParameter("height_m", "Height (m)", 3.0))),
             TemplateOption("warren", "Warren Truss", "Alternating triangular web system for uniform panel spacing.", "warren", (TemplateParameter("panel_count", "Number of panels", 4, 2, 50, integer=True), TemplateParameter("panel_m", "Panel width (m)", 3.0), TemplateParameter("height_m", "Height (m)", 2.0))),
             TemplateOption("pratt", "Pratt Truss", "Verticals and inward diagonals toward the centre.", "pratt", (TemplateParameter("panel_count", "Number of panels", 4, 2, 50, integer=True), TemplateParameter("panel_m", "Panel width (m)", 3.0), TemplateParameter("height_m", "Height (m)", 2.5))),
             TemplateOption("howe", "Howe Truss", "Verticals and reversed diagonal direction from Pratt.", "howe", (TemplateParameter("panel_count", "Number of panels", 4, 2, 50, integer=True), TemplateParameter("panel_m", "Panel width (m)", 3.0), TemplateParameter("height_m", "Height (m)", 2.5))),
             TemplateOption("roof", "Pitched Roof Truss", "Pitched top chord with bottom chord and web bracing; it requires an even panel count.", "roof", (TemplateParameter("panel_count", "Number of panels (even)", 4, 2, 50, integer=True), TemplateParameter("panel_m", "Panel width (m)", 3.0), TemplateParameter("height_m", "Height (m)", 3.0))),
+            TemplateOption("king_post", "King Post Truss", "Short-span pitched truss with one central vertical.", "triangle", (TemplateParameter("span_m", "Span (m)", 6.0), TemplateParameter("height_m", "Height (m)", 3.0))),
+            TemplateOption("fink", "Fink Truss", "Pitched triangulated starter with editable even panel count.", "roof", (TemplateParameter("panel_count", "Number of panels (even)", 4, 2, 50, integer=True), TemplateParameter("panel_m", "Panel width (m)", 3.0), TemplateParameter("height_m", "Height (m)", 3.0))),
+            TemplateOption("flat", "Flat Truss | Parallel Chords", "Flat top and bottom chords with a selectable web pattern.", "flat", (web_pattern, TemplateParameter("panel_count", "Number of panels", 4, 2, 50, integer=True), TemplateParameter("panel_m", "Panel width (m)", 3.0), TemplateParameter("depth_m", "Truss depth (m)", 2.0))),
+            TemplateOption("sloping", "Sloping Flat Truss", "Parallel sloping top and bottom chords with a selectable web pattern.", "sloping", (web_pattern, TemplateParameter("panel_count", "Number of panels", 4, 2, 50, integer=True), TemplateParameter("panel_m", "Panel width (m)", 3.0), TemplateParameter("depth_m", "Truss depth (m)", 2.0), TemplateParameter("rise_m", "Chord rise (m)", 1.5, 0.0))),
+            TemplateOption("mono", "Mono Truss", "Level bottom chord with a single-pitch top chord and selectable web pattern.", "mono", (web_pattern, TemplateParameter("panel_count", "Number of panels", 4, 2, 50, integer=True), TemplateParameter("panel_m", "Panel width (m)", 3.0), TemplateParameter("depth_m", "Start depth (m)", 1.5), TemplateParameter("rise_m", "Top-chord rise (m)", 1.5, 0.0))),
+            TemplateOption("gable", "Gable Truss | Parallel Chords", "Pitched top chord over a level bottom chord with selectable web pattern.", "gable", (web_pattern, TemplateParameter("panel_count", "Number of panels", 4, 2, 50, integer=True), TemplateParameter("panel_m", "Panel width (m)", 3.0), TemplateParameter("depth_m", "Truss depth (m)", 1.5), TemplateParameter("rise_m", "Top-chord rise (m)", 1.5, 0.0))),
+            TemplateOption("raised_bottom", "Raised Bottom-Chord Truss", "Both chords rise toward the apex with selectable web pattern.", "raised_bottom", (web_pattern, TemplateParameter("panel_count", "Number of panels", 4, 2, 50, integer=True), TemplateParameter("panel_m", "Panel width (m)", 3.0), TemplateParameter("depth_m", "Truss depth (m)", 1.5), TemplateParameter("rise_m", "Top-chord rise (m)", 1.5, 0.0), TemplateParameter("bottom_rise_m", "Bottom-chord rise (m)", 0.75, 0.0))),
+            TemplateOption("curved", "Curved Truss", "Panelled curved top chord over a level bottom chord with selectable web pattern.", "curved", (web_pattern, TemplateParameter("panel_count", "Number of panels", 6, 2, 50, integer=True), TemplateParameter("panel_m", "Panel width (m)", 2.0), TemplateParameter("depth_m", "Truss depth (m)", 1.5), TemplateParameter("rise_m", "Crown rise (m)", 1.5, 0.0))),
         )
         dialog = TemplateBrowserDialog("Truss Template Catalog", options, self)
         if dialog.exec() != dialog.DialogCode.Accepted:
@@ -264,6 +297,24 @@ class TrussMainWindow(MainWindow):
                 self.statusBar().showMessage("Roof template requires an even number of panels.", 4000)
                 return
             model = roof_truss_template(panels, float(values["panel_m"]), float(values["height_m"]))
+        elif key == "king_post":
+            model = king_post_truss_template(float(values["span_m"]), float(values["height_m"]))
+        elif key == "fink":
+            panels = int(values["panel_count"])
+            if panels % 2:
+                self.statusBar().showMessage("Fink template requires an even number of panels.", 4000)
+                return
+            model = fink_truss_template(panels, float(values["panel_m"]), float(values["height_m"]))
+        elif key in {"flat", "sloping", "mono", "gable", "raised_bottom", "curved"}:
+            model = profiled_truss_template(
+                key,
+                int(values["panel_count"]),
+                float(values["panel_m"]),
+                float(values["depth_m"]),
+                float(values.get("rise_m", 0.0)),
+                float(values.get("bottom_rise_m", 0.0)),
+                str(values.get("web_pattern", "pratt")),
+            )
         else:
             return
         self._load_template(model, f"{key.title()} truss from Template Catalog")
@@ -274,8 +325,9 @@ class TrussMainWindow(MainWindow):
         kind = str(template.get("kind", ""))
         factories = {"warren": warren_truss_template, "pratt": pratt_truss_template, "howe": howe_truss_template, "roof": roof_truss_template}
         factory = factories.get(kind)
-        if factory is None:
-            self.statusBar().showMessage("Panel regeneration is available for Warren, Pratt, Howe, and Roof templates.", 4500)
+        profile_kinds = {"flat", "sloping", "mono", "gable", "raised_bottom", "curved"}
+        if factory is None and kind not in profile_kinds:
+            self.statusBar().showMessage("Panel regeneration is available for panelled truss templates.", 4500)
             return
         current_panels = int(template.get("panel_count", 4))
         panels, accepted = QInputDialog.getInt(self, "Regenerate truss panels", "Number of panels", current_panels, 2, 50)
@@ -288,7 +340,18 @@ class TrussMainWindow(MainWindow):
         if QMessageBox.question(self, "Regenerate truss panels", question, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             return
         panel_m, height_m = float(template.get("panel_m", 3.0)), float(template.get("height_m", 2.5))
-        rebuilt = factory(panels, panel_m, height_m)
+        if kind in profile_kinds:
+            rebuilt = profiled_truss_template(
+                kind,
+                panels,
+                panel_m,
+                float(template.get("depth_m", height_m)),
+                float(template.get("rise_m", 0.0)),
+                float(template.get("bottom_rise_m", 0.0)),
+                str(template.get("web_pattern", "pratt")),
+            )
+        else:
+            rebuilt = factory(panels, panel_m, height_m)
         rebuilt["sections"] = model.get("sections", rebuilt["sections"])
         rebuilt["loadcases"] = model.get("loadcases", rebuilt["loadcases"])
         rebuilt["loadcombos"] = model.get("loadcombos", rebuilt["loadcombos"])

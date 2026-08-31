@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .truss_profiles import PROFILE_KINDS, profile_truss_geometry
+
 
 def _base(name: str, nodes: list[dict[str, Any]], elements: list[dict[str, Any]]) -> dict[str, Any]:
     return {
@@ -163,3 +165,66 @@ def roof_truss_template(panel_count: int = 4, panel_m: float = 3.0, height_m: fl
     for index in range(midpoint, panel_count - 1):
         add(index + 2, top_node(index))
     return _tag_template(_base(f"Roof Truss | {panel_count} panels", nodes, elements), "roof", panel_count=panel_count, panel_m=panel_m, height_m=height_m)
+
+
+def king_post_truss_template(width_m: float = 6.0, height_m: float = 3.0) -> dict[str, Any]:
+    """A compact king-post roof truss, useful for short spans."""
+    width_m, height_m = _positive(width_m, "King-post span"), _positive(height_m, "King-post height")
+    nodes = [
+        {"id": 1, "x": 0.0, "y": 0.0, "support": "Pinned"},
+        {"id": 2, "x": width_m / 2.0, "y": 0.0, "support": "Free"},
+        {"id": 3, "x": width_m, "y": 0.0, "support": "RollerX"},
+        {"id": 4, "x": width_m / 2.0, "y": height_m, "support": "Free"},
+    ]
+    links = ((1, 2), (2, 3), (1, 4), (4, 3), (2, 4))
+    elements = [{"id": index, "n1": first, "n2": second, "sec": 1, "release": "Rigid-Rigid"} for index, (first, second) in enumerate(links, start=1)]
+    return _tag_template(_base("King Post Truss", nodes, elements), "king_post", width_m=width_m, height_m=height_m)
+
+
+def fink_truss_template(panel_count: int = 4, panel_m: float = 3.0, height_m: float = 3.0) -> dict[str, Any]:
+    """Pitched, triangulated Fink-style starter derived from the roof truss geometry."""
+    model = roof_truss_template(panel_count if panel_count % 2 == 0 else panel_count + 1, panel_m, height_m)
+    model["projectInfo"]["name"] = f"Fink Truss | {model['projectInfo']['trussTemplate']['panel_count']} panels"
+    return _tag_template(model, "fink", panel_count=model["projectInfo"]["trussTemplate"]["panel_count"], panel_m=panel_m, height_m=height_m)
+
+
+def profiled_truss_template(
+    kind: str,
+    panel_count: int = 4,
+    panel_m: float = 3.0,
+    depth_m: float = 2.0,
+    rise_m: float = 1.5,
+    bottom_rise_m: float = 0.75,
+    web_pattern: str = "pratt",
+) -> dict[str, Any]:
+    """Create a standard panelled truss for flat, sloping, raised-bottom, or curved profiles."""
+
+    if kind not in PROFILE_KINDS:
+        raise ValueError(f"Unsupported truss profile {kind!r}")
+    rise_value = float(rise_m)
+    bottom_rise_value = float(bottom_rise_m)
+    if rise_value < 0.0 or bottom_rise_value < 0.0:
+        raise ValueError("Truss rise values cannot be negative")
+    nodes, elements = profile_truss_geometry(
+        kind,
+        int(panel_count),
+        _positive(panel_m, "Panel width"),
+        _positive(depth_m, "Truss depth"),
+        rise_value if kind in {"sloping", "mono", "gable", "raised_bottom", "curved"} else 0.0,
+        bottom_rise_value if kind == "raised_bottom" else 0.0,
+        web_pattern=web_pattern,
+    )
+    label = kind.replace("_", " ").title()
+    return _tag_template(
+        _base(f"{label} Truss | {panel_count} panels", nodes, elements),
+        kind,
+        panel_count=int(panel_count),
+        panel_m=float(panel_m),
+        depth_m=float(depth_m),
+        rise_m=float(rise_m),
+        bottom_rise_m=float(bottom_rise_m),
+        web_pattern=web_pattern,
+        dimension="2D",
+        support_placement="bottom_chord",
+        joint_model="pinned",
+    )

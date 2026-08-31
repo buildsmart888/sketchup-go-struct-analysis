@@ -13,15 +13,18 @@ from PySide6.QtTest import QTest
 from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QApplication, QDockWidget
 
-from go_struct_desktop.app import MainWindow
+from go_struct_desktop.app import MainWindow, REPORT_CANVAS_IMAGE_WIDTH_PX, ReportOptionsDialog
 from go_struct_desktop.beam_workspace import BeamMainWindow
 from go_struct_desktop.beam_canvas import BeamCanvas
+from go_struct_desktop.canvas import FrameCanvas
 from go_struct_desktop.beam_templates import simply_supported_template
 from go_struct_desktop.truss_canvas import TrussCanvas
 from go_struct_desktop.truss_workspace import TrussMainWindow
 from go_struct_desktop.display import DisplaySettings
+from go_struct_desktop.contours import colour_stops, contour_range
 from go_struct_desktop.examples import FRAME_EXAMPLES
 from go_struct_desktop.frame_workspace import FrameInputPanel, default_frame_model
+from go_struct_desktop.hybrid_templates import hybrid_truss_on_columns_template
 from go_struct_desktop.template_browser import TemplateBrowserDialog, TemplateOption, TemplateParameter
 from go_struct_desktop.units import get_unit_system
 
@@ -63,6 +66,28 @@ def test_frame_workspace_analyzes_default_model(app: QApplication) -> None:
     assert not window.results_panel.canvas.grab().isNull()
 
     window.close()
+
+
+def test_canvas_uses_interaction_and_large_model_detail_levels(app: QApplication) -> None:
+    canvas = FrameCanvas()
+    canvas.resize(960, 640)
+    canvas.set_model(default_frame_model())
+    canvas._begin_interaction()
+    assert canvas.interaction_active is True
+    assert canvas._detail_level() == "interaction"
+    canvas._finish_interaction()
+    assert canvas._detail_level() == "full"
+
+    nodes = [{"id": index + 1, "x": float(index), "y": 0.0, "support": "Free"} for index in range(302)]
+    elements = [{"id": index + 1, "n1": index + 1, "n2": index + 2, "sec": 1} for index in range(301)]
+    canvas.set_model({"nodes": nodes, "elements": elements, "sections": [{"id": 1}]})
+    assert canvas._detail_level() == "reduced"
+
+    nodes = [{"id": index + 1, "x": float(index), "y": 0.0, "support": "Free"} for index in range(2002)]
+    elements = [{"id": index + 1, "n1": index + 1, "n2": index + 2, "sec": 1} for index in range(2001)]
+    canvas.set_model({"nodes": nodes, "elements": elements, "sections": [{"id": 1}]})
+    assert canvas._detail_level() == "large"
+    canvas.close()
 
 
 def test_beam_workspace_opens_with_its_own_solver_and_examples(app: QApplication) -> None:
@@ -172,6 +197,23 @@ def test_truss_uses_tension_compression_colours_for_the_n_diagram_and_marks_defl
     window.close()
 
 
+def test_frame_workspace_distinguishes_hybrid_frame_and_truss_members(app: QApplication) -> None:
+    window = MainWindow()
+    window.set_model(hybrid_truss_on_columns_template("raised_bottom", column_material="Concrete"))
+    window.run_analysis()
+    app.processEvents()
+    canvas = window.results_panel.canvas
+    model = window.input_panel.model_data()
+    truss = next(element for element in model["elements"] if element.get("memberType") == "Truss")
+    frame = next(element for element in model["elements"] if element.get("memberType", "Frame") == "Frame")
+
+    assert canvas._member_pen(truss).color().name() == "#047857"
+    assert canvas._member_pen(frame).color().name() == "#1e293b"
+    assert any("[Truss]" in window.matrix_panel.member_selector.itemText(index) for index in range(window.matrix_panel.member_selector.count()))
+    assert window.input_panel.elements.table.columnCount() == 6
+    window.close()
+
+
 def test_truss_member_force_filter_groups_tension_and_compression(app: QApplication) -> None:
     window = TrussMainWindow()
     table = window.results_panel.member_results
@@ -198,6 +240,33 @@ def test_template_catalog_draws_a_dimensioned_preview_and_collects_parameters(ap
 
     assert dialog.parameters.rowCount() == 1
     assert dialog.selected_values()["span_m"] == pytest.approx(6.0)
+    assert not dialog.preview.grab().isNull()
+    dialog.close()
+
+
+def test_template_catalog_collects_web_pattern_choices_and_updates_its_preview(app: QApplication) -> None:
+    option = TemplateOption(
+        "gable",
+        "Gable Truss",
+        "Pitched truss with a selectable web pattern.",
+        "gable",
+        (
+            TemplateParameter(
+                "web_pattern",
+                "Web pattern",
+                "pratt",
+                choices=(("Pratt", "pratt"), ("Howe", "howe"), ("Warren", "warren"), ("X-braced", "x")),
+            ),
+            TemplateParameter("panel_count", "Number of panels", 4, 2, 20, integer=True),
+        ),
+    )
+    dialog = TemplateBrowserDialog("Truss Template test", (option,))
+    dialog.show()
+    app.processEvents()
+    dialog._editors["web_pattern"].setCurrentIndex(3)
+    app.processEvents()
+
+    assert dialog.selected_values()["web_pattern"] == "x"
     assert not dialog.preview.grab().isNull()
     dialog.close()
 
@@ -563,12 +632,154 @@ def test_canvas_finds_and_updates_member_loads(app: QApplication) -> None:
 def test_display_settings_transform_only_the_diagram_presentation(app: QApplication) -> None:
     window = MainWindow()
     canvas = window.results_panel.canvas
-    canvas.set_display_settings(DisplaySettings(axial_positive="compression", shear_positive="counter_clockwise", moment_positive="top_tension", diagram_placement="local_negative"))
+    canvas.set_display_settings(
+        DisplaySettings(
+            axial_graph_orientation="flipped",
+            shear_graph_orientation="flipped",
+            moment_graph_orientation="flipped",
+            diagram_placement="local_negative",
+        )
+    )
 
-    assert canvas._display_diagram_value("n_kg", 10.0) == -10.0
-    assert canvas._display_diagram_value("v_kg", 10.0) == -10.0
-    assert canvas._display_diagram_value("m_kg_m", 10.0) == -10.0
+    assert canvas._display_diagram_value("n_kg", 10.0) == 10.0
+    assert canvas._display_diagram_value("v_kg", 10.0) == 10.0
+    assert canvas._display_diagram_value("m_kg_m", 10.0) == 10.0
     assert canvas._diagram_offset("n_kg", 10.0, 2.0) == 20.0
+    window.close()
+
+
+def test_legacy_sign_preferences_migrate_to_graph_orientation_without_changing_values(app: QApplication) -> None:
+    settings = DisplaySettings.from_mapping(
+        {"axial_positive": "compression", "shear_positive": "counter_clockwise", "moment_positive": "top_tension"}
+    )
+    assert settings.axial_graph_orientation == "flipped"
+    assert settings.shear_graph_orientation == "flipped"
+    assert settings.moment_graph_orientation == "flipped"
+
+    window = MainWindow()
+    window.results_panel.canvas.set_display_settings(settings)
+    assert window.results_panel.canvas._display_diagram_value("n_kg", -12.0) == -12.0
+    assert window.results_panel.canvas._display_diagram_value("v_kg", 4.0) == 4.0
+    assert window.results_panel.canvas._display_diagram_value("m_kg_m", -5.0) == -5.0
+    window.close()
+
+
+def test_hybrid_truss_axial_results_use_distinct_tension_and_compression_colours(app: QApplication) -> None:
+    window = MainWindow()
+    canvas = window.results_panel.canvas
+    window.set_model(hybrid_truss_on_columns_template("gable"))
+    window.run_analysis()
+    truss = next(member for member in canvas._diagram_members if member["memberType"] == "Truss")
+    frame = next(member for member in canvas._diagram_members if member["memberType"] == "Frame")
+
+    assert canvas._diagram_color("n_kg", 1.0, canvas._DIAGRAMS["n_kg"][1], truss).name() == "#15803d"
+    assert canvas._diagram_color("n_kg", -1.0, canvas._DIAGRAMS["n_kg"][1], truss).name() == "#b91c1c"
+    assert canvas._diagram_color("n_kg", 1.0, canvas._DIAGRAMS["n_kg"][1], frame).name() == canvas._DIAGRAMS["n_kg"][1].name()
+    canvas.set_display_settings(DisplaySettings(contour_enabled=True, contour_palette="truss_axial"))
+    assert canvas._contour_colour("n_kg", {"n_kg": 1.0}, truss).name() == "#15803d"
+    assert canvas._contour_colour("n_kg", {"n_kg": -1.0}, truss).name() == "#b91c1c"
+    canvas.set_display_settings(DisplaySettings(contour_enabled=True, contour_palette="signed"))
+    assert canvas._contour_colour("n_kg", {"n_kg": 1.0}, truss).name() != "#15803d"
+    canvas.set_display_settings(DisplaySettings(contour_enabled=True, contour_palette="spectrum"))
+    assert canvas._contour_colour("n_kg", {"n_kg": 1.0}, truss).name() != canvas._contour_colour("n_kg", {"n_kg": -1.0}, truss).name()
+    window.close()
+
+
+def test_contour_display_uses_signed_global_or_member_ranges_and_fast_sampling(app: QApplication) -> None:
+    window = MainWindow()
+    canvas = window.results_panel.canvas
+    members = window.results_panel._postprocess["envelope"]["members"]
+    global_range = contour_range(members, "m_kg_m", canvas._display_diagram_value, signed=True)
+    member_range = contour_range([members[0]], "m_kg_m", canvas._display_diagram_value, signed=True)
+    assert global_range.maximum >= member_range.maximum > 0.0
+    assert colour_stops(-global_range.maximum, global_range, "signed")[2] > colour_stops(-global_range.maximum, global_range, "signed")[0]
+    assert colour_stops(global_range.maximum, global_range, "signed")[0] > colour_stops(global_range.maximum, global_range, "signed")[2]
+
+    canvas.set_display_settings(DisplaySettings(contour_enabled=True, contour_scale="member", contour_detail="fast"))
+    canvas.set_diagram_mode("m_kg_m")
+    assert len(canvas._contour_points(members[0]["points"])) <= 9
+    assert not canvas.grab().isNull()
+    window.close()
+
+
+def test_contour_toolbar_and_selected_member_inspector_follow_canvas_selection(app: QApplication) -> None:
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+    window._set_canvas_diagram("all")
+    window.contour_button.setChecked(True)
+    app.processEvents()
+    assert window.display_panel.settings.contour_enabled is True
+    assert window.results_panel.canvas.diagram_mode == "m_kg_m"
+    assert window.contour_scale_button.text() == "Global"
+    window.contour_scale_button.click()
+    assert window.display_panel.settings.contour_scale == "member"
+    assert window.contour_scale_button.text() == "Member"
+
+    window.results_panel.canvas._set_selection(set(), {2})
+    app.processEvents()
+    assert window.member_result_panel.selected_member_id == 2
+    assert "E2" in window.member_result_panel.summary.text()
+    window.close()
+
+
+def test_truss_contour_toolbar_selects_axial_diagram(app: QApplication) -> None:
+    from go_struct_desktop.truss_workspace import TrussMainWindow
+
+    window = TrussMainWindow()
+    window.show()
+    app.processEvents()
+    window.results_panel.canvas.set_diagram_mode("none")
+    window._set_contour_enabled(True)
+    app.processEvents()
+    assert window.results_panel.canvas.diagram_mode == "n_kg"
+    window._set_contour_palette("spectrum")
+    assert window.display_panel.settings.contour_palette == "spectrum"
+    window.close()
+
+
+def test_report_canvas_capture_produces_separate_engineering_views(app: QApplication) -> None:
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+
+    images = window._report_canvas_images(("case:DL",))
+
+    assert tuple(images["case:DL"]) == ("Model", "N", "V", "M", "D", "FBD")
+    assert all(len(image) > 100 for image in images["case:DL"].values())
+    from base64 import b64decode
+    from PySide6.QtGui import QImage
+
+    image = QImage.fromData(b64decode(images["case:DL"]["Model"]), "PNG")
+    assert image.width() <= REPORT_CANVAS_IMAGE_WIDTH_PX
+    window.close()
+
+
+def test_report_canvas_capture_can_limit_figures_to_user_selected_views(app: QApplication) -> None:
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+
+    images = window._report_canvas_images(("case:DL",), ("Model", "D"))
+
+    assert tuple(images["case:DL"]) == ("Model", "D")
+    window.close()
+
+
+def test_report_content_dialog_maps_summary_and_custom_figure_choices(app: QApplication) -> None:
+    window = MainWindow()
+    analysis = window.results_panel.analysis
+    assert analysis is not None
+    dialog = ReportOptionsDialog(analysis, "case:DL", window)
+    dialog.figure_scope.setCurrentIndex(dialog.figure_scope.findData("selected_summary"))
+    assert dialog.options().figure_views == ("Model", "D", "FBD")
+    dialog.figure_scope.setCurrentIndex(dialog.figure_scope.findData("selected_views"))
+    dialog.figure_view_checks["N"].setChecked(False)
+    dialog.figure_view_checks["V"].setChecked(False)
+    dialog.figure_view_checks["M"].setChecked(False)
+    dialog.figure_view_checks["FBD"].setChecked(False)
+    assert dialog.options().figure_views == ("Model", "D")
+    dialog.close()
     window.close()
 
 
@@ -657,7 +868,7 @@ def test_project_preferences_round_trip_through_the_input_panel_and_window(app: 
     window = MainWindow()
     window.set_model(model)
     assert window.display_panel.settings.show_grid is False
-    assert window.display_panel.settings.moment_positive == "top_tension"
+    assert window.display_panel.settings.moment_graph_orientation == "flipped"
     assert window.results_panel.canvas.tool == "member"
     window.close()
 

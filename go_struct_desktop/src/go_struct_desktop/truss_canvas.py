@@ -43,7 +43,7 @@ class TrussCanvas(FrameCanvas):
             mode = "none"
         super().set_diagram_mode(mode)
 
-    def _diagram_color(self, key: str, value: float, default: QColor) -> QColor:
+    def _diagram_color(self, key: str, value: float, default: QColor, member: Mapping[str, Any] | None = None) -> QColor:
         if key != "n_kg":
             return default
         if value > 1.0e-12:

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
@@ -25,10 +26,11 @@ from PySide6.QtWidgets import (
 class TemplateParameter:
     key: str
     label: str
-    default: float
+    default: float | str
     minimum: float = 0.1
     maximum: float = 10000.0
     integer: bool = False
+    choices: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -48,10 +50,10 @@ class TemplatePreview(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._option: TemplateOption | None = None
-        self._values: dict[str, float] = {}
+        self._values: dict[str, float | str] = {}
         self.setMinimumSize(400, 260)
 
-    def set_template(self, option: TemplateOption, values: dict[str, float]) -> None:
+    def set_template(self, option: TemplateOption, values: dict[str, float | str]) -> None:
         self._option, self._values = option, dict(values)
         self.update()
 
@@ -106,6 +108,9 @@ class TemplatePreview(QWidget):
 
     def _draw_truss(self, painter: QPainter, kind: str) -> None:
         left, right, base = 42.0, float(self.width() - 42), self.height() * 0.72
+        hybrid = kind.startswith("hybrid_")
+        if hybrid:
+            kind = kind.removeprefix("hybrid_")
         panels = max(2, int(self._values.get("panel_count", 4)))
         if kind == "triangle":
             self._line(painter, left, base, right, base)
@@ -115,6 +120,121 @@ class TemplatePreview(QWidget):
             self._support(painter, right, base, True)
             self._dimension(painter, left, right, base + 48, "span_m", "Span")
             self._vertical_dimension(painter, (left + right) / 2.0 + 34, base, base - 110, "height_m", "Height")
+            return
+        if kind in {"flat", "sloping", "mono", "gable", "raised_bottom", "curved"}:
+            step = (right - left) / panels
+            web_pattern = str(self._values.get("web_pattern", "pratt"))
+
+            def roof_shape(ratio: float) -> float:
+                return 1.0 - abs(2.0 * ratio - 1.0)
+
+            def arc_shape(ratio: float) -> float:
+                return 4.0 * ratio * (1.0 - ratio)
+
+            def chord_point(ratio: float) -> tuple[float, float, float]:
+                bottom_offset = 0.0
+                top_offset = 74.0
+                if kind == "sloping":
+                    bottom_offset = -36.0 * ratio
+                elif kind == "mono":
+                    top_offset += 52.0 * ratio
+                elif kind == "gable":
+                    top_offset += 52.0 * roof_shape(ratio)
+                elif kind == "raised_bottom":
+                    bottom_offset = -28.0 * roof_shape(ratio)
+                    top_offset += 32.0 * roof_shape(ratio)
+                elif kind == "curved":
+                    top_offset += 52.0 * arc_shape(ratio)
+                return left + ratio * (right - left), base + bottom_offset, top_offset
+
+            if web_pattern == "warren":
+                bottom = [
+                    (chord_point(index / panels)[0], chord_point(index / panels)[1])
+                    for index in range(panels + 1)
+                ]
+                top = [
+                    (
+                        chord_point((index + 0.5) / panels)[0],
+                        chord_point((index + 0.5) / panels)[1] - chord_point((index + 0.5) / panels)[2],
+                    )
+                    for index in range(panels)
+                ]
+                for index in range(panels):
+                    self._line(painter, *bottom[index], *bottom[index + 1])
+                    self._line(painter, *bottom[index], *top[index])
+                    self._line(painter, *top[index], *bottom[index + 1])
+                    if index:
+                        self._line(painter, *top[index - 1], *top[index])
+                if hybrid:
+                    painter.setPen(QPen(QColor("#475569"), 3.0))
+                    self._line(painter, bottom[0][0], bottom[0][1], bottom[0][0], bottom[0][1] + 74)
+                    self._line(painter, bottom[-1][0], bottom[-1][1], bottom[-1][0], bottom[-1][1] + 74)
+                    self._support(painter, bottom[0][0], bottom[0][1] + 74, False)
+                    self._support(painter, bottom[-1][0], bottom[-1][1] + 74, False)
+                    painter.setPen(QPen(QColor("#1e293b"), 3.0))
+                    self._vertical_dimension(painter, left - 24, bottom[0][1] + 74, bottom[0][1], "column_height_m", "Column")
+                else:
+                    self._support(painter, *bottom[0], False)
+                    self._support(painter, *bottom[-1], True)
+                self._dimension(painter, left, right, max(point[1] for point in bottom) + 48, "panel_m", "Panel width")
+                middle = panels // 2
+                self._vertical_dimension(painter, top[middle][0] + 34, bottom[middle][1], top[middle][1], "depth_m", "Depth")
+                return
+
+            top: list[tuple[float, float]] = []
+            bottom: list[tuple[float, float]] = []
+            for index in range(panels + 1):
+                ratio = index / panels
+                bottom_offset = 0.0
+                top_offset = 74.0
+                if kind == "sloping":
+                    bottom_offset = -36.0 * ratio
+                elif kind == "mono":
+                    top_offset += 52.0 * ratio
+                elif kind == "gable":
+                    top_offset += 52.0 * roof_shape(ratio)
+                elif kind == "raised_bottom":
+                    bottom_offset = -28.0 * roof_shape(ratio)
+                    top_offset += 32.0 * roof_shape(ratio)
+                elif kind == "curved":
+                    top_offset += 52.0 * arc_shape(ratio)
+                x = left + index * step
+                bottom.append((x, base + bottom_offset))
+                top.append((x, base + bottom_offset - top_offset))
+            for index in range(panels):
+                self._line(painter, *bottom[index], *bottom[index + 1])
+                self._line(painter, *top[index], *top[index + 1])
+                if web_pattern != "warren":
+                    self._line(painter, *bottom[index], *top[index])
+                if web_pattern == "howe":
+                    if index < panels / 2.0:
+                        self._line(painter, *top[index], *bottom[index + 1])
+                    else:
+                        self._line(painter, *bottom[index], *top[index + 1])
+                elif web_pattern == "warren":
+                    self._line(painter, *(bottom[index] if index % 2 == 0 else top[index]), *(top[index + 1] if index % 2 == 0 else bottom[index + 1]))
+                elif web_pattern == "x":
+                    self._line(painter, *bottom[index], *top[index + 1])
+                    self._line(painter, *top[index], *bottom[index + 1])
+                elif index < panels / 2.0:
+                    self._line(painter, *bottom[index], *top[index + 1])
+                else:
+                    self._line(painter, *top[index], *bottom[index + 1])
+            if web_pattern != "warren":
+                self._line(painter, *bottom[-1], *top[-1])
+            if hybrid:
+                painter.setPen(QPen(QColor("#475569"), 3.0))
+                self._line(painter, bottom[0][0], bottom[0][1], bottom[0][0], bottom[0][1] + 74)
+                self._line(painter, bottom[-1][0], bottom[-1][1], bottom[-1][0], bottom[-1][1] + 74)
+                self._support(painter, bottom[0][0], bottom[0][1] + 74, False)
+                self._support(painter, bottom[-1][0], bottom[-1][1] + 74, False)
+                painter.setPen(QPen(QColor("#1e293b"), 3.0))
+                self._vertical_dimension(painter, left - 24, bottom[0][1] + 74, bottom[0][1], "column_height_m", "Column")
+            else:
+                self._support(painter, *bottom[0], False)
+                self._support(painter, *bottom[-1], True)
+            self._dimension(painter, left, right, max(point[1] for point in bottom) + 48, "panel_m", "Panel width")
+            self._vertical_dimension(painter, (left + right) / 2.0 + 34, bottom[panels // 2][1], top[panels // 2][1], "depth_m", "Depth")
             return
         step = (right - left) / panels
         top: list[tuple[float, float]] = []
@@ -182,7 +302,11 @@ class TemplatePreview(QWidget):
                 TemplateParameter(f"{repeated.key}_{index}", repeated.label.format(index=index), repeated.default, repeated.minimum, repeated.maximum, repeated.integer)
                 for index in range(1, count + 1)
             )
-        return ", ".join(f"{item.label} = {self._values.get(item.key, item.default):g}" for item in parameters)
+        parts: list[str] = []
+        for item in parameters:
+            value = self._values.get(item.key, item.default)
+            parts.append(f"{item.label} = {value:g}" if isinstance(value, (int, float)) else f"{item.label} = {value}")
+        return ", ".join(parts)
 
 
 class TemplateBrowserDialog(QDialog):
@@ -191,7 +315,7 @@ class TemplateBrowserDialog(QDialog):
     def __init__(self, title: str, options: tuple[TemplateOption, ...], parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._options = options
-        self._editors: dict[str, QDoubleSpinBox | QSpinBox] = {}
+        self._editors: dict[str, QDoubleSpinBox | QSpinBox | QComboBox] = {}
         self._active_option: TemplateOption | None = None
         self.setWindowTitle(title)
         self.resize(900, 540)
@@ -227,8 +351,8 @@ class TemplateBrowserDialog(QDialog):
         item = self.listing.currentItem()
         return str(item.data(Qt.ItemDataRole.UserRole)) if item is not None else None
 
-    def selected_values(self) -> dict[str, float | int]:
-        return {key: editor.value() for key, editor in self._editors.items()}
+    def selected_values(self) -> dict[str, float | int | str]:
+        return {key: editor.currentData() if isinstance(editor, QComboBox) else editor.value() for key, editor in self._editors.items()}
 
     def _show_option(self, row: int) -> None:
         if not 0 <= row < len(self._options):
@@ -238,7 +362,7 @@ class TemplateBrowserDialog(QDialog):
         self.description.setText(option.description)
         self._rebuild_parameter_rows({})
 
-    def _rebuild_parameter_rows(self, previous: dict[str, float | int]) -> None:
+    def _rebuild_parameter_rows(self, previous: dict[str, float | int | str]) -> None:
         option = self._active_option
         if option is None:
             return
@@ -262,19 +386,27 @@ class TemplateBrowserDialog(QDialog):
                 self._add_parameter(parameter, previous.get(parameter.key, repeated.default))
         self._refresh_preview()
 
-    def _add_parameter(self, parameter: TemplateParameter, value: float | int) -> None:
-        editor: QDoubleSpinBox | QSpinBox
-        if parameter.integer:
+    def _add_parameter(self, parameter: TemplateParameter, value: float | int | str) -> None:
+        editor: QDoubleSpinBox | QSpinBox | QComboBox
+        if parameter.choices:
+            editor = QComboBox(self)
+            for label, data in parameter.choices:
+                editor.addItem(label, data)
+            index = editor.findData(value)
+            editor.setCurrentIndex(index if index >= 0 else 0)
+            editor.currentIndexChanged.connect(lambda _value, key=parameter.key: self._parameter_changed(key))
+        elif parameter.integer:
             editor = QSpinBox(self)
             editor.setRange(round(parameter.minimum), round(parameter.maximum))
-            editor.setValue(round(value))
+            editor.setValue(round(float(value)))
+            editor.valueChanged.connect(lambda _value, key=parameter.key: self._parameter_changed(key))
         else:
             editor = QDoubleSpinBox(self)
             editor.setDecimals(3)
             editor.setRange(parameter.minimum, parameter.maximum)
             editor.setValue(float(value))
             editor.setSingleStep(max(parameter.default / 10.0, 0.1))
-        editor.valueChanged.connect(lambda _value, key=parameter.key: self._parameter_changed(key))
+            editor.valueChanged.connect(lambda _value, key=parameter.key: self._parameter_changed(key))
         self.parameters.addRow(parameter.label, editor)
         self._editors[parameter.key] = editor
 
@@ -288,4 +420,4 @@ class TemplateBrowserDialog(QDialog):
 
     def _refresh_preview(self) -> None:
         if self._active_option is not None:
-            self.preview.set_template(self._active_option, {key: float(editor.value()) for key, editor in self._editors.items()})
+            self.preview.set_template(self._active_option, self.selected_values())

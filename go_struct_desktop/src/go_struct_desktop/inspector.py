@@ -24,10 +24,11 @@ from PySide6.QtWidgets import (
 from .units import UnitSystem, get_unit_system
 
 
-SUPPORTS = ("Free", "Pinned", "Fixed", "RollerX", "RollerY")
+SUPPORTS = ("Free", "Pinned", "Fixed", "RollerX", "RollerY", "Spring")
 RELEASES = ("Rigid-Rigid", "Pin-Rigid", "Rigid-Pin", "Pin-Pin")
 DIRECTIONS = ("Local X", "Local Y", "Global X", "Global Y")
 MEMBER_LOAD_TYPES = ("Distributed", "Point Force", "Point Moment")
+MEMBER_TYPES = ("Frame", "Truss")
 
 
 def _spin(parent: QWidget, value: float = 0.0, minimum: float = -1.0e9, maximum: float = 1.0e9) -> QDoubleSpinBox:
@@ -60,6 +61,9 @@ class PropertyInspector(QWidget):
         self.node_y = _spin(self.node_box)
         self.node_support = QComboBox(self.node_box)
         self.node_support.addItems(SUPPORTS)
+        self.node_kx = _spin(self.node_box, minimum=0.0)
+        self.node_ky = _spin(self.node_box, minimum=0.0)
+        self.node_kr = _spin(self.node_box, minimum=0.0)
         self.node_case = QComboBox(self.node_box)
         self.node_fx = _spin(self.node_box)
         self.node_fy = _spin(self.node_box)
@@ -69,6 +73,9 @@ class PropertyInspector(QWidget):
         node_form.addRow("X (m)", self.node_x)
         node_form.addRow("Y (m)", self.node_y)
         node_form.addRow("Support", self.node_support)
+        node_form.addRow("Spring Kx", self.node_kx)
+        node_form.addRow("Spring Ky", self.node_ky)
+        node_form.addRow("Spring Kr", self.node_kr)
         node_form.addRow("Load case", self.node_case)
         node_form.addRow("Fx (kg)", self.node_fx)
         node_form.addRow("Fy (kg)", self.node_fy)
@@ -81,6 +88,8 @@ class PropertyInspector(QWidget):
         self.member_n1 = QComboBox(self.member_box)
         self.member_n2 = QComboBox(self.member_box)
         self.member_section = QComboBox(self.member_box)
+        self.member_type = QComboBox(self.member_box)
+        self.member_type.addItems(MEMBER_TYPES)
         self.member_release = QComboBox(self.member_box)
         self.member_release.addItems(RELEASES)
         self.member_geometry = QLabel("-", self.member_box)
@@ -89,6 +98,7 @@ class PropertyInspector(QWidget):
         member_form.addRow("Node I", self.member_n1)
         member_form.addRow("Node J", self.member_n2)
         member_form.addRow("Section", self.member_section)
+        member_form.addRow("Member type", self.member_type)
         member_form.addRow("Release", self.member_release)
         member_form.addRow("Geometry", self.member_geometry)
         member_form.addRow(self.member_apply)
@@ -101,10 +111,13 @@ class PropertyInspector(QWidget):
         self.batch_section = QComboBox(self.batch_box)
         self.batch_release = QComboBox(self.batch_box)
         self.batch_release.addItems(RELEASES)
+        self.batch_member_type = QComboBox(self.batch_box)
+        self.batch_member_type.addItems(MEMBER_TYPES)
         self.batch_member_apply = QPushButton("Apply to selected members", self.batch_box)
         batch_form.addRow("Support", self.batch_support)
         batch_form.addRow(self.batch_support_apply)
         batch_form.addRow("Section", self.batch_section)
+        batch_form.addRow("Member type", self.batch_member_type)
         batch_form.addRow("Release", self.batch_release)
         batch_form.addRow(self.batch_member_apply)
 
@@ -119,6 +132,7 @@ class PropertyInspector(QWidget):
         self.node_case.currentIndexChanged.connect(self._load_node_case)
         self.node_apply.clicked.connect(self._apply_node)
         self.member_apply.clicked.connect(self._apply_member)
+        self.member_type.currentTextChanged.connect(lambda value: self.member_release.setEnabled(value == "Frame"))
         self.batch_support_apply.clicked.connect(self._apply_batch_support)
         self.batch_member_apply.clicked.connect(self._apply_batch_members)
         self._refresh()
@@ -155,6 +169,9 @@ class PropertyInspector(QWidget):
                 self.node_x.setValue(float(node["x"]))
                 self.node_y.setValue(float(node["y"]))
                 self.node_support.setCurrentText(str(node.get("support", "Free")))
+                self.node_kx.setValue(float(node.get("kx", 0.0)))
+                self.node_ky.setValue(float(node.get("ky", 0.0)))
+                self.node_kr.setValue(float(node.get("kr", 0.0)))
                 self._load_node_case()
             return
         if len(selected_members) == 1 and not selected_nodes:
@@ -166,7 +183,9 @@ class PropertyInspector(QWidget):
                 self.member_n1.setCurrentIndex(self.member_n1.findData(int(member["n1"])))
                 self.member_n2.setCurrentIndex(self.member_n2.findData(int(member["n2"])))
                 self.member_section.setCurrentIndex(self.member_section.findData(int(member["sec"])))
+                self.member_type.setCurrentText(str(member.get("memberType", "Frame")))
                 self.member_release.setCurrentText(str(member.get("release", "Rigid-Rigid")))
+                self.member_release.setEnabled(self.member_type.currentText() == "Frame")
                 by_id = {int(node["id"]): node for node in nodes}
                 first, second = by_id.get(int(member["n1"])), by_id.get(int(member["n2"]))
                 if first and second:
@@ -207,7 +226,7 @@ class PropertyInspector(QWidget):
         node_id = self._selection["nodes"][0]
         model = self._mutable_model()
         node = next(item for item in model["nodes"] if int(item["id"]) == node_id)
-        node.update({"x": self.node_x.value(), "y": self.node_y.value(), "support": self.node_support.currentText()})
+        node.update({"x": self.node_x.value(), "y": self.node_y.value(), "support": self.node_support.currentText(), "kx": self.node_kx.value(), "ky": self.node_ky.value(), "kr": self.node_kr.value()})
         load_case = str(self.node_case.currentData() or "DL")
         target = next((item for item in model["nloads"] if int(item.get("node", -1)) == node_id and item.get("lcase") == load_case), None)
         values = {"node": node_id, "lcase": load_case, "fx": self.node_fx.value(), "fy": self.node_fy.value(), "mz": self.node_mz.value()}
@@ -228,7 +247,12 @@ class PropertyInspector(QWidget):
             return
         model = self._mutable_model()
         member = next(item for item in model["elements"] if int(item["id"]) == member_id)
-        member.update({"n1": n1, "n2": n2, "sec": int(self.member_section.currentData()), "release": self.member_release.currentText()})
+        member_type = self.member_type.currentText()
+        member.update({"n1": n1, "n2": n2, "sec": int(self.member_section.currentData()), "release": self.member_release.currentText() if member_type == "Frame" else "Rigid-Rigid"})
+        if member_type == "Truss":
+            member["memberType"] = "Truss"
+        else:
+            member.pop("memberType", None)
         self.model_change_requested.emit(model)
 
     def _apply_batch_support(self) -> None:
@@ -249,7 +273,12 @@ class PropertyInspector(QWidget):
         for member in model["elements"]:
             if int(member["id"]) in ids:
                 member["sec"] = int(self.batch_section.currentData())
-                member["release"] = self.batch_release.currentText()
+                member_type = self.batch_member_type.currentText()
+                member["release"] = self.batch_release.currentText() if member_type == "Frame" else "Rigid-Rigid"
+                if member_type == "Truss":
+                    member["memberType"] = "Truss"
+                else:
+                    member.pop("memberType", None)
         self.model_change_requested.emit(model)
 
     def _mutable_model(self) -> dict[str, Any]:
@@ -262,6 +291,7 @@ class LoadDialog(QDialog):
     def __init__(self, kind: str, load_cases: list[str], member_length: float = 0.0, parent: QWidget | None = None, units: UnitSystem | None = None, preset: str = "generic") -> None:
         super().__init__(parent)
         self.kind = kind
+        self.member_length = member_length
         self.units = units or get_unit_system("legacy_kg_m")
         self.setWindowTitle(self._preset_title(kind, preset))
         form = QFormLayout(self)
@@ -281,6 +311,8 @@ class LoadDialog(QDialog):
         self.m = _spin(self)
         self.w1 = _spin(self)
         self.w2 = _spin(self)
+        self.x1_m = _spin(self, 0.0, 0.0, max(self.units.length(member_length), 0.0))
+        self.x2_m = _spin(self, self.units.length(member_length), 0.0, max(self.units.length(member_length), 0.0))
         if kind == "nodal":
             form.addRow(f"Fx ({self.units.force_unit})", self.fx)
             form.addRow(f"Fy ({self.units.force_unit})", self.fy)
@@ -293,6 +325,8 @@ class LoadDialog(QDialog):
             form.addRow(f"M ({self.units.moment_label()})", self.m)
             form.addRow(f"W1 ({self.units.distributed_label()})", self.w1)
             form.addRow(f"W2 ({self.units.distributed_label()})", self.w2)
+            form.addRow(f"Start x ({self.units.length_unit})", self.x1_m)
+            form.addRow(f"End x ({self.units.length_unit})", self.x2_m)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -353,6 +387,8 @@ class LoadDialog(QDialog):
             "m": self.m.value() / self.units.moment_factor,
             "w1": self.w1.value() / self.units.distributed_factor,
             "w2": self.w2.value() / self.units.distributed_factor,
+            "x1_m": self.x1_m.value() / self.units.length_factor,
+            "x2_m": self.x2_m.value() / self.units.length_factor,
         }
 
     def set_values(self, values: Mapping[str, Any]) -> None:
@@ -369,3 +405,5 @@ class LoadDialog(QDialog):
         self.m.setValue(self.units.moment(float(values.get("m", 0.0))))
         self.w1.setValue(self.units.distributed(float(values.get("w1", values.get("w", 0.0)))))
         self.w2.setValue(self.units.distributed(float(values.get("w2", values.get("w1", values.get("w", 0.0))))))
+        self.x1_m.setValue(self.units.length(float(values.get("x1_m", 0.0))))
+        self.x2_m.setValue(self.units.length(float(values.get("x2_m", self.member_length))))

@@ -37,6 +37,12 @@ class TrussModel:
                 else:
                     sections.append(section)
             data["sections"] = sections
+        raw_elements = data.get("elements")
+        if isinstance(raw_elements, list):
+            data["elements"] = [
+                {**dict(element), "memberType": "Truss"} if isinstance(element, Mapping) else element
+                for element in raw_elements
+            ]
         frame = FrameModel.from_dict(data)
         errors: list[str] = []
         analysis_type = str(frame.project_info.get("analysisType", "Truss"))

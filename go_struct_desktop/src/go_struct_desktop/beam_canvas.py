@@ -150,8 +150,8 @@ class BeamCanvas(FrameCanvas):
             midpoint = screen((float(first["x"]) + float(second["x"])) / 2.0, self._beam_y())
             painter.drawText(midpoint + QPointF(-30.0, 28.0), f"L = {self._units.length(length):g} {self._units.length_unit}")
 
-    def _draw_nodes_and_supports(self, painter: QPainter, nodes: list[Mapping[str, Any]], screen) -> None:
-        super()._draw_nodes_and_supports(painter, nodes, screen)
+    def _draw_nodes_and_supports(self, painter: QPainter, nodes: list[Mapping[str, Any]], screen, *, show_labels: bool = True) -> None:
+        super()._draw_nodes_and_supports(painter, nodes, screen, show_labels=show_labels)
         if self._view_mode != "results" or not self._result:
             return
         reactions = {int(node["id"]): node for node in self._result.get("nodes", [])}

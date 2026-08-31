@@ -6,11 +6,13 @@ import copy
 import math
 from typing import Any, Mapping
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
+from PySide6.QtCore import QElapsedTimer, QPoint, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QToolTip, QWidget
 
 from .display import DisplaySettings
+from .contours import ContourRange, colour_stops, contour_range, stress_value
+from .spatial_index import CanvasSpatialIndex, nearest_point
 from .units import UnitSystem, get_unit_system
 
 
@@ -45,17 +47,29 @@ class FrameCanvas(QWidget):
         self._units = get_unit_system("legacy_kg_m")
         self._deformed_members: list[Mapping[str, Any]] = []
         self._diagram_members: list[Mapping[str, Any]] = []
+        self._diagram_maxima: dict[str, float] = {}
         self._diagram_mode = "none"
         self._show_diagram_values = False
         self._hover_points: list[tuple[QPointF, Mapping[str, Any], Mapping[str, Any]]] = []
+        self._hover_cells: dict[tuple[int, int], list[tuple[QPointF, Mapping[str, Any], Mapping[str, Any]]]] = {}
+        self._hover_cell_size = 32.0
         self._hover_sample: tuple[QPointF, Mapping[str, Any], Mapping[str, Any]] | None = None
         self._show_deformed = True
+        self._stress_members: list[Mapping[str, Any]] = []
+        self._show_stress = False
+        self._contour_ranges: dict[tuple[str, str, str], ContourRange] = {}
+        self._deformation_animation = False
+        self._animation_phase = 0.0
+        self._animation_timer = QTimer(self)
+        self._animation_timer.setInterval(33)
+        self._animation_timer.timeout.connect(self._advance_deformation_animation)
         self._tool = "select"
         self._grid_visible = True
         self._snap_enabled = True
         self._snap_to_node = True
         self._grid_spacing = 1.0
         self._active_section = 1
+        self._active_member_type = "Frame"
         self._selection_filter = "both"
         self._selected_nodes: set[int] = set()
         self._selected_members: set[int] = set()
@@ -76,12 +90,34 @@ class FrameCanvas(QWidget):
         self._pan = QPointF()
         self._label_rects: list[QRectF] = []
         self._drag_origin: QPoint | None = None
+        self._geometry_cache: QPixmap | None = None
+        self._geometry_cache_key: tuple[Any, ...] | None = None
+        self._geometry_cache_pan = QPointF()
+        self._spatial_index = CanvasSpatialIndex(self._model)
+        self._interaction_active = False
+        self._interaction_settle_timer = QTimer(self)
+        self._interaction_settle_timer.setSingleShot(True)
+        self._interaction_settle_timer.setInterval(150)
+        self._interaction_settle_timer.timeout.connect(self._finish_interaction)
+        self._repaint_timer = QTimer(self)
+        self._repaint_timer.setSingleShot(True)
+        self._repaint_timer.timeout.connect(self._flush_repaint)
+        self._repaint_clock = QElapsedTimer()
+        self._repaint_clock.start()
+        self._hover_timer = QTimer(self)
+        self._hover_timer.setSingleShot(True)
+        self._hover_timer.timeout.connect(self._flush_hover)
+        self._hover_clock = QElapsedTimer()
+        self._hover_clock.start()
+        self._queued_hover: tuple[QPointF, QPoint] | None = None
         self.setMinimumHeight(300)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def set_model(self, model: Mapping[str, Any]) -> None:
         self._model = model
+        self._spatial_index = CanvasSpatialIndex(model)
+        self._invalidate_geometry_cache()
         sections = model.get("sections", [])
         if sections and self._active_section not in {int(section["id"]) for section in sections}:
             self._active_section = int(sections[0]["id"])
@@ -90,8 +126,75 @@ class FrameCanvas(QWidget):
         self._clear_hover()
         self.update()
 
+    @property
+    def interaction_active(self) -> bool:
+        """Whether canvas rendering is temporarily using the low-detail interaction path."""
+
+        return self._interaction_active
+
+    def _begin_interaction(self) -> None:
+        if not self._interaction_active:
+            self._interaction_active = True
+            self._clear_hover()
+        self._interaction_settle_timer.start()
+
+    def _finish_interaction(self) -> None:
+        if not self._interaction_active:
+            return
+        self._interaction_active = False
+        self._clear_hover()
+        self.update()
+
+    def _request_repaint(self, *, interaction: bool = False) -> None:
+        if not interaction:
+            self.update()
+            return
+        self._begin_interaction()
+        elapsed = self._repaint_clock.elapsed()
+        if elapsed >= 16:
+            self._repaint_clock.restart()
+            self.update()
+        elif not self._repaint_timer.isActive():
+            self._repaint_timer.start(max(1, 16 - elapsed))
+
+    def _flush_repaint(self) -> None:
+        self._repaint_clock.restart()
+        self.update()
+
+    def _queue_hover(self, position: QPointF, global_position: QPoint) -> None:
+        if self._interaction_active or (len(self._model.get("elements", [])) > 300 and not self._selected_members):
+            self._clear_hover()
+            return
+        elapsed = self._hover_clock.elapsed()
+        if elapsed >= 33:
+            self._hover_clock.restart()
+            self._show_hover_value(position, global_position)
+            return
+        self._queued_hover = (QPointF(position), QPoint(global_position))
+        if not self._hover_timer.isActive():
+            self._hover_timer.start(max(1, 33 - elapsed))
+
+    def _flush_hover(self) -> None:
+        if self._queued_hover is None or self._interaction_active:
+            return
+        position, global_position = self._queued_hover
+        self._queued_hover = None
+        self._hover_clock.restart()
+        self._show_hover_value(position, global_position)
+
+    def _detail_level(self) -> str:
+        if self._interaction_active:
+            return "interaction"
+        member_count = len(self._model.get("elements", []))
+        if member_count > 2000:
+            return "large"
+        if member_count > 300:
+            return "reduced"
+        return "full"
+
     def set_result(self, result: Mapping[str, Any] | None) -> None:
         self._result = result
+        self._invalidate_geometry_cache()
         if result is None:
             self._deformed_members = []
             self._diagram_members = []
@@ -113,6 +216,8 @@ class FrameCanvas(QWidget):
     def set_display_settings(self, settings: DisplaySettings) -> None:
         self._display = settings
         self._grid_visible = settings.show_grid
+        self._contour_ranges.clear()
+        self._invalidate_geometry_cache()
         self.update()
 
     def set_unit_system(self, key: str) -> None:
@@ -123,17 +228,38 @@ class FrameCanvas(QWidget):
         self._deformed_members = members
         self.update()
 
+    def set_stress_members(self, members: list[Mapping[str, Any]]) -> None:
+        self._stress_members = members
+        self._contour_ranges.clear()
+        self._invalidate_geometry_cache()
+        self.update()
+
+    def set_show_stress(self, show: bool) -> None:
+        self._show_stress = show
+        self._invalidate_geometry_cache()
+        self.update()
+
+    def _invalidate_geometry_cache(self) -> None:
+        self._geometry_cache = None
+        self._geometry_cache_key = None
+
     @property
     def diagram_mode(self) -> str:
         return self._diagram_mode
 
     def set_diagram_members(self, members: list[Mapping[str, Any]]) -> None:
         self._diagram_members = members
+        self._diagram_maxima = {
+            key: max((abs(float(point.get(key, 0.0))) for member in members for point in member.get("points", [])), default=0.0)
+            for key in self._DIAGRAMS
+        }
+        self._contour_ranges.clear()
         self._clear_hover()
         self.update()
 
     def set_diagram_mode(self, mode: str) -> None:
         self._diagram_mode = mode if mode in {*self._DIAGRAMS, "all"} else "none"
+        self._contour_ranges.clear()
         self._clear_hover()
         self.update()
 
@@ -144,6 +270,22 @@ class FrameCanvas(QWidget):
     def set_show_deformed(self, show: bool) -> None:
         self._show_deformed = show
         self.update()
+
+    def set_deformation_animation(self, active: bool) -> None:
+        self._deformation_animation = active
+        if active:
+            self._animation_timer.start()
+        else:
+            self._animation_timer.stop()
+            self._animation_phase = 0.0
+        self.update()
+
+    def _advance_deformation_animation(self) -> None:
+        self._animation_phase = (self._animation_phase + 0.055) % (2.0 * math.pi)
+        self.update()
+
+    def _deformation_factor(self) -> float:
+        return 1.0 if not self._deformation_animation else 0.12 + 0.88 * (math.sin(self._animation_phase) + 1.0) / 2.0
 
     @property
     def tool(self) -> str:
@@ -201,8 +343,11 @@ class FrameCanvas(QWidget):
     def set_active_section(self, section_id: int) -> None:
         self._active_section = section_id
 
+    def set_active_member_type(self, member_type: str) -> None:
+        self._active_member_type = member_type if member_type in {"Frame", "Truss"} else "Frame"
+
     def set_pending_support(self, support: str) -> None:
-        self._pending_support = support if support in {"Free", "Pinned", "Fixed", "RollerX", "RollerY"} else "Pinned"
+        self._pending_support = support if support in {"Free", "Pinned", "Fixed", "RollerX", "RollerY", "Spring"} else "Pinned"
         self.set_tool("support")
 
     def duplicate_selection(self) -> None:
@@ -353,7 +498,7 @@ class FrameCanvas(QWidget):
                 event.position().y() + (model_y - self._view_model_center.y()) * new_scale,
             )
             self._pan = desired_center - default_center
-        self.update()
+        self._request_repaint(interaction=True)
 
     def mousePressEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         self.setFocus()
@@ -363,6 +508,7 @@ class FrameCanvas(QWidget):
         if event.button() == Qt.MouseButton.MiddleButton or (event.button() == Qt.MouseButton.LeftButton and self._tool == "pan"):
             self._drag_origin = event.position().toPoint()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            self._begin_interaction()
             return
         if event.button() == Qt.MouseButton.LeftButton:
             self._pointer_moved(event.position())
@@ -371,7 +517,7 @@ class FrameCanvas(QWidget):
             elif self._tool == "member":
                 self._member_start = self._snap_position(event.position())
                 self._member_current = self._member_start
-                self.update()
+                self._request_repaint(interaction=True)
             elif self._tool == "support":
                 node = self._node_at(event.position())
                 if node is None:
@@ -406,6 +552,7 @@ class FrameCanvas(QWidget):
             elif self._tool == "zoom_window":
                 self._selection_origin = event.position()
                 self._selection_rect = QRectF(event.position(), event.position())
+                self._begin_interaction()
             elif self._tool == "select":
                 load = self._load_at(event.position()) if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier) else None
                 if load is not None:
@@ -420,6 +567,7 @@ class FrameCanvas(QWidget):
                     self._selection_origin = event.position()
                     self._selection_rect = QRectF(event.position(), event.position())
                     self._selection_crossing = False
+                    self._begin_interaction()
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:  # type: ignore[no-untyped-def]
@@ -427,33 +575,34 @@ class FrameCanvas(QWidget):
             current = event.position().toPoint()
             self._pan += QPointF(current - self._drag_origin)
             self._drag_origin = current
-            self.update()
+            self._request_repaint(interaction=True)
         else:
             self._pointer_moved(event.position())
             if self._pending_load is not None and self._tool in {"nodal_load", "member_load"}:
                 self._pending_load_position = event.position()
-                self.update()
+                self._request_repaint(interaction=True)
             if self._tool == "member" and self._member_start is not None:
                 self._member_current = self._snap_position(event.position())
-                self.update()
+                self._request_repaint(interaction=True)
             elif self._tool == "select" and self._node_drag_id is not None:
                 self._node_drag_position = self._snap_position(event.position())
-                self.update()
+                self._request_repaint(interaction=True)
             elif self._tool == "select" and self._selection_origin is not None:
                 self._selection_rect = QRectF(self._selection_origin, event.position()).normalized()
                 self._selection_crossing = event.position().x() < self._selection_origin.x()
-                self.update()
+                self._request_repaint(interaction=True)
             elif self._tool == "zoom_window" and self._selection_origin is not None:
                 self._selection_rect = QRectF(self._selection_origin, event.position()).normalized()
-                self.update()
+                self._request_repaint(interaction=True)
             else:
-                self._show_hover_value(event.position(), event.globalPosition().toPoint())
+                self._queue_hover(event.position(), event.globalPosition().toPoint())
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         if event.button() == Qt.MouseButton.MiddleButton or (event.button() == Qt.MouseButton.LeftButton and self._drag_origin is not None):
             self._drag_origin = None
             self.setCursor(Qt.CursorShape.OpenHandCursor if self._tool == "pan" else Qt.CursorShape.ArrowCursor)
+            self._interaction_settle_timer.start()
             return
         if event.button() == Qt.MouseButton.LeftButton:
             if self._tool == "member" and self._member_start is not None:
@@ -468,12 +617,13 @@ class FrameCanvas(QWidget):
                 self._apply_selection(event.position())
                 self._selection_origin = None
                 self._selection_rect = None
-                self.update()
+                self._request_repaint(interaction=True)
             elif self._tool == "zoom_window" and self._selection_origin is not None:
                 self._apply_zoom_window()
                 self._selection_origin = None
                 self._selection_rect = None
-                self.update()
+                self._request_repaint(interaction=True)
+            self._interaction_settle_timer.start()
         super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event) -> None:  # type: ignore[no-untyped-def]
@@ -509,10 +659,8 @@ class FrameCanvas(QWidget):
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, f"No {model_kind.lower()} model")
             return
 
-        node_by_id = {node["id"]: node for node in nodes}
-        points = [(float(node["x"]), float(node["y"])) for node in nodes]
-        min_x, max_x = min(x for x, _ in points), max(x for x, _ in points)
-        min_y, max_y = min(y for _, y in points), max(y for _, y in points)
+        node_by_id = self._spatial_index.nodes
+        min_x, min_y, max_x, max_y = self._spatial_index.bounds
         span_x = max(max_x - min_x, 1.0)
         span_y = max(max_y - min_y, 1.0)
         margin = 70.0
@@ -529,40 +677,95 @@ class FrameCanvas(QWidget):
         def screen(x: float, y: float) -> QPointF:
             return QPointF(viewport_center.x() + (x - center_x) * scale, viewport_center.y() - (y - center_y) * scale)
 
-        self._update_hover_points(node_by_id, screen, span_x, span_y)
+        detail_level = self._detail_level()
         if self._display.show_grid and self._grid_visible:
             self._draw_grid(painter, screen, min_x, max_x, min_y, max_y)
-        if self._display.show_loads:
-            self._draw_loads(painter, node_by_id, screen, self._display_load_factors())
-
-        for element in self._model.get("elements", []):
-            first = node_by_id.get(element.get("n1"))
-            second = node_by_id.get(element.get("n2"))
-            if first is None or second is None:
-                continue
-            member_pen = self._member_pen(element)
-            painter.setPen(member_pen)
-            if int(element["id"]) in self._selected_members:
-                selected_pen = QPen(QColor("#0f766e"), 5.0)
-                selected_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-                painter.setPen(selected_pen)
-                painter.drawLine(screen(float(first["x"]), float(first["y"])), screen(float(second["x"]), float(second["y"])))
-                painter.setPen(member_pen)
-            painter.drawLine(screen(float(first["x"]), float(first["y"])), screen(float(second["x"]), float(second["y"])))
+        self._draw_cached_member_geometry(painter, node_by_id, screen, interaction=detail_level == "interaction")
 
         self._draw_node_move_preview(painter, node_by_id, screen)
         self._draw_member_preview(painter, screen)
-        self._draw_member_annotations(painter, node_by_id, screen)
+        if detail_level == "interaction":
+            self._draw_lightweight_nodes(painter, nodes, screen)
+            self._draw_selection_rect(painter)
+            return
+
+        self._update_hover_points(node_by_id, screen, span_x, span_y)
+        if self._display.show_loads:
+            self._draw_loads(painter, node_by_id, screen, self._display_load_factors(), show_labels=detail_level == "full")
+        if detail_level == "full":
+            self._draw_member_annotations(painter, node_by_id, screen)
         self._draw_pending_load_preview(painter, node_by_id, screen)
         if self._view_mode == "fbd":
             self._draw_fbd(painter, node_by_id, screen)
         elif self._view_mode == "results":
             self._draw_diagram_overlays(painter, node_by_id, screen, span_x, span_y)
             self._draw_deformed_shape(painter, node_by_id, screen, span_x, span_y)
-            self._draw_hover_crosshair(painter, node_by_id, screen, span_x, span_y)
-        self._draw_nodes_and_supports(painter, nodes, screen)
+            if detail_level == "full":
+                self._draw_hover_crosshair(painter, node_by_id, screen, span_x, span_y)
+        self._draw_nodes_and_supports(painter, nodes, screen, show_labels=detail_level == "full")
+        if self._view_mode == "results" and detail_level != "interaction":
+            self._draw_truss_axial_extrema(painter, node_by_id, screen)
         self._draw_selection_rect(painter)
         self._draw_legend(painter)
+
+    def _geometry_cache_identity(self) -> tuple[Any, ...]:
+        return (
+            id(self._spatial_index),
+            self.width(),
+            self.height(),
+            round(self._zoom, 8),
+            self._show_stress,
+            self._view_mode,
+        )
+
+    def _draw_cached_member_geometry(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, *, interaction: bool) -> None:
+        """Cache the stable member-line layer and translate it cheaply while panning."""
+
+        key = self._geometry_cache_identity()
+        cache_is_current = (
+            self._geometry_cache is not None
+            and self._geometry_cache_key == key
+            and (interaction or self._geometry_cache_pan == self._pan)
+        )
+        if not cache_is_current:
+            self._geometry_cache = QPixmap(self.size())
+            self._geometry_cache.fill(Qt.GlobalColor.transparent)
+            cache_painter = QPainter(self._geometry_cache)
+            cache_painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            self._draw_member_geometry(cache_painter, node_by_id, screen)
+            cache_painter.end()
+            self._geometry_cache_key = key
+            self._geometry_cache_pan = QPointF(self._pan)
+
+        if self._geometry_cache is not None:
+            offset = self._pan - self._geometry_cache_pan if interaction else QPointF()
+            painter.drawPixmap(QPoint(round(offset.x()), round(offset.y())), self._geometry_cache)
+        self._draw_selected_member_geometry(painter, node_by_id, screen)
+
+    def _draw_member_geometry(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen) -> None:
+        for element in self._model.get("elements", []):
+            first = node_by_id.get(element.get("n1"))
+            second = node_by_id.get(element.get("n2"))
+            if first is None or second is None:
+                continue
+            member_pen = self._stress_pen(element) if self._show_stress and self._view_mode == "results" else self._member_pen(element)
+            painter.setPen(member_pen)
+            painter.drawLine(screen(float(first["x"]), float(first["y"])), screen(float(second["x"]), float(second["y"])))
+
+    def _draw_selected_member_geometry(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen) -> None:
+        if not self._selected_members:
+            return
+        selected_pen = QPen(QColor("#0f766e"), 5.0)
+        selected_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(selected_pen)
+        for member_id in self._selected_members:
+            member = next((item for item in self._model.get("elements", []) if int(item["id"]) == member_id), None)
+            if member is None:
+                continue
+            first = node_by_id.get(member.get("n1"))
+            second = node_by_id.get(member.get("n2"))
+            if first is not None and second is not None:
+                painter.drawLine(screen(float(first["x"]), float(first["y"])), screen(float(second["x"]), float(second["y"])))
 
     def _draw_pending_load_preview(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen) -> None:
         if self._pending_load is None or self._pending_load_position is None:
@@ -650,9 +853,27 @@ class FrameCanvas(QWidget):
             painter.drawLine(left, right)
             y += grid_step
 
-    @staticmethod
-    def _member_pen(_element: Mapping[str, Any]) -> QPen:
-        pen = QPen(QColor("#1e293b"), 3.0)
+    def _member_pen(self, element: Mapping[str, Any]) -> QPen:
+        is_truss = (
+            str(element.get("memberType", "Frame")) == "Truss"
+            and str(self._model.get("projectInfo", {}).get("analysisType", "Frame")).lower() not in {"truss", "2d truss"}
+        )
+        pen = QPen(QColor("#047857") if is_truss else QColor("#1e293b"), 2.6 if is_truss else 3.0)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        return pen
+
+    def _stress_pen(self, element: Mapping[str, Any]) -> QPen:
+        member = next((item for item in self._stress_members if int(item.get("id", -1)) == int(element.get("id", -1))), None)
+        if member is None:
+            return self._member_pen(element)
+        values = [float(point.get("stress_top_kg_cm2", 0.0)) for point in member.get("points", [])]
+        values.extend(float(point.get("stress_bottom_kg_cm2", 0.0)) for point in member.get("points", []))
+        global_max = max((abs(float(point.get(key, 0.0))) for item in self._stress_members for point in item.get("points", []) for key in ("stress_top_kg_cm2", "stress_bottom_kg_cm2")), default=0.0)
+        value = max(values, key=abs, default=0.0)
+        ratio = min(abs(value) / global_max, 1.0) if global_max > 1.0e-12 else 0.0
+        color = QColor("#dc2626") if value >= 0.0 else QColor("#2563eb")
+        color.setAlphaF(0.35 + ratio * 0.65)
+        pen = QPen(color, 5.0)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         return pen
 
@@ -687,7 +908,15 @@ class FrameCanvas(QWidget):
             index = 0
         return QColor(self._LOAD_CASE_COLORS[index % len(self._LOAD_CASE_COLORS)])
 
-    def _draw_loads(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, factors: Mapping[str, float]) -> None:
+    def _draw_loads(
+        self,
+        painter: QPainter,
+        node_by_id: Mapping[int, Mapping[str, Any]],
+        screen,
+        factors: Mapping[str, float],
+        *,
+        show_labels: bool = True,
+    ) -> None:
         if not factors:
             return
         active_nodal = [load for load in self._model.get("nloads", []) if float(factors.get(str(load.get("lcase")), 0.0))]
@@ -713,7 +942,7 @@ class FrameCanvas(QWidget):
             moment = float(load.get("mz", 0.0)) * factor
             if abs(moment) > 1.0e-12:
                 self._draw_moment_arrow(painter, point, moment, node_color)
-            if self._display.show_load_values:
+            if show_labels and self._display.show_load_values:
                 labels = [f"{key.upper()} {float(load.get(key, 0.0)) * factor:,.2f}" for key in ("fx", "fy", "mz") if abs(float(load.get(key, 0.0)) * factor) > 1.0e-12]
                 if labels:
                     painter.setPen(node_color)
@@ -748,7 +977,9 @@ class FrameCanvas(QWidget):
             if length <= 1.0e-12:
                 continue
             cosine, sine = dx / length, dy / length
-            for index, fraction in enumerate((0.0, 0.2, 0.4, 0.6, 0.8, 1.0)):
+            start = max(0.0, min(length, float(load.get("x1_m", 0.0)))) / length
+            end = max(start, min(length, float(load.get("x2_m", length)))) / length
+            for index, fraction in enumerate(tuple(start + (end - start) * step for step in (0.0, 0.2, 0.4, 0.6, 0.8, 1.0))):
                 value = (float(load.get("w1", 0.0)) + (float(load.get("w2", 0.0)) - float(load.get("w1", 0.0))) * fraction) * factor
                 if abs(value) <= 1.0e-12:
                     continue
@@ -764,12 +995,15 @@ class FrameCanvas(QWidget):
                 x = float(first["x"]) + dx * fraction
                 y = float(first["y"]) + dy * fraction
                 self._draw_force_arrow(painter, screen, x, y, direction_x * arrow_length, direction_y * arrow_length, member_color)
-            if self._display.show_load_values:
-                middle = screen((float(first["x"]) + float(second["x"])) / 2.0, (float(first["y"]) + float(second["y"])) / 2.0)
+            if show_labels and self._display.show_load_values:
+                middle_fraction = (start + end) / 2.0
+                middle = screen(float(first["x"]) + dx * middle_fraction, float(first["y"]) + dy * middle_fraction)
                 prefix = f"[{load_case}] " if len(factors) > 1 else ""
                 label = f"{prefix}w {float(load.get('w1', 0.0)) * factor:,.2f} to {float(load.get('w2', 0.0)) * factor:,.2f} kg/m"
                 if self._display.show_load_directions:
                     label += f" | {load.get('dir', 'Local Y')}"
+                if start > 1.0e-9 or end < 1.0 - 1.0e-9:
+                    label += f" | x={start * length:.2f}-{end * length:.2f} m"
                 painter.setPen(member_color)
                 painter.drawText(middle + QPointF(8.0, -26.0), label)
         for load in point_loads:
@@ -806,7 +1040,7 @@ class FrameCanvas(QWidget):
                     direction_x, direction_y = 0.0, math.copysign(1.0, value)
                 arrow_length = (22.0 + 30.0 * abs(value) / maximum_point) / self._view_scale if maximum_point else 30.0 / self._view_scale
                 self._draw_force_arrow(painter, screen, x, y, direction_x * arrow_length, direction_y * arrow_length, member_color)
-                if self._display.show_load_values:
+                if show_labels and self._display.show_load_values:
                     prefix = f"[{load_case}] " if len(factors) > 1 else ""
                     label = f"{prefix}P {value:,.2f} kg @ {at_x:.2f} m"
                     if self._display.show_load_directions:
@@ -818,7 +1052,7 @@ class FrameCanvas(QWidget):
                 if abs(value) <= 1.0e-12:
                     continue
                 self._draw_moment_arrow(painter, point, value, member_color)
-                if self._display.show_load_values:
+                if show_labels and self._display.show_load_values:
                     painter.setPen(member_color)
                     prefix = f"[{load_case}] " if len(factors) > 1 else ""
                     painter.drawText(point + QPointF(18.0, -18.0), f"{prefix}M {value:,.2f} kg-m @ {at_x:.2f} m")
@@ -891,7 +1125,12 @@ class FrameCanvas(QWidget):
                     labels.append(f"Mz {moment:,.2f}")
                 if labels:
                     painter.setPen(reaction_color)
-                    painter.drawText(point + QPointF(10.0, 34.0), " | ".join(labels))
+                    text = " | ".join(labels)
+                    text_width = painter.fontMetrics().horizontalAdvance(text)
+                    label_x = point.x() + 10.0
+                    if label_x + text_width > self.width() - 10.0:
+                        label_x = max(10.0, point.x() - text_width - 10.0)
+                    painter.drawText(QPointF(label_x, min(point.y() + 34.0, self.height() - 10.0)), text)
         if self._display.show_equilibrium:
             fx, fy, moment = self._equilibrium_residual(factors, node_by_id, (self._display.fbd_reference_x, self._display.fbd_reference_y))
             painter.setPen(QColor("#334155"))
@@ -988,11 +1227,14 @@ class FrameCanvas(QWidget):
         maximum = max((math.hypot(float(node.get("dx", 0.0)), float(node.get("dy", 0.0))) for node in result_nodes.values()), default=0.0)
         if maximum <= 1.0e-15:
             return
-        exaggeration = max(span_x, span_y) * 0.12 / maximum
+        exaggeration = max(span_x, span_y) * 0.12 / maximum * self._deformation_factor()
         pen = QPen(QColor("#0f766e"), 2.0, Qt.PenStyle.DashLine)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
-        for element in self._model.get("elements", []):
+        elements = self._model.get("elements", [])
+        if self._detail_level() == "large":
+            elements = [element for element in elements if int(element.get("id", -1)) in self._selected_members]
+        for element in elements:
             first, second = node_by_id.get(element.get("n1")), node_by_id.get(element.get("n2"))
             first_result, second_result = result_nodes.get(element.get("n1")), result_nodes.get(element.get("n2"))
             if not first or not second or not first_result or not second_result:
@@ -1003,7 +1245,10 @@ class FrameCanvas(QWidget):
 
     def _draw_deformed_member_curves(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, span_x: float, span_y: float) -> None:
         maximum = 0.0
-        for member in self._deformed_members:
+        members = self._deformed_members
+        if self._detail_level() == "large":
+            members = [member for member in members if int(member.get("id", -1)) in self._selected_members]
+        for member in members:
             node = node_by_id.get(member["n1"])
             if node is None:
                 continue
@@ -1015,11 +1260,11 @@ class FrameCanvas(QWidget):
                 maximum = max(maximum, math.hypot(float(point["x_deformed_m"]) - original_x, float(point["y_deformed_m"]) - original_y))
         if maximum <= 1.0e-15:
             return
-        exaggeration = max(span_x, span_y) * 0.12 / maximum
+        exaggeration = max(span_x, span_y) * 0.12 / maximum * self._deformation_factor()
         pen = QPen(QColor("#0f766e"), 2.0, Qt.PenStyle.DashLine)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
-        for member in self._deformed_members:
+        for member in members:
             node = node_by_id.get(member["n1"])
             if node is None:
                 continue
@@ -1037,24 +1282,41 @@ class FrameCanvas(QWidget):
     def _draw_diagram_overlays(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, span_x: float, span_y: float) -> None:
         if not self._diagram_members or self._diagram_mode == "none":
             return
+        members = self._diagram_members
+        if self._detail_level() == "large":
+            members = [member for member in members if int(member.get("id", -1)) in self._selected_members]
+            if not members:
+                return
         for key in self._diagram_keys():
             amplitude = self._diagram_amplitude(key, span_x, span_y)
             if amplitude is None:
                 continue
             _, color = self._DIAGRAMS[key]
-            self._draw_member_diagram(painter, node_by_id, screen, key, amplitude, color, self._diagram_mode == "all")
+            self._draw_member_diagram(painter, node_by_id, screen, key, amplitude, color, self._diagram_mode == "all", members)
 
-    def _draw_member_diagram(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen, key: str, amplitude: float, color: QColor, compact: bool) -> None:
-        for member in self._diagram_members:
+    def _draw_member_diagram(
+        self,
+        painter: QPainter,
+        node_by_id: Mapping[int, Mapping[str, Any]],
+        screen,
+        key: str,
+        amplitude: float,
+        color: QColor,
+        compact: bool,
+        members: list[Mapping[str, Any]],
+    ) -> None:
+        for member in members:
             node = node_by_id.get(member.get("n1"))
-            points = member.get("points", [])
+            points = self._contour_points(member.get("points", []))
             if node is None or len(points) < 2:
                 continue
-            member_color = self._diagram_color(key, self._display_diagram_value(key, float(points[0].get(key, 0.0))), color)
+            member_amplitude = self._member_diagram_amplitude(key, member, amplitude, compact)
+            member_color = self._diagram_color(key, self._display_diagram_value(key, float(points[0].get(key, 0.0))), color, member)
             pen = QPen(member_color, 1.7 if compact else 2.2, Qt.PenStyle.DashLine if key == "v_mm" else Qt.PenStyle.SolidLine)
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             fill = QColor(member_color)
-            fill.setAlpha(38 if compact else 62)
+            # Regular diagrams need enough opacity to stay readable under the grid and deformed shape.
+            fill.setAlpha(110 if compact else 145)
             angle = float(member.get("angle_rad", 0.0))
             direction_x, direction_y = math.cos(angle), math.sin(angle)
             normal_x, normal_y = -direction_y, direction_x
@@ -1064,24 +1326,111 @@ class FrameCanvas(QWidget):
                 x = float(point.get("x_m", 0.0))
                 origin_x = float(node["x"]) + direction_x * x
                 origin_y = float(node["y"]) + direction_y * x
-                offset = self._diagram_offset(key, float(point.get(key, 0.0)), amplitude)
+                offset = self._diagram_offset(key, float(point.get(key, 0.0)), member_amplitude)
                 base.append(screen(origin_x, origin_y))
                 curve.append(screen(origin_x + normal_x * offset, origin_y + normal_y * offset))
             polygon = QPolygonF(base)
             for point in reversed(curve):
                 polygon.append(point)
-            if self._display.diagram_fill:
+            if self._display.contour_enabled and self._diagram_mode != "all":
+                self._draw_contour_bands(painter, base, curve, key, member)
+            elif self._display.diagram_fill:
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(fill)
                 painter.drawPolygon(polygon)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setPen(pen)
             painter.drawPolyline(curve)
-            if self._show_diagram_values:
+            if self._show_diagram_values and self._detail_level() == "full":
                 self._draw_diagram_value_labels(painter, curve, points, key, member_color)
 
+    def _member_diagram_amplitude(self, key: str, member: Mapping[str, Any], global_amplitude: float, compact: bool) -> float:
+        if not (self._display.contour_enabled and self._display.contour_scale == "member"):
+            return global_amplitude
+        maximum = max((abs(self._display_diagram_value(key, float(point.get(key, 0.0)))) for point in member.get("points", [])), default=0.0)
+        if maximum <= 1.0e-12:
+            return global_amplitude
+        min_x, min_y, max_x, max_y = self._spatial_index.bounds
+        span = max(max_x - min_x, max_y - min_y, 1.0)
+        base = span * (0.075 if compact else 0.14) / maximum
+        return base if self._display.diagram_scale_mode == "auto" else base * self._display.diagram_scale_multiplier
+
+    def _contour_points(self, points: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+        """Limit only draw samples, keeping calculation and hover data at full resolution."""
+
+        if len(points) <= 2:
+            return points
+        detail = self._display.contour_detail
+        if detail == "detail":
+            maximum = len(points)
+        elif detail == "fast":
+            maximum = 9
+        else:
+            member_count = len(self._model.get("elements", []))
+            maximum = 4 if member_count > 2000 else 9 if member_count > 300 else 25
+        if len(points) <= maximum:
+            return points
+        stride = math.ceil((len(points) - 1) / (maximum - 1))
+        selected = list(points[::stride])
+        if selected[-1] is not points[-1]:
+            selected.append(points[-1])
+        return selected
+
+    def _contour_range(self, key: str, member: Mapping[str, Any] | None = None) -> ContourRange:
+        target = [member] if self._display.contour_scale == "member" and member is not None else self._diagram_members
+        cache_key = (key, self._display.contour_scale if member is None else f"{self._display.contour_scale}:{member.get('id')}", self._display.contour_palette)
+        cached = self._contour_ranges.get(cache_key)
+        if cached is not None:
+            return cached
+        value_range = contour_range(
+            target,
+            key,
+            self._display_diagram_value,
+            signed=self._display.contour_palette != "spectrum",
+        )
+        self._contour_ranges[cache_key] = value_range
+        return value_range
+
+    def _contour_colour(self, key: str, point: Mapping[str, Any], member: Mapping[str, Any]) -> QColor:
+        raw = stress_value(point) if key == "stress_kg_cm2" else float(point.get(key, 0.0))
+        value = self._display_diagram_value(key, raw)
+        if (
+            self._display.contour_palette == "truss_axial"
+            and key == "n_kg"
+            and str(member.get("memberType", "Frame")) == "Truss"
+        ):
+            # A semantic Truss palette is opt-in; signed and spectrum palettes remain available.
+            return self._diagram_color(key, value, QColor("#475569"), member)
+        red, green, blue = colour_stops(value, self._contour_range(key, member), self._display.contour_palette)
+        return QColor(red, green, blue)
+
+    def _draw_contour_bands(self, painter: QPainter, base: QPolygonF, curve: QPolygonF, key: str, member: Mapping[str, Any]) -> None:
+        """Paint one small quadrilateral per sampled interval for a smooth member contour."""
+
+        points = self._contour_points(member.get("points", []))
+        painter.setPen(Qt.PenStyle.NoPen)
+        for index in range(len(points) - 1):
+            midpoint_value = (self._contour_value(key, points[index]) + self._contour_value(key, points[index + 1])) / 2.0
+            midpoint = {key: midpoint_value}
+            if key == "stress_kg_cm2":
+                midpoint = {"stress_top_kg_cm2": midpoint_value, "stress_bottom_kg_cm2": midpoint_value}
+            fill = self._contour_colour(key, midpoint, member)
+            fill.setAlpha(190)
+            painter.setBrush(fill)
+            painter.drawPolygon(QPolygonF([base[index], base[index + 1], curve[index + 1], curve[index]]))
+
     @staticmethod
-    def _diagram_color(_key: str, _value: float, default: QColor) -> QColor:
+    def _contour_value(key: str, point: Mapping[str, Any]) -> float:
+        return stress_value(point) if key == "stress_kg_cm2" else float(point.get(key, 0.0))
+
+    @staticmethod
+    def _diagram_color(key: str, value: float, default: QColor, member: Mapping[str, Any] | None = None) -> QColor:
+        if key == "n_kg" and member is not None and str(member.get("memberType", "Frame")) == "Truss":
+            if value > 1.0e-12:
+                return QColor("#15803d")
+            if value < -1.0e-12:
+                return QColor("#b91c1c")
+            return QColor("#475569")
         return default
 
     def _draw_diagram_value_labels(self, painter: QPainter, curve: QPolygonF, points: list[Mapping[str, Any]], key: str, color: QColor) -> None:
@@ -1106,7 +1455,11 @@ class FrameCanvas(QWidget):
 
     def _update_hover_points(self, node_by_id: Mapping[int, Mapping[str, Any]], screen, span_x: float, span_y: float) -> None:
         self._hover_points = []
-        for member in self._diagram_members:
+        self._hover_cells = {}
+        members = self._diagram_members
+        if len(self._model.get("elements", [])) > 300:
+            members = [member for member in members if int(member.get("id", -1)) in self._selected_members]
+        for member in members:
             node = node_by_id.get(member.get("n1"))
             if node is None:
                 continue
@@ -1114,24 +1467,41 @@ class FrameCanvas(QWidget):
             for point in member.get("points", []):
                 x = float(point.get("x_m", 0.0))
                 location = screen(float(node["x"]) + math.cos(angle) * x, float(node["y"]) + math.sin(angle) * x)
-                self._hover_points.append((location, member, point))
+                self._cache_hover_point(location, member, point)
                 for key in self._diagram_keys():
                     amplitude = self._diagram_amplitude(key, span_x, span_y)
                     if amplitude is None:
                         continue
+                    amplitude = self._member_diagram_amplitude(key, member, amplitude, self._diagram_mode == "all")
                     offset = self._diagram_offset(key, float(point.get(key, 0.0)), amplitude)
                     normal_x, normal_y = -math.sin(angle), math.cos(angle)
                     diagram_location = screen(
                         float(node["x"]) + math.cos(angle) * x + normal_x * offset,
                         float(node["y"]) + math.sin(angle) * x + normal_y * offset,
                     )
-                    self._hover_points.append((diagram_location, member, point))
+                    self._cache_hover_point(diagram_location, member, point)
+
+    def _cache_hover_point(self, location: QPointF, member: Mapping[str, Any], point: Mapping[str, Any]) -> None:
+        sample = (location, member, point)
+        self._hover_points.append(sample)
+        cell = (math.floor(location.x() / self._hover_cell_size), math.floor(location.y() / self._hover_cell_size))
+        self._hover_cells.setdefault(cell, []).append(sample)
 
     def _show_hover_value(self, position: QPointF, global_position: QPoint) -> None:
         if not self._hover_points:
             self._clear_hover()
             return
-        sample = min(self._hover_points, key=lambda item: (item[0] - position).manhattanLength())
+        cell = (math.floor(position.x() / self._hover_cell_size), math.floor(position.y() / self._hover_cell_size))
+        candidates = [
+            sample
+            for x in range(cell[0] - 1, cell[0] + 2)
+            for y in range(cell[1] - 1, cell[1] + 2)
+            for sample in self._hover_cells.get((x, y), [])
+        ]
+        if not candidates:
+            self._clear_hover()
+            return
+        sample = min(candidates, key=lambda item: (item[0] - position).manhattanLength())
         location, member, point = sample
         if (location - position).manhattanLength() > 16.0:
             self._clear_hover()
@@ -1141,9 +1511,9 @@ class FrameCanvas(QWidget):
             self.update()
         lines = [
             f"E{member['id']} | N{member['n1']} - N{member['n2']} | x = {self._units.length(float(point['x_m'])):.3f} {self._units.length_unit}",
-            f"N = {self._units.force(self._display_diagram_value('n_kg', float(point.get('n_kg', 0.0)))):,.3f} {self._units.force_unit} ({self._display.axial_positive} +)",
-            f"V = {self._units.force(self._display_diagram_value('v_kg', float(point.get('v_kg', 0.0)))):,.3f} {self._units.force_unit} ({self._display.shear_positive} +)",
-            f"M = {self._units.moment(self._display_diagram_value('m_kg_m', float(point.get('m_kg_m', 0.0)))):,.3f} {self._units.moment_label()} ({self._display.moment_positive})",
+            f"N = {self._units.force(self._display_diagram_value('n_kg', float(point.get('n_kg', 0.0)))):,.3f} {self._units.force_unit} (Tension +)",
+            f"V = {self._units.force(self._display_diagram_value('v_kg', float(point.get('v_kg', 0.0)))):,.3f} {self._units.force_unit} (Clockwise +)",
+            f"M = {self._units.moment(self._display_diagram_value('m_kg_m', float(point.get('m_kg_m', 0.0)))):,.3f} {self._units.moment_label()} (Bottom fibre tension)",
             f"FE deflection = {self._units.format_displacement(float(point.get('v_mm', 0.0)) / 1000.0)} {self._units.length_unit}",
         ]
         QToolTip.showText(global_position, "\n".join(lines), self)
@@ -1178,13 +1548,14 @@ class FrameCanvas(QWidget):
             amplitude = self._diagram_amplitude(key, span_x, span_y)
             if amplitude is None:
                 continue
+            amplitude = self._member_diagram_amplitude(key, member, amplitude, self._diagram_mode == "all")
             offset = self._diagram_offset(key, float(point.get(key, 0.0)), amplitude)
             location = screen(
                 float(node_i["x"]) + math.cos(angle) * x - math.sin(angle) * offset,
                 float(node_i["y"]) + math.sin(angle) * x + math.cos(angle) * offset,
             )
             _, default_color = self._DIAGRAMS[key]
-            color = self._diagram_color(key, self._display_diagram_value(key, float(point.get(key, 0.0))), default_color)
+            color = self._diagram_color(key, self._display_diagram_value(key, float(point.get(key, 0.0))), default_color, member)
             painter.setPen(QPen(color, 1.8))
             painter.setBrush(QColor("#ffffff"))
             painter.drawEllipse(location, 4.2, 4.2)
@@ -1195,10 +1566,7 @@ class FrameCanvas(QWidget):
         return [self._diagram_mode] if self._diagram_mode in self._DIAGRAMS else []
 
     def _diagram_amplitude(self, key: str, span_x: float, span_y: float) -> float | None:
-        maximum = max(
-            (abs(float(point.get(key, 0.0))) for member in self._diagram_members for point in member.get("points", [])),
-            default=0.0,
-        )
+        maximum = self._diagram_maxima.get(key, 0.0)
         if maximum <= 1.0e-12:
             return None
         # A common scale per result selection preserves visual comparisons between members.
@@ -1206,20 +1574,23 @@ class FrameCanvas(QWidget):
         return base if self._display.diagram_scale_mode == "auto" else base * self._display.diagram_scale_multiplier
 
     def _display_diagram_value(self, key: str, value: float) -> float:
-        if key == "n_kg" and self._display.axial_positive == "compression":
-            return -value
-        if key == "v_kg" and self._display.shear_positive == "counter_clockwise":
-            return -value
-        if key == "m_kg_m" and self._display.moment_positive == "top_tension":
-            return -value
+        """Return the native solver value; graph orientation is intentionally separate."""
         return value
 
     def _diagram_offset(self, key: str, value: float, amplitude: float) -> float:
         placement = 1.0 if self._display.diagram_placement == "local_positive" else -1.0
-        return self._display_diagram_value(key, value) * amplitude * placement
+        orientation = {
+            "n_kg": self._display.axial_graph_orientation,
+            "v_kg": self._display.shear_graph_orientation,
+            "m_kg_m": self._display.moment_graph_orientation,
+        }.get(key, "native")
+        if orientation == "flipped":
+            placement *= -1.0
+        return value * amplitude * placement
 
     def _clear_hover(self) -> None:
         self._hover_sample = None
+        self._queued_hover = None
         QToolTip.hideText()
 
     def _format_diagram_value(self, key: str, value: float) -> str:
@@ -1230,7 +1601,20 @@ class FrameCanvas(QWidget):
             return f"{label} {self._units.moment(value):,.2f} {self._units.moment_label()}"
         return f"{label} {self._units.force(value):,.2f} {self._units.force_unit}"
 
-    def _draw_nodes_and_supports(self, painter: QPainter, nodes: list[Mapping[str, Any]], screen) -> None:
+    def _draw_lightweight_nodes(self, painter: QPainter, nodes: list[Mapping[str, Any]], screen) -> None:
+        """Draw nodes without labels or support glyphs while the pointer is actively moving."""
+
+        if not self._display.show_nodes:
+            return
+        painter.setPen(QPen(QColor("#0f172a"), 3.0))
+        painter.drawPoints(QPolygonF([screen(float(node["x"]), float(node["y"])) for node in nodes]))
+        if self._selected_nodes:
+            painter.setPen(QPen(QColor("#0f766e"), 6.0))
+            painter.drawPoints(
+                QPolygonF([screen(float(node["x"]), float(node["y"])) for node in nodes if int(node["id"]) in self._selected_nodes])
+            )
+
+    def _draw_nodes_and_supports(self, painter: QPainter, nodes: list[Mapping[str, Any]], screen, *, show_labels: bool = True) -> None:
         font = QFont(painter.font())
         font.setPointSize(9)
         painter.setFont(font)
@@ -1241,18 +1625,64 @@ class FrameCanvas(QWidget):
                 support_pen = QPen(QColor("#334155"), 1.5)
                 painter.setPen(support_pen)
                 painter.setBrush(QColor("#cbd5e1"))
-                triangle = QPolygonF([point + QPointF(-10, 18), point + QPointF(10, 18), point + QPointF(0, 3)])
-                painter.drawPolygon(triangle)
                 if support == "Fixed":
-                    painter.drawLine(point + QPointF(-15, 21), point + QPointF(15, 21))
+                    # A hatched wall deliberately differs from the pinned triangular glyph.
+                    painter.setBrush(QColor("#64748b"))
+                    painter.drawRect(QRectF(point.x() - 14.0, point.y() + 14.0, 28.0, 5.0))
+                    painter.setPen(QPen(QColor("#334155"), 2.2))
+                    painter.drawLine(point + QPointF(0.0, 2.0), point + QPointF(0.0, 14.0))
+                    painter.setPen(QPen(QColor("#64748b"), 1.1))
+                    for offset in range(-16, 17, 5):
+                        painter.drawLine(point + QPointF(offset, 24.0), point + QPointF(offset + 8.0, 19.0))
+                else:
+                    triangle = QPolygonF([point + QPointF(-10, 18), point + QPointF(10, 18), point + QPointF(0, 3)])
+                    painter.drawPolygon(triangle)
+                    if support == "Spring":
+                        painter.setBrush(Qt.BrushStyle.NoBrush)
+                        spring = QPolygonF([point + QPointF(-9, 18), point + QPointF(-4, 13), point + QPointF(1, 23), point + QPointF(6, 13), point + QPointF(11, 18)])
+                        painter.drawPolyline(spring)
             if self._display.show_nodes:
                 selected = int(node["id"]) in self._selected_nodes
                 painter.setPen(QPen(QColor("#0f766e") if selected else QColor("#0f172a"), 2.2 if selected else 1.2))
                 painter.setBrush(QColor("#ccfbf1") if selected else QColor("#ffffff"))
                 painter.drawEllipse(point, 6.0 if selected else 4.2, 6.0 if selected else 4.2)
-            if self._display.show_node_ids:
+            if show_labels and self._display.show_node_ids:
                 painter.setPen(QColor("#334155"))
                 painter.drawText(point + QPointF(7, -8), f"N{node['id']}")
+
+    def _draw_truss_axial_extrema(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen) -> None:
+        """Mark governing tension and compression members without changing solver signs."""
+
+        candidates = [
+            member
+            for member in self._diagram_members
+            if str(member.get("memberType", "Truss" if str(self._model.get("projectInfo", {}).get("analysisType", "")).lower() in {"truss", "2d truss"} else "Frame")) == "Truss"
+            and member.get("points")
+        ]
+        if not candidates:
+            return
+        values = [(float(member["points"][0].get("n_kg", 0.0)), member) for member in candidates]
+        extrema = (("Max T", max((item for item in values if item[0] > 1.0e-12), default=None, key=lambda item: item[0]), QColor("#15803d")), ("Max C", min((item for item in values if item[0] < -1.0e-12), default=None, key=lambda item: item[0]), QColor("#b91c1c")))
+        for label, item, color in extrema:
+            if item is None:
+                continue
+            value, member = item
+            first = node_by_id.get(member.get("n1"))
+            second = node_by_id.get(member.get("n2"))
+            if first is None or second is None:
+                continue
+            start = screen(float(first["x"]), float(first["y"]))
+            end = screen(float(second["x"]), float(second["y"]))
+            midpoint = (start + end) / 2.0
+            halo = QPen(QColor(color.red(), color.green(), color.blue(), 75), 8.0)
+            halo.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(halo)
+            painter.drawLine(start, end)
+            painter.setPen(QPen(color, 3.0))
+            painter.setBrush(QColor("#ffffff"))
+            painter.drawEllipse(midpoint, 5.0, 5.0)
+            painter.setPen(color)
+            painter.drawText(midpoint + QPointF(8.0, -10.0), f"{label} E{member['id']} {self._units.force(value):,.2f} {self._units.force_unit}")
 
     def _draw_member_annotations(self, painter: QPainter, node_by_id: Mapping[int, Mapping[str, Any]], screen) -> None:
         if not self._display.show_member_ids and not self._display.show_local_axes:
@@ -1350,27 +1780,10 @@ class FrameCanvas(QWidget):
         return round(x / self._grid_spacing) * self._grid_spacing, round(y / self._grid_spacing) * self._grid_spacing
 
     def _special_snap_position(self, position: QPointF) -> tuple[float, float] | None:
-        nodes = {int(node["id"]): node for node in self._model.get("nodes", [])}
-        candidates: list[tuple[float, tuple[float, float]]] = []
-        segments: list[tuple[tuple[float, float], tuple[float, float]]] = []
-        for member in self._model.get("elements", []):
-            first, second = nodes.get(int(member["n1"])), nodes.get(int(member["n2"]))
-            if first is None or second is None:
-                continue
-            start = (float(first["x"]), float(first["y"]))
-            end = (float(second["x"]), float(second["y"]))
-            segments.append((start, end))
-            midpoint = ((start[0] + end[0]) / 2.0, (start[1] + end[1]) / 2.0)
-            candidates.append(((self._model_to_screen(*midpoint) - position).manhattanLength(), midpoint))
-        for index, first_segment in enumerate(segments):
-            for second_segment in segments[index + 1 :]:
-                intersection = self._line_intersection(*first_segment, *second_segment)
-                if intersection is not None:
-                    candidates.append(((self._model_to_screen(*intersection) - position).manhattanLength(), intersection))
-        if not candidates:
-            return None
-        distance, candidate = min(candidates, key=lambda item: item[0])
-        return candidate if distance <= 10.0 else None
+        point = self._screen_to_model(position)
+        radius = 10.0 / max(self._view_scale, 1.0e-12)
+        nearest = nearest_point(point, self._spatial_index.snap_points_near(point, radius))
+        return nearest[1] if nearest is not None and nearest[0] <= radius else None
 
     @staticmethod
     def _line_intersection(
@@ -1390,17 +1803,24 @@ class FrameCanvas(QWidget):
         return x1 + first_ratio * (x2 - x1), y1 + first_ratio * (y2 - y1)
 
     def _node_at(self, position: QPointF, threshold: float = 10.0) -> Mapping[str, Any] | None:
-        candidates = self._model.get("nodes", [])
+        point = self._screen_to_model(position)
+        candidates = self._spatial_index.nodes_near(point, threshold / max(self._view_scale, 1.0e-12))
         if not candidates:
             return None
         node = min(candidates, key=lambda item: (self._model_to_screen(float(item["x"]), float(item["y"])) - position).manhattanLength())
         return node if (self._model_to_screen(float(node["x"]), float(node["y"])) - position).manhattanLength() <= threshold else None
 
     def _load_at(self, position: QPointF) -> tuple[str, dict[str, Any]] | None:
-        nodes = {int(node["id"]): node for node in self._model.get("nodes", [])}
+        nodes = self._spatial_index.nodes
         elements = {int(member["id"]): member for member in self._model.get("elements", [])}
         candidates: list[tuple[float, str, dict[str, Any]]] = []
+        point = self._screen_to_model(position)
+        anchors = self._spatial_index.loads_near(point, 64.0 / max(self._view_scale, 1.0e-12))
+        nodal_indices = {index for kind, index, _ in anchors if kind == "nodal"}
+        member_indices = {index for kind, index, _ in anchors if kind == "member"}
         for index, load in enumerate(self._model.get("nloads", [])):
+            if index not in nodal_indices:
+                continue
             node = nodes.get(int(load.get("node", -1)))
             if node is not None:
                 anchor = self._model_to_screen(float(node["x"]), float(node["y"]))
@@ -1412,6 +1832,8 @@ class FrameCanvas(QWidget):
                 if abs(mz) > 1.0e-12:
                     candidates.append(((anchor + QPointF(14.0, -14.0) - position).manhattanLength(), "nodal", {"index": index, "load": dict(load)}))
         for index, load in enumerate(self._model.get("eloads", [])):
+            if index not in member_indices:
+                continue
             member = elements.get(int(load.get("elem", -1)))
             if member is None:
                 continue
@@ -1432,21 +1854,19 @@ class FrameCanvas(QWidget):
         return (kind, context) if distance <= 12.0 else None
 
     def _member_at(self, position: QPointF, threshold: float = 8.0) -> Mapping[str, Any] | None:
-        nodes = {int(node["id"]): node for node in self._model.get("nodes", [])}
         candidates: list[tuple[float, Mapping[str, Any]]] = []
-        for member in self._model.get("elements", []):
-            first, second = nodes.get(int(member["n1"])), nodes.get(int(member["n2"]))
-            if first is None or second is None:
-                continue
-            start = self._model_to_screen(float(first["x"]), float(first["y"]))
-            end = self._model_to_screen(float(second["x"]), float(second["y"]))
+        point = self._screen_to_model(position)
+        radius = threshold * 1.5 / max(self._view_scale, 1.0e-12)
+        for segment in self._spatial_index.members_near(point, radius):
+            start = self._model_to_screen(*segment.start)
+            end = self._model_to_screen(*segment.end)
             direction = end - start
             length_sq = direction.x() ** 2 + direction.y() ** 2
             if length_sq <= 1.0e-12:
                 continue
             ratio = max(0.0, min(1.0, ((position - start).x() * direction.x() + (position - start).y() * direction.y()) / length_sq))
             closest = start + direction * ratio
-            candidates.append(((closest - position).manhattanLength(), member))
+            candidates.append(((closest - position).manhattanLength(), segment.member))
         if not candidates:
             return None
         distance, member = min(candidates, key=lambda item: item[0])
@@ -1476,9 +1896,19 @@ class FrameCanvas(QWidget):
             self.authoring_message.emit("A member already connects these nodes.")
             return
         member_id = self._next_id(model["elements"])
-        model["elements"].append({"id": member_id, "n1": n1, "n2": n2, "sec": self._active_section, "release": "Rigid-Rigid"})
+        model["elements"].append({"id": member_id, "n1": n1, "n2": n2, "sec": self._active_section, "release": "Rigid-Rigid", **({"memberType": "Truss"} if self._active_member_type == "Truss" else {})})
         self._set_selection(set(), {member_id})
         self._emit_model(model)
+
+    def create_member_by_geometry(self, start_node_id: int, length_m: float, angle_degrees: float) -> None:
+        """Create a member from a selected node using explicit engineering dimensions."""
+        start = next((node for node in self._model.get("nodes", []) if int(node["id"]) == start_node_id), None)
+        if start is None or length_m <= 0.0:
+            self.authoring_message.emit("Select a valid start node and enter a positive member length.")
+            return
+        angle = math.radians(angle_degrees)
+        end = (float(start["x"]) + length_m * math.cos(angle), float(start["y"]) + length_m * math.sin(angle))
+        self._create_member((float(start["x"]), float(start["y"])), end)
 
     def _apply_support(self, node_id: int, support: str) -> None:
         model = self._mutable_model()
@@ -1543,12 +1973,15 @@ class FrameCanvas(QWidget):
         new_member_id = self._next_id(model["elements"])
         original_length = math.sqrt(length_sq)
         split_length = original_length * ratio
-        original_release = str(member.get("release", "Rigid-Rigid"))
+        left_member_length = math.hypot(split_position[0] - float(first["x"]), split_position[1] - float(first["y"]))
+        right_member_length = math.hypot(float(second["x"]) - split_position[0], float(second["y"]) - split_position[1])
+        member_type = str(member.get("memberType", "Frame"))
+        original_release = str(member.get("release", "Rigid-Rigid")) if member_type == "Frame" else "Rigid-Rigid"
         first_release = "Pin-Rigid" if original_release in {"Pin-Rigid", "Pin-Pin"} else "Rigid-Rigid"
         second_release = "Rigid-Pin" if original_release in {"Rigid-Pin", "Pin-Pin"} else "Rigid-Rigid"
         model["nodes"].append({"id": new_node_id, "x": split_position[0], "y": split_position[1], "support": "Free"})
         member.update({"n2": new_node_id, "release": first_release})
-        model["elements"].append({"id": new_member_id, "n1": new_node_id, "n2": int(second["id"]), "sec": int(member["sec"]), "release": second_release})
+        model["elements"].append({"id": new_member_id, "n1": new_node_id, "n2": int(second["id"]), "sec": int(member["sec"]), "release": second_release, **({"memberType": "Truss"} if member_type == "Truss" else {})})
         replacement_loads: list[dict[str, Any]] = []
         retained_loads: list[dict[str, Any]] = []
         for load in model["eloads"]:
@@ -1557,9 +1990,18 @@ class FrameCanvas(QWidget):
                 continue
             if load.get("type", "Distributed") == "Distributed":
                 w1, w2 = float(load.get("w1", 0.0)), float(load.get("w2", load.get("w1", 0.0)))
-                middle = w1 + (w2 - w1) * ratio
-                retained_loads.append({**load, "elem": member_id, "w1": w1, "w2": middle})
-                replacement_loads.append({**load, "elem": new_member_id, "w1": middle, "w2": w2})
+                load_start = float(load.get("x1_m", 0.0))
+                load_end = float(load.get("x2_m", original_length))
+                if load_end <= load_start:
+                    continue
+                def value_at(station: float) -> float:
+                    return w1 + (w2 - w1) * (station - load_start) / (load_end - load_start)
+                left_start, left_end = max(0.0, load_start), min(split_length, load_end, left_member_length)
+                if left_end - left_start > 1.0e-9:
+                    retained_loads.append({**load, "elem": member_id, "w1": value_at(left_start), "w2": value_at(left_end), "x1_m": left_start, "x2_m": left_end})
+                right_start, right_end = max(split_length, load_start), min(original_length, load_end, split_length + right_member_length)
+                if right_end - right_start > 1.0e-9:
+                    replacement_loads.append({**load, "elem": new_member_id, "w1": value_at(right_start), "w2": value_at(right_end), "x1_m": right_start - split_length, "x2_m": right_end - split_length})
             else:
                 at_x = float(load.get("x_m", 0.0))
                 if at_x <= split_length:
@@ -1814,24 +2256,68 @@ class FrameCanvas(QWidget):
             painter.drawLine(110, 24, 136, 24)
             painter.setPen(QColor("#334155"))
             painter.drawText(144, 29, "Deformed")
+        x = 238
         if self._view_mode == "results" and self._diagram_mode != "none":
             keys = list(self._DIAGRAMS) if self._diagram_mode == "all" else [self._diagram_mode]
-            x = 238
             for key in keys:
                 label, color = self._DIAGRAMS[key]
-                suffix = ""
-                if key == "n_kg":
-                    suffix = " (C+)" if self._display.axial_positive == "compression" else " (T+)"
-                elif key == "v_kg":
-                    suffix = " (CCW+)" if self._display.shear_positive == "counter_clockwise" else " (CW+)"
-                elif key == "m_kg_m":
-                    suffix = " (top tension)" if self._display.moment_positive == "top_tension" else " (bottom tension)"
+                suffix = {"n_kg": " (T+)", "v_kg": " (CW+)", "m_kg_m": " (bottom tension)"}.get(key, "")
                 label += suffix
                 painter.setPen(QPen(color, 2.0, Qt.PenStyle.DashLine if key == "v_mm" else Qt.PenStyle.SolidLine))
                 painter.drawLine(x, 24, x + 20, 24)
                 painter.setPen(QColor("#334155"))
                 painter.drawText(x + 26, 29, label)
                 x += 26 + painter.fontMetrics().horizontalAdvance(label) + 18
+        has_hybrid_truss = (
+            model_kind != "Truss"
+            and any(str(member.get("memberType", "Frame")) == "Truss" for member in self._model.get("elements", []))
+        )
+        if self._view_mode == "results" and has_hybrid_truss and self._diagram_mode in {"n_kg", "all"}:
+            painter.setPen(QPen(QColor("#15803d"), 3.4))
+            painter.drawLine(18, 48, 42, 48)
+            painter.setPen(QColor("#334155"))
+            painter.drawText(50, 53, "Hybrid truss tension (+N)")
+            painter.setPen(QPen(QColor("#b91c1c"), 3.4))
+            painter.drawLine(224, 48, 248, 48)
+            painter.setPen(QColor("#334155"))
+            painter.drawText(256, 53, "compression (-N)")
+        if self._view_mode == "results" and self._display.contour_enabled and self._diagram_mode in self._DIAGRAMS:
+            self._draw_contour_legend(painter, self._diagram_mode)
+        if self._show_stress and self._view_mode == "results":
+            painter.setPen(QPen(QColor("#dc2626"), 4.0))
+            painter.drawLine(x, 24, x + 18, 24)
+            painter.setPen(QColor("#334155"))
+            painter.drawText(x + 24, 29, "Stress contour (+ red / - blue)")
+
+    def _draw_contour_legend(self, painter: QPainter, key: str) -> None:
+        selected = next((member for member in self._diagram_members if int(member.get("id", -1)) in self._selected_members), None)
+        range_member = selected if self._display.contour_scale == "member" else None
+        value_range = self._contour_range(key, range_member)
+        width, height = 148.0, 126.0
+        left = max(float(self.width()) - width - 18.0, 12.0)
+        top = 46.0
+        painter.setPen(QPen(QColor("#cbd5e1"), 1.0))
+        painter.setBrush(QColor(255, 255, 255, 238))
+        painter.drawRoundedRect(QRectF(left, top, width, height), 4.0, 4.0)
+        label = self._DIAGRAMS[key][0]
+        painter.setPen(QColor("#0f172a"))
+        painter.drawText(QRectF(left + 9.0, top + 7.0, width - 18.0, 18.0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, f"{label} contour")
+        bar_left, bar_top, bar_width, bar_height = left + 12.0, top + 33.0, 16.0, 64.0
+        steps = 28
+        painter.setPen(Qt.PenStyle.NoPen)
+        for index in range(steps):
+            value = value_range.maximum - value_range.span * index / max(steps - 1, 1)
+            red, green, blue = colour_stops(value, value_range, self._display.contour_palette)
+            painter.setBrush(QColor(red, green, blue))
+            painter.drawRect(QRectF(bar_left, bar_top + bar_height * index / steps, bar_width, bar_height / steps + 1.0))
+        painter.setPen(QColor("#334155"))
+        painter.drawText(QPointF(bar_left + 25.0, bar_top + 8.0), self._format_diagram_value(key, value_range.maximum))
+        if value_range.minimum < 0.0 < value_range.maximum:
+            painter.drawText(QPointF(bar_left + 25.0, bar_top + bar_height / 2.0 + 4.0), self._format_diagram_value(key, 0.0))
+        painter.drawText(QPointF(bar_left + 25.0, bar_top + bar_height), self._format_diagram_value(key, value_range.minimum))
+        scale_label = "Global scale" if self._display.contour_scale == "global" else (f"Member E{selected['id']} scale" if selected else "Member scale")
+        painter.setPen(QColor("#64748b"))
+        painter.drawText(QRectF(left + 9.0, top + 103.0, width - 18.0, 15.0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, scale_label)
 
     @staticmethod
     def _nice_step(value: float) -> float:
